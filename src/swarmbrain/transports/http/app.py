@@ -30,6 +30,12 @@ from swarmbrain.domain.conflicts import (
     ResolveConflictResult,
 )
 from swarmbrain.domain.events import EventPage, RunMetrics
+from swarmbrain.domain.evidence import (
+    AddEvidenceCommand,
+    Evidence,
+    EvidenceSource,
+    RegisterEvidenceSourceCommand,
+)
 from swarmbrain.domain.leases import RenewLeaseCommand, RenewLeaseResult
 from swarmbrain.domain.memory import (
     MemoryLineage,
@@ -50,9 +56,11 @@ from swarmbrain.domain.tasks import (
 )
 
 from .contracts import (
+    AddEvidenceBody,
     CheckpointBody,
     ClaimTaskBody,
     CompleteTaskBody,
+    RegisterEvidenceSourceBody,
     ReleaseTaskBody,
     RememberBody,
     RenewLeaseBody,
@@ -194,6 +202,26 @@ def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
     @app.get("/v1/memories/{memory_id}/lineage", response_model=MemoryLineage)
     async def memory_lineage(memory_id: str, actor: ActorDependency) -> MemoryLineage:
         return await runtime.memory.lineage(actor, memory_id)
+
+    @app.post("/v1/evidence/sources", response_model=EvidenceSource)
+    async def register_evidence_source(
+        body: RegisterEvidenceSourceBody,
+        actor: ActorDependency,
+        idempotency_key: IdempotencyHeader,
+        response: Response,
+    ) -> EvidenceSource:
+        command = _command(RegisterEvidenceSourceCommand, body, idempotency_key=idempotency_key)
+        return _mark_replay(response, await runtime.evidence.register_source(actor, command))
+
+    @app.post("/v1/evidence", response_model=Evidence)
+    async def add_evidence(
+        body: AddEvidenceBody,
+        actor: ActorDependency,
+        idempotency_key: IdempotencyHeader,
+        response: Response,
+    ) -> Evidence:
+        command = _command(AddEvidenceCommand, body, idempotency_key=idempotency_key)
+        return _mark_replay(response, await runtime.evidence.add_evidence(actor, command))
 
     @app.post("/v1/tasks/{task_id}/checkpoints", response_model=CheckpointResult)
     async def checkpoint_task(

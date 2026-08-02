@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -64,6 +66,7 @@ class SwarmBrainHttpClient:
         )
         self._leases: dict[str, LeaseBinding] = {}
         self._renewals: dict[str, asyncio.Task[None]] = {}
+        self._inline_evidence: dict[str, list[dict[str, Any]]] = {}
 
     async def close(self) -> None:
         renewals = list(self._renewals.values())
@@ -207,7 +210,7 @@ class SwarmBrainHttpClient:
                 "task_id": task_id,
                 "title": title,
                 "tags": tags or [],
-                "evidence": evidence or [],
+                "evidence": await self._resolve_evidence(evidence, parent_key=key),
                 "supersedes_memory_id": supersedes_memory_id,
                 "related_memory_ids": related_memory_ids or [],
                 "valid_from": valid_from,
@@ -293,19 +296,114 @@ class SwarmBrainHttpClient:
         metadata: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        key = idempotency_key or str(uuid4())
         return await self._request(
             "POST",
             "/v1/conflicts",
             json={
                 "memory_ids": memory_ids,
                 "description": description,
-                "evidence": evidence or [],
+                "evidence": await self._resolve_evidence(evidence, parent_key=key),
                 "task_id": task_id,
                 "severity": severity,
                 "metadata": metadata or {},
             },
-            headers={"Idempotency-Key": idempotency_key or str(uuid4())},
+            headers={"Idempotency-Key": key},
         )
+
+    async def _resolve_evidence(
+        self,
+        evidence: list[dict[str, Any]] | None,
+        *,
+        parent_key: str,
+    ) -> list[dict[str, Any]]:
+        """Register inline evidence material so refs always cite preserved rows.
+
+        Items already carrying ``evidence_id`` and ``source_id`` pass through
+        untouched. Anything else is treated as new material. Retried tool
+        calls converge on the same rows twice over: this process caches the
+        resolution per parent mutation key, and the server deduplicates
+        sources on a deterministic occurrence key, so a bridge restart between
+        registration and publish cannot mint a second source.
+        """
+
+        if not evidence:
+            return []
+        cached = self._inline_evidence.get(parent_key)
+        if cached is not None:
+            return cached
+        resolved: list[dict[str, Any]] = []
+        for index, item in enumerate(evidence):
+            if "evidence_id" in item and "source_id" in item:
+                resolved.append(item)
+                continue
+            resolved.append(
+                await self._register_inline_evidence(dict(item), key=f"{parent_key}:ev{index}")
+            )
+        self._inline_evidence[parent_key] = resolved
+        return resolved
+
+    async def _register_inline_evidence(
+        self,
+        material: dict[str, Any],
+        *,
+        key: str,
+    ) -> dict[str, Any]:
+        kind = material.pop("kind", None)
+        if not kind:
+            raise ValueError(
+                "inline evidence requires 'kind'; cite existing rows with "
+                "evidence_id and source_id instead"
+            )
+        excerpt = material.pop("excerpt", None)
+        content_sha256 = material.pop("content_sha256", None)
+        if content_sha256 is None:
+            if not excerpt:
+                raise ValueError("inline evidence requires content_sha256 or a non-empty excerpt")
+            content_sha256 = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+        source_payload = {
+            "kind": kind,
+            "content_sha256": content_sha256,
+            "observed_at": material.pop("observed_at", None) or datetime.now(UTC).isoformat(),
+            "uri": material.pop("uri", None),
+            # Deterministic across retries: the server returns the existing
+            # source for a repeated occurrence instead of minting another.
+            "occurrence_key": material.pop("occurrence_key", None) or f"swarmbrain-mcp:{key}",
+            "task_id": material.pop("task_id", None),
+            "metadata": material.pop("metadata", None) or {},
+        }
+        locator = material.pop("locator", None)
+        if material:
+            raise ValueError(f"unsupported inline evidence fields: {sorted(material)}")
+        # Fresh idempotency keys: observed_at makes the payload time-varying,
+        # so replay identity comes from the occurrence key above instead.
+        source = await self._request(
+            "POST",
+            "/v1/evidence/sources",
+            json=source_payload,
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        row = await self._request(
+            "POST",
+            "/v1/evidence",
+            json={
+                "source_id": source["source_id"],
+                "kind": kind,
+                "locator": locator,
+                "excerpt": excerpt,
+                "content_sha256": content_sha256,
+                "metadata": source_payload["metadata"],
+            },
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        return {
+            "evidence_id": row["evidence_id"],
+            "source_id": row["source_id"],
+            "locator": row.get("locator"),
+            "excerpt": row.get("excerpt"),
+            "content_sha256": row.get("content_sha256"),
+            "metadata": row.get("metadata") or {},
+        }
 
     async def _renew(self, binding: LeaseBinding) -> None:
         interval = max(0.001, binding.extension_seconds * self._renewal_interval_fraction)

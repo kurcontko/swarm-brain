@@ -119,7 +119,12 @@ def create_server(
         confidence: float = 0.5,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Publish a conservative, source-preserving temporal memory proposal."""
+        """Publish a conservative, source-preserving temporal memory proposal.
+
+        Evidence items may cite preserved rows (evidence_id + source_id) or be
+        inline material (kind plus excerpt/content_sha256, optional uri and
+        locator); the bridge registers inline material before publishing.
+        """
 
         return await client().publish_memory(
             content=content,
@@ -195,7 +200,10 @@ def create_server(
         severity: str = "medium",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Report contradictory memories for later evidence-backed resolution."""
+        """Report contradictory memories for later evidence-backed resolution.
+
+        Evidence accepts the same cited or inline items as publish_memory.
+        """
 
         return await client().report_conflict(
             memory_ids=memory_ids,

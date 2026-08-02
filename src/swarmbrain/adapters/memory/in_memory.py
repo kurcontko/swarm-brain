@@ -66,6 +66,8 @@ from swarmbrain.domain.leases import (
     TaskLease,
 )
 from swarmbrain.domain.memory import (
+    EmbeddingMatch,
+    EmbeddingVector,
     Memory,
     MemoryLineage,
     MemoryLink,
@@ -118,6 +120,15 @@ def _tokens(value: str) -> set[str]:
     return set(re.findall(r"[\w-]+", value.casefold()))
 
 
+def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = sum(a * a for a in left) ** 0.5
+    right_norm = sum(b * b for b in right) ** 0.5
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return dot / (left_norm * right_norm)
+
+
 class InMemoryKernel:
     """One adapter implementing coordination, memory, evidence, and conflicts.
 
@@ -138,6 +149,7 @@ class InMemoryKernel:
         self.completions: dict[str, TaskCompletion] = {}
 
         self.memories: dict[str, Memory] = {}
+        self.memory_embeddings: dict[tuple[str, str], EmbeddingVector] = {}
         self.memory_links: dict[str, MemoryLink] = {}
         self.sources: dict[str, EvidenceSource] = {}
         self.evidence: dict[str, Evidence] = {}
@@ -740,6 +752,8 @@ class InMemoryKernel:
             world_at = query.world_at or now
             candidates: list[Memory] = []
             for memory in self.memories.values():
+                if query.memory_ids and memory.memory_id not in query.memory_ids:
+                    continue
                 if not self._memory_accessible(actor, memory, query.task_id):
                     continue
                 if memory.visibility not in query.visibilities:
@@ -898,6 +912,56 @@ class InMemoryKernel:
                 idempotency_key=command.idempotency_key,
             )
             return self._remember_result(actor, "memory.review", command, result)
+
+    # ------------------------------------------------------------------
+    # Embedding index
+
+    async def upsert_embeddings(
+        self,
+        actor: ActorContext,
+        vectors: Sequence[EmbeddingVector],
+        *,
+        idempotency_key: str,
+    ) -> None:
+        del idempotency_key  # keyed upsert is naturally idempotent here
+        async with self._lock:
+            for vector in vectors:
+                memory = self.memories.get(vector.memory_id)
+                if memory is None or (memory.tenant_id, memory.repository_id) != (
+                    actor.tenant_id,
+                    actor.repository_id,
+                ):
+                    raise ResourceNotFound("memory", vector.memory_id)
+                self.memory_embeddings[(vector.memory_id, vector.model)] = vector
+
+    async def search_embeddings(
+        self,
+        actor: ActorContext,
+        query_vector: Sequence[float],
+        *,
+        model: str,
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> tuple[EmbeddingMatch, ...]:
+        async with self._lock:
+            matches: list[EmbeddingMatch] = []
+            for (memory_id, vector_model), vector in self.memory_embeddings.items():
+                if vector_model != model:
+                    continue
+                memory = self.memories.get(memory_id)
+                if memory is None or (memory.tenant_id, memory.repository_id) != (
+                    actor.tenant_id,
+                    actor.repository_id,
+                ):
+                    continue
+                if len(vector.values) != len(query_vector):
+                    continue
+                score = max(0.0, min(1.0, _cosine_similarity(vector.values, query_vector)))
+                if score < min_score:
+                    continue
+                matches.append(EmbeddingMatch(memory_id=memory_id, score=score))
+            matches.sort(key=lambda match: (match.score, match.memory_id), reverse=True)
+            return tuple(matches[:limit])
 
     # ------------------------------------------------------------------
     # Sources and evidence

@@ -224,6 +224,7 @@ class RecallQuery(ContractModel):
 
     text: ContentText
     task_id: TaskId | None = None
+    memory_ids: frozenset[MemoryId] = Field(default_factory=frozenset)
     kinds: frozenset[MemoryKind] = Field(default_factory=frozenset)
     visibilities: frozenset[Visibility] = Field(default_factory=lambda: frozenset(Visibility))
     states: frozenset[MemoryState] | None = None

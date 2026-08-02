@@ -321,13 +321,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS memories_current_identity
 
 CREATE TABLE IF NOT EXISTS memory_embeddings (
     memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
+    tenant_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
     model STRING NOT NULL,
     dimensions INT8 NOT NULL,
-    embedding FLOAT8[] NOT NULL,
+    embedding VECTOR(1024) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT memory_embeddings_dimensions_check CHECK (dimensions > 0),
     PRIMARY KEY (memory_id, model)
 );
+
+-- Prefix columns force every ANN scan to pin tenant, repository, and model
+-- before any similarity work happens, so recall can never cross a tenant or
+-- compare vectors produced by different embedding models.
+CREATE VECTOR INDEX IF NOT EXISTS memory_embeddings_ann
+    ON memory_embeddings (tenant_id, repository_id, model, embedding vector_cosine_ops);
 
 CREATE TABLE IF NOT EXISTS evidence (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

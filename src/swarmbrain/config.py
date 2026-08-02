@@ -29,6 +29,19 @@ class BackendKind(StrEnum):
     COCKROACH = "cockroach"
 
 
+class EmbeddingsKind(StrEnum):
+    NONE = "none"
+    DETERMINISTIC = "deterministic"
+    BEDROCK = "bedrock"
+
+
+def _embeddings_kind(value: EmbeddingsKind | str) -> EmbeddingsKind:
+    try:
+        return EmbeddingsKind(value)
+    except ValueError as exc:
+        raise ValueError("embeddings must be one of: none, deterministic, bedrock") from exc
+
+
 def _backend_kind(value: BackendKind | str) -> BackendKind:
     try:
         return BackendKind(value)
@@ -45,13 +58,20 @@ class ApiSettings:
     database_pool_max_size: int = 12
     host: str = "127.0.0.1"
     port: int = 8080
+    embeddings: EmbeddingsKind = EmbeddingsKind.NONE
+    embeddings_model: str | None = None
+    embeddings_dimensions: int = 1024
+    aws_region: str | None = None
 
     def __post_init__(self) -> None:
         backend = _backend_kind(self.backend)
         object.__setattr__(self, "backend", backend)
+        object.__setattr__(self, "embeddings", _embeddings_kind(self.embeddings))
 
         if not self.token_secret:
             raise ValueError("token_secret is required")
+        if self.embeddings_dimensions < 2:
+            raise ValueError("embeddings dimensions must be at least 2")
         if not 0 <= self.database_pool_min_size <= self.database_pool_max_size:
             raise ValueError("database pool minimum must be between zero and the maximum")
         if self.database_pool_max_size < 1:
@@ -88,6 +108,14 @@ class ApiSettings:
                 ),
                 host=_env("SWARMBRAIN_HOST", default="127.0.0.1") or "127.0.0.1",
                 port=_integer_env("SWARMBRAIN_PORT", default=8080),
+                embeddings=_embeddings_kind(
+                    (_env("SWARMBRAIN_EMBEDDINGS", default="none") or "none").casefold()
+                ),
+                embeddings_model=_env("SWARMBRAIN_EMBEDDINGS_MODEL"),
+                embeddings_dimensions=_integer_env(
+                    "SWARMBRAIN_EMBEDDINGS_DIMENSIONS", default=1024
+                ),
+                aws_region=_env("SWARMBRAIN_AWS_REGION"),
             )
         except ValueError as exc:
             raise RuntimeError(f"invalid Swarm Brain API configuration: {exc}") from exc
@@ -128,4 +156,4 @@ class BridgeSettings:
             raise RuntimeError(f"invalid Swarm Brain bridge configuration: {exc}") from exc
 
 
-__all__ = ["ApiSettings", "BackendKind", "BridgeSettings"]
+__all__ = ["ApiSettings", "BackendKind", "BridgeSettings", "EmbeddingsKind"]

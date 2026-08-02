@@ -16,7 +16,15 @@ ports and CockroachDB-oriented transaction boundaries.
 - evidence-backed conflict reporting and resolution;
 - an in-memory adapter for deterministic local development and tests;
 - an explicit CockroachDB schema command and a pooled async composition seam;
-- the canonical FastAPI surface and a six-tool stdio MCP bridge.
+- the canonical FastAPI surface and a six-tool stdio MCP bridge;
+- cheap evidence registration (`POST /v1/evidence/sources`, `POST /v1/evidence`),
+  with the bridge registering inline evidence material before publishing;
+- an optional semantic memory plane: publishes enqueue durable `embed_memory`
+  work, the `swarmbrain-worker` process embeds outside any database
+  transaction (deterministic local provider or Amazon Bedrock via
+  `swarmbrain[aws]`), vectors land in a CockroachDB `VECTOR(1024)` column
+  behind a tenant/repository/model prefix-scoped `VECTOR INDEX`, and recall
+  blends ANN matches into lexical hits without bypassing visibility filters.
 
 Backend selection is fail-closed. `SWARMBRAIN_BACKEND` must be either `memory`
 or `cockroach`; there is no implicit fallback. The memory backend rejects a

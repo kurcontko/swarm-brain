@@ -8,6 +8,7 @@ from pydantic import BaseModel, create_model
 
 from swarmbrain.domain.common import ContractModel
 from swarmbrain.domain.conflicts import ReportConflictCommand, ResolveConflictCommand
+from swarmbrain.domain.evidence import AddEvidenceCommand, RegisterEvidenceSourceCommand
 from swarmbrain.domain.leases import RenewLeaseCommand
 from swarmbrain.domain.memory import RememberCommand
 from swarmbrain.domain.tasks import (
@@ -54,6 +55,10 @@ CompleteTaskBody = _body_schema(
 ReleaseTaskBody = _body_schema(
     "ReleaseTaskBody", ReleaseTaskCommand, path_fields=frozenset({"task_id"})
 )
+RegisterEvidenceSourceBody = _body_schema(
+    "RegisterEvidenceSourceBody", RegisterEvidenceSourceCommand
+)
+AddEvidenceBody = _body_schema("AddEvidenceBody", AddEvidenceCommand)
 ReportConflictBody = _body_schema("ReportConflictBody", ReportConflictCommand)
 ResolveConflictBody = _body_schema(
     "ResolveConflictBody",
@@ -63,9 +68,11 @@ ResolveConflictBody = _body_schema(
 
 
 __all__ = [
+    "AddEvidenceBody",
     "CheckpointBody",
     "ClaimTaskBody",
     "CompleteTaskBody",
+    "RegisterEvidenceSourceBody",
     "ReleaseTaskBody",
     "RememberBody",
     "RenewLeaseBody",

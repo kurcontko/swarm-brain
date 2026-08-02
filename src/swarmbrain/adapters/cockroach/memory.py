@@ -40,6 +40,8 @@ from swarmbrain.domain.evidence import (
     SourceRejectionResult,
 )
 from swarmbrain.domain.memory import (
+    EmbeddingMatch,
+    EmbeddingVector,
     Memory,
     MemoryLineage,
     MemoryOperation,
@@ -103,6 +105,10 @@ def _uuid(value: str | UUID) -> UUID:
 
 def _uuid_array(values: Sequence[str]) -> list[UUID]:
     return [_uuid(value) for value in values]
+
+
+def _vector_literal(values: Sequence[float]) -> str:
+    return "[" + ",".join(repr(float(value)) for value in values) + "]"
 
 
 def _digest(value: str | None) -> bytes | None:
@@ -394,6 +400,94 @@ class CockroachMemoryStore:
             )
             row = await cursor.fetchone()
             return None if row is None else evidence_from_row(row)
+
+    # ------------------------------------------------------------------
+    # Embedding index
+
+    async def upsert_embeddings(
+        self,
+        actor: ActorContext,
+        vectors: Sequence[EmbeddingVector],
+        *,
+        idempotency_key: str,
+    ) -> None:
+        """Idempotent by primary key; scope is enforced against ``memories``.
+
+        The INSERT sources its scope columns from the owning memory row, so a
+        vector can never be attached across tenants or repositories even by a
+        buggy worker.
+        """
+
+        del idempotency_key  # (memory_id, model) upsert is naturally idempotent
+        async with self.database.pool.connection() as connection:
+            for vector in vectors:
+                cursor = await connection.execute(
+                    """
+                    INSERT INTO memory_embeddings (
+                        memory_id, tenant_id, repository_id, model, dimensions, embedding
+                    )
+                    SELECT m.id, m.tenant_id, m.repository_id, %s, %s, %s::VECTOR
+                    FROM memories AS m
+                    WHERE m.id = %s AND m.tenant_id = %s AND m.repository_id = %s
+                    ON CONFLICT (memory_id, model) DO UPDATE SET
+                        dimensions = excluded.dimensions,
+                        embedding = excluded.embedding,
+                        created_at = now()
+                    """,
+                    (
+                        vector.model,
+                        vector.dimensions,
+                        _vector_literal(vector.values),
+                        _uuid(vector.memory_id),
+                        actor.tenant_id,
+                        actor.repository_id,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ResourceNotFound("memory", vector.memory_id)
+
+    async def search_embeddings(
+        self,
+        actor: ActorContext,
+        query_vector: Sequence[float],
+        *,
+        model: str,
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> tuple[EmbeddingMatch, ...]:
+        """ANN over the prefix-scoped vector index; ids only, no content.
+
+        Callers must re-run returned ids through ``recall`` so visibility,
+        state, and temporal filters decide what the actor may actually read.
+        """
+
+        literal = _vector_literal(query_vector)
+        async with self.database.pool.connection() as connection:
+            cursor = await connection.execute(
+                """
+                SELECT memory_id, embedding <=> %s::VECTOR AS distance
+                FROM memory_embeddings
+                WHERE tenant_id = %s AND repository_id = %s AND model = %s
+                ORDER BY embedding <=> %s::VECTOR
+                LIMIT %s
+                """,
+                (
+                    literal,
+                    actor.tenant_id,
+                    actor.repository_id,
+                    model,
+                    literal,
+                    max(1, min(100, limit)),
+                ),
+            )
+            rows = await cursor.fetchall()
+        matches = []
+        for row in rows:
+            score = max(0.0, min(1.0, 1.0 - float(row["distance"])))
+            if score < min_score:
+                continue
+            matches.append(EmbeddingMatch(memory_id=str(row["memory_id"]), score=score))
+        return tuple(matches)
 
     # ------------------------------------------------------------------
     # Memory
@@ -730,6 +824,9 @@ class CockroachMemoryStore:
 
             clauses.append("m.state = ANY(%s::STRING[])")
             parameters.append(sorted(state.value for state in query.effective_states))
+            if query.memory_ids:
+                clauses.append("m.id = ANY(%s::UUID[])")
+                parameters.append(sorted(_uuid(item) for item in query.memory_ids))
             if query.kinds:
                 clauses.append("m.kind = ANY(%s::STRING[])")
                 parameters.append(sorted(kind.value for kind in query.kinds))
