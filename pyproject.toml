@@ -1,0 +1,59 @@
+[project]
+name = "swarmbrain"
+version = "0.1.0"
+description = "Vendor-neutral temporal memory and coordination kernel for agent swarms"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27,<1",
+    "pydantic>=2.9,<3",
+]
+
+[project.optional-dependencies]
+serve = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+]
+mcp = [
+    "mcp>=1.27,<2",
+]
+crdb = [
+    "psycopg[binary]>=3.2,<4",
+    "psycopg-pool>=3.2,<4",
+]
+dev = [
+    "fastapi>=0.115,<1",
+    "mcp>=1.27,<2",
+    "psycopg[binary]>=3.2,<4",
+    "psycopg-pool>=3.2,<4",
+    "pytest>=8,<10",
+    "pytest-asyncio>=0.24,<2",
+    "ruff>=0.9,<1",
+]
+
+[project.scripts]
+swarmbrain-api = "swarmbrain.cli.api:main"
+swarmbrain-mcp = "swarmbrain.transports.mcp.server:main"
+swarmbrain-token = "swarmbrain.cli.token:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/swarmbrain"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008"]
