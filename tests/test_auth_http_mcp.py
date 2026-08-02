@@ -17,7 +17,7 @@ from swarmbrain.domain.evidence import (
     RegisterEvidenceSourceCommand,
 )
 from swarmbrain.transports.http import create_app
-from swarmbrain.transports.mcp.client import SwarmBrainHttpClient
+from swarmbrain.transports.mcp.client import BridgeHttpError, SwarmBrainHttpClient
 from swarmbrain.transports.mcp.server import create_server
 
 SECRET = "0123456789abcdef-local-test-secret"
@@ -421,3 +421,113 @@ async def test_bridge_renews_lease_without_a_model_visible_tool() -> None:
         "expected_version": 1,
         "extension_seconds": 120,
     }
+
+
+def test_bridge_expected_actor_identity_must_be_configured_as_a_pair() -> None:
+    with pytest.raises(ValueError, match="configured together"):
+        BridgeSettings(
+            "http://example.test",
+            "signed-token",
+            expected_run_id="run",
+        )
+    with pytest.raises(ValueError, match="configured together"):
+        BridgeSettings(
+            "http://example.test",
+            "signed-token",
+            expected_agent_id="agent",
+        )
+
+
+@pytest.mark.asyncio
+async def test_bridge_join_fails_closed_on_actor_identity_mismatch() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"run_id": "wrong-run", "agent_id": "expected-agent"},
+        )
+
+    raw = httpx.AsyncClient(
+        base_url="http://example.test",
+        transport=httpx.MockTransport(handler),
+    )
+    bridge = SwarmBrainHttpClient(
+        BridgeSettings(
+            "http://example.test",
+            "signed-token",
+            expected_run_id="expected-run",
+            expected_agent_id="expected-agent",
+        ),
+        client=raw,
+    )
+    try:
+        with pytest.raises(BridgeHttpError, match="expected run and agent") as caught:
+            await bridge.join()
+        assert caught.value.status_code == 409
+        assert caught.value.code == "actor_identity_mismatch"
+    finally:
+        await bridge.close()
+        await raw.aclose()
+
+
+@pytest.mark.asyncio
+async def test_bridge_renewal_retries_with_the_same_idempotency_key() -> None:
+    requests: list[httpx.Request] = []
+    renewal_attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal renewal_attempts
+        requests.append(request)
+        if request.url.path == "/v1/tasks:claim":
+            return httpx.Response(
+                200,
+                json={
+                    "task": {"task_id": "task", "version": 2},
+                    "lease": {"lease_id": "lease", "version": 1},
+                },
+            )
+        if request.url.path == "/v1/leases/lease:renew":
+            renewal_attempts += 1
+            if renewal_attempts == 1:
+                return httpx.Response(
+                    503,
+                    json={
+                        "error": {
+                            "code": "backend_unavailable",
+                            "message": "API is restarting",
+                            "retryable": True,
+                        }
+                    },
+                )
+            return httpx.Response(200, json={"lease": {"lease_id": "lease", "version": 2}})
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    sleeps = 0
+
+    async def retry_then_stop(_delay: float) -> None:
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps > 2:
+            raise asyncio.CancelledError
+
+    raw = httpx.AsyncClient(
+        base_url="http://example.test",
+        transport=httpx.MockTransport(handler),
+    )
+    bridge = SwarmBrainHttpClient(
+        BridgeSettings("http://example.test", "signed-token"),
+        client=raw,
+        sleep=retry_then_stop,
+    )
+    try:
+        await bridge.claim_task(idempotency_key="claim-key")
+        with pytest.raises(asyncio.CancelledError):
+            await bridge._renewals["task"]
+        assert bridge._leases["task"].lease_version == 2
+    finally:
+        await bridge.close()
+        await raw.aclose()
+
+    renewals = [request for request in requests if request.url.path.endswith(":renew")]
+    assert len(renewals) == 2
+    assert renewals[0].headers["Idempotency-Key"] == renewals[1].headers["Idempotency-Key"]
+    assert json.loads(renewals[0].content) == json.loads(renewals[1].content)

@@ -38,6 +38,7 @@ class Capability(StrEnum):
     MEMORY_RECALL = "memory:recall"
     MEMORY_CONFIRM = "memory:confirm"
     MEMORY_REFUTE = "memory:refute"
+    SOURCE_INGEST = "source:ingest"
     SOURCE_REVIEW = "source:review"
     CONFLICT_REPORT = "conflict:report"
     CONFLICT_RESOLVE = "conflict:resolve"

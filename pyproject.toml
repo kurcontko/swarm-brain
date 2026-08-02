@@ -34,6 +34,7 @@ dev = [
 [project.scripts]
 swarmbrain-api = "swarmbrain.cli.api:main"
 swarmbrain-mcp = "swarmbrain.transports.mcp.server:main"
+swarmbrain-schema = "swarmbrain.cli.schema:main"
 swarmbrain-token = "swarmbrain.cli.token:main"
 
 [build-system]

@@ -2,6 +2,13 @@
 -- Applying this file is an explicit operator action; application startup never
 -- runs DDL. All mutation paths use SERIALIZABLE transactions and an outbox row.
 
+CREATE TABLE IF NOT EXISTS swarmbrain_schema_versions (
+    version INT8 PRIMARY KEY,
+    description STRING NOT NULL,
+    schema_sha256 BYTES NOT NULL,
+    installed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     tenant_id STRING NOT NULL,
     id STRING NOT NULL,
@@ -114,7 +121,7 @@ CREATE TABLE IF NOT EXISTS task_leases (
     status STRING NOT NULL DEFAULT 'active',
     version INT8 NOT NULL DEFAULT 1,
     claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    renewed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    renewed_at TIMESTAMPTZ NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     released_at TIMESTAMPTZ NULL,
     completed_at TIMESTAMPTZ NULL,
@@ -186,6 +193,7 @@ CREATE TABLE IF NOT EXISTS sources (
     tenant_id STRING NOT NULL,
     project_id STRING NOT NULL,
     repository_id STRING NOT NULL,
+    swarm_id STRING NOT NULL,
     run_id STRING NOT NULL,
     task_id UUID NULL REFERENCES tasks (id) ON DELETE SET NULL,
     agent_id STRING NOT NULL,
@@ -209,8 +217,15 @@ CREATE TABLE IF NOT EXISTS sources (
         source_type IN ('source_code', 'command_output', 'test_result', 'log',
                         'message', 'document', 'url', 'artifact', 'memory')
     ),
-    UNIQUE (tenant_id, repository_id, occurrence_key)
+    UNIQUE (tenant_id, repository_id, run_id, occurrence_key)
 );
+
+CREATE INDEX IF NOT EXISTS sources_scope_lookup
+    ON sources (tenant_id, project_id, repository_id, swarm_id, run_id, id)
+    STORING (
+        task_id, agent_id, source_type, occurrence_key, uri, content_sha256,
+        trust_label, review_state, valid_at, recorded_at, version
+    );
 
 CREATE TABLE IF NOT EXISTS source_chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -244,6 +259,7 @@ CREATE TABLE IF NOT EXISTS memories (
     title STRING NULL,
     tags STRING[] NOT NULL DEFAULT ARRAY[]::STRING[],
     normalized_sha256 BYTES NOT NULL,
+    dedup_scope STRING NOT NULL,
     confidence DECIMAL(5,4) NOT NULL DEFAULT 0.5000,
     valid_from TIMESTAMPTZ NOT NULL DEFAULT now(),
     valid_to TIMESTAMPTZ NULL,
@@ -252,6 +268,7 @@ CREATE TABLE IF NOT EXISTS memories (
     supersedes_id UUID NULL REFERENCES memories (id) ON DELETE RESTRICT,
     superseded_by_id UUID NULL REFERENCES memories (id) ON DELETE RESTRICT,
     source_id UUID NULL REFERENCES sources (id) ON DELETE SET NULL,
+    previous_state STRING NULL,
     policy_reason STRING NOT NULL DEFAULT '',
     policy_confidence DECIMAL(5,4) NOT NULL DEFAULT 1.0000,
     version INT8 NOT NULL DEFAULT 1,
@@ -268,6 +285,9 @@ CREATE TABLE IF NOT EXISTS memories (
     CONSTRAINT memories_confidence_check CHECK (confidence >= 0 AND confidence <= 1),
     CONSTRAINT memories_policy_confidence_check CHECK (
         policy_confidence >= 0 AND policy_confidence <= 1
+    ),
+    CONSTRAINT memories_previous_state_check CHECK (
+        previous_state IS NULL OR previous_state IN ('tentative', 'confirmed', 'refuted')
     ),
     CONSTRAINT memories_valid_interval_check CHECK (valid_to IS NULL OR valid_to > valid_from),
     CONSTRAINT memories_recorded_interval_check CHECK (
@@ -290,6 +310,14 @@ CREATE INDEX IF NOT EXISTS memories_source
     ON memories (source_id)
     STORING (state, recorded_to, supersedes_id, superseded_by_id)
     WHERE source_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS memories_one_successor
+    ON memories (supersedes_id)
+    WHERE supersedes_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS memories_current_identity
+    ON memories (tenant_id, repository_id, dedup_scope, kind, normalized_sha256)
+    WHERE recorded_to IS NULL AND state != 'refuted';
 
 CREATE TABLE IF NOT EXISTS memory_embeddings (
     memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
@@ -318,6 +346,10 @@ CREATE TABLE IF NOT EXISTS evidence (
     )
 );
 
+CREATE INDEX IF NOT EXISTS evidence_source_lookup
+    ON evidence (source_id, id)
+    STORING (tenant_id, kind, locator, content_sha256, excerpt, artifact, metadata, recorded_at);
+
 CREATE TABLE IF NOT EXISTS memory_evidence (
     memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
     evidence_id UUID NOT NULL REFERENCES evidence (id) ON DELETE RESTRICT,
@@ -329,11 +361,16 @@ CREATE TABLE IF NOT EXISTS memory_evidence (
     PRIMARY KEY (memory_id, evidence_id, relation)
 );
 
+CREATE INDEX IF NOT EXISTS memory_evidence_by_evidence
+    ON memory_evidence (evidence_id, memory_id)
+    STORING (relation, created_at);
+
 CREATE TABLE IF NOT EXISTS memory_links (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
     target_memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
     link_type STRING NOT NULL,
+    reason STRING NULL,
     metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT memory_links_no_self CHECK (source_memory_id != target_memory_id),
@@ -343,6 +380,14 @@ CREATE TABLE IF NOT EXISTS memory_links (
     ),
     UNIQUE (source_memory_id, target_memory_id, link_type)
 );
+
+CREATE INDEX IF NOT EXISTS memory_links_from
+    ON memory_links (source_memory_id, created_at, id)
+    STORING (target_memory_id, link_type, reason, metadata);
+
+CREATE INDEX IF NOT EXISTS memory_links_to
+    ON memory_links (target_memory_id, created_at, id)
+    STORING (source_memory_id, link_type, reason, metadata);
 
 CREATE TABLE IF NOT EXISTS memory_conflicts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -391,6 +436,7 @@ CREATE TABLE IF NOT EXISTS conflict_evidence (
 CREATE TABLE IF NOT EXISTS idempotency_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id STRING NOT NULL,
+    run_id STRING NOT NULL,
     actor_id STRING NOT NULL,
     operation STRING NOT NULL,
     idempotency_key STRING NOT NULL,
@@ -405,12 +451,16 @@ CREATE TABLE IF NOT EXISTS idempotency_records (
     CONSTRAINT idempotency_records_status_check CHECK (
         status IN ('started', 'completed', 'failed')
     ),
-    UNIQUE (tenant_id, actor_id, operation, idempotency_key)
+    UNIQUE (tenant_id, run_id, actor_id, operation, idempotency_key)
 );
 
 CREATE INDEX IF NOT EXISTS idempotency_records_expiry
     ON idempotency_records (expires_at, id)
     STORING (status);
+
+CREATE INDEX IF NOT EXISTS idempotency_records_lookup
+    ON idempotency_records (tenant_id, run_id, actor_id, operation, idempotency_key)
+    STORING (request_sha256, status, response_status, response_body, resource_id, expires_at);
 
 CREATE TABLE IF NOT EXISTS action_attempts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -435,12 +485,14 @@ CREATE INDEX IF NOT EXISTS action_attempts_operation
 
 CREATE TABLE IF NOT EXISTS outbox_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL UNIQUE,
     tenant_id STRING NOT NULL,
     run_id STRING NOT NULL,
     aggregate_type STRING NOT NULL,
     aggregate_id STRING NOT NULL,
     aggregate_version INT8 NOT NULL,
     event_type STRING NOT NULL,
+    dedupe_key STRING NOT NULL UNIQUE,
     payload JSONB NOT NULL,
     status STRING NOT NULL DEFAULT 'pending',
     attempts INT8 NOT NULL DEFAULT 0,
@@ -457,12 +509,162 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 );
 
 CREATE INDEX IF NOT EXISTS outbox_events_unpublished
-    ON outbox_events (available_at, id)
+    ON outbox_events (available_at, locked_until, id)
     STORING (
-        tenant_id, run_id, aggregate_type, aggregate_id, aggregate_version,
-        event_type, payload, status, locked_until, version
+        event_id, tenant_id, run_id, aggregate_type, aggregate_id, aggregate_version,
+        event_type, payload, status, version
     )
-    WHERE status IN ('pending', 'failed');
+    WHERE status IN ('pending', 'publishing', 'failed');
+
+CREATE TABLE IF NOT EXISTS source_extractions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id STRING NOT NULL,
+    run_id STRING NOT NULL,
+    source_id UUID NOT NULL REFERENCES sources (id) ON DELETE CASCADE,
+    extractor_name STRING NOT NULL,
+    extractor_version STRING NOT NULL,
+    route STRING NOT NULL,
+    status STRING NOT NULL,
+    deterministic_candidates JSONB NOT NULL DEFAULT '[]'::JSONB,
+    model_candidates JSONB NOT NULL DEFAULT '[]'::JSONB,
+    model_name STRING NULL,
+    model_version STRING NULL,
+    prompt_sha256 BYTES NULL,
+    fallback_reason STRING NULL,
+    last_error STRING NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    version INT8 NOT NULL DEFAULT 1,
+    CONSTRAINT source_extractions_route_check CHECK (
+        route IN ('coding', 'general', 'skip')
+    ),
+    CONSTRAINT source_extractions_status_check CHECK (
+        status IN ('completed', 'fallback', 'failed')
+    ),
+    UNIQUE (source_id, extractor_name, extractor_version)
+);
+
+CREATE INDEX IF NOT EXISTS source_extractions_scope
+    ON source_extractions (tenant_id, run_id, source_id, updated_at DESC, id)
+    STORING (
+        extractor_name, extractor_version, route, status,
+        deterministic_candidates, model_candidates, model_name, model_version,
+        prompt_sha256, fallback_reason, last_error, version
+    );
+
+-- External/model work is a separate leased queue from the immutable event
+-- relay above. Workers claim and fence rows in a short transaction, perform
+-- provider work after COMMIT, then apply validated effects in another short
+-- transaction.
+CREATE TABLE IF NOT EXISTS outbox_work_items (
+    id UUID PRIMARY KEY,
+    tenant_id STRING NOT NULL,
+    project_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
+    swarm_id STRING NOT NULL,
+    run_id STRING NOT NULL,
+    task_id UUID NULL REFERENCES tasks (id) ON DELETE SET NULL,
+    requested_by_agent_id STRING NOT NULL,
+    kind STRING NOT NULL,
+    subject_id UUID NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+    dedupe_key STRING NOT NULL,
+    priority INT8 NOT NULL DEFAULT 0,
+    status STRING NOT NULL DEFAULT 'pending',
+    attempts INT8 NOT NULL DEFAULT 0,
+    max_attempts INT8 NOT NULL DEFAULT 5,
+    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_by STRING NULL,
+    lease_token UUID NULL,
+    lease_version INT8 NOT NULL DEFAULT 0,
+    locked_until TIMESTAMPTZ NULL,
+    outcome STRING NULL,
+    result JSONB NULL,
+    last_error STRING NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ NULL,
+    version INT8 NOT NULL DEFAULT 1,
+    CONSTRAINT outbox_work_items_run_fk FOREIGN KEY (tenant_id, run_id)
+        REFERENCES runs (tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT outbox_work_items_kind_check CHECK (
+        kind IN ('extract_source', 'embed_memory', 'persist_artifact')
+    ),
+    CONSTRAINT outbox_work_items_status_check CHECK (
+        status IN ('pending', 'leased', 'retry', 'completed', 'failed', 'cancelled')
+    ),
+    CONSTRAINT outbox_work_items_attempts_check CHECK (
+        attempts >= 0 AND attempts <= max_attempts AND max_attempts > 0
+    ),
+    CONSTRAINT outbox_work_items_versions_check CHECK (lease_version >= 0 AND version > 0),
+    CONSTRAINT outbox_work_items_lease_check CHECK (
+        status != 'leased'
+        OR (locked_by IS NOT NULL AND lease_token IS NOT NULL AND locked_until IS NOT NULL)
+    ),
+    UNIQUE (tenant_id, run_id, kind, dedupe_key)
+);
+
+CREATE INDEX IF NOT EXISTS outbox_work_items_claim
+    ON outbox_work_items (priority DESC, available_at, created_at, id)
+    STORING (
+        kind, status, attempts, max_attempts, locked_until, subject_id,
+        lease_version, version
+    )
+    WHERE status IN ('pending', 'retry', 'leased');
+
+CREATE INDEX IF NOT EXISTS outbox_work_items_subject
+    ON outbox_work_items (subject_id, kind, created_at DESC, id)
+    STORING (tenant_id, run_id, status, outcome);
+
+CREATE TABLE IF NOT EXISTS outbox_work_attempts (
+    work_id UUID NOT NULL REFERENCES outbox_work_items (id) ON DELETE CASCADE,
+    attempt INT8 NOT NULL,
+    stage STRING NOT NULL,
+    outcome STRING NOT NULL,
+    provider STRING NULL,
+    model STRING NULL,
+    revision STRING NULL,
+    prompt_id STRING NULL,
+    prompt_sha256 BYTES NULL,
+    input_sha256 BYTES NOT NULL,
+    output_sha256 BYTES NULL,
+    candidate_count INT8 NOT NULL DEFAULT 0,
+    error STRING NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT outbox_work_attempts_stage_check CHECK (
+        stage IN ('deterministic', 'provider', 'validation', 'apply')
+    ),
+    CONSTRAINT outbox_work_attempts_outcome_check CHECK (
+        outcome IN ('succeeded', 'fallback', 'rejected', 'failed', 'skipped')
+    ),
+    CONSTRAINT outbox_work_attempts_values_check CHECK (
+        attempt > 0 AND candidate_count >= 0 AND finished_at >= started_at
+    ),
+    PRIMARY KEY (work_id, attempt, stage)
+);
+
+CREATE INDEX IF NOT EXISTS outbox_work_attempts_timeline
+    ON outbox_work_attempts (work_id, attempt, started_at, stage)
+    STORING (
+        outcome, provider, model, revision, input_sha256, output_sha256,
+        candidate_count, error
+    );
+
+CREATE TABLE IF NOT EXISTS outbox_work_effects (
+    work_id UUID NOT NULL REFERENCES outbox_work_items (id) ON DELETE CASCADE,
+    effect_key STRING NOT NULL,
+    kind STRING NOT NULL,
+    payload_sha256 BYTES NOT NULL,
+    resource_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT outbox_work_effects_kind_check CHECK (kind IN ('memory')),
+    PRIMARY KEY (work_id, effect_key)
+);
+
+CREATE INDEX IF NOT EXISTS outbox_work_effects_resource
+    ON outbox_work_effects (resource_id, kind)
+    STORING (work_id, effect_key, payload_sha256, created_at);
 
 CREATE TABLE IF NOT EXISTS swarm_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

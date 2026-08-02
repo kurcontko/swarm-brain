@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any, TypeVar
 from uuid import UUID, uuid4
 
@@ -85,7 +87,15 @@ IdempotencyHeader = Annotated[str, Header(alias="Idempotency-Key", min_length=1,
 
 
 def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
-    app = FastAPI(title="Swarm Brain", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        await runtime.start()
+        try:
+            yield
+        finally:
+            await runtime.close()
+
+    app = FastAPI(title="Swarm Brain", version="0.1.0", lifespan=lifespan)
     app.state.runtime = runtime
 
     @app.exception_handler(SwarmBrainError)
@@ -122,6 +132,16 @@ def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
     @app.get("/healthz", include_in_schema=False)
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/readyz", include_in_schema=False)
+    async def readiness() -> JSONResponse:
+        try:
+            ready = await runtime.ready()
+        except Exception:
+            ready = False
+        if not ready:
+            return JSONResponse(status_code=503, content={"status": "not_ready"})
+        return JSONResponse(content={"status": "ready"})
 
     @app.post("/v1/runs/{run_id}/agents:join", response_model=Agent)
     async def join_agent(run_id: str, actor: ActorDependency, body: JsonBody) -> Agent:

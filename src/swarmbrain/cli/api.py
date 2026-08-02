@@ -2,19 +2,14 @@ from __future__ import annotations
 
 import uvicorn
 
-from swarmbrain.application.runtime import build_in_memory_runtime
+from swarmbrain.application.runtime import build_runtime
 from swarmbrain.config import ApiSettings
 from swarmbrain.transports.http import create_app
 
 
 def main() -> None:
     settings = ApiSettings.from_env()
-    if settings.database_url:
-        raise RuntimeError(
-            "the v0 executable currently supports the in-memory adapter; "
-            "unset SWARMBRAIN_DATABASE_URL or compose a Cockroach store explicitly"
-        )
-    app = create_app(build_in_memory_runtime(settings.token_secret))
+    app = create_app(build_runtime(settings))
     uvicorn.run(app, host=settings.host, port=settings.port)
 
 

@@ -147,7 +147,7 @@ class InMemoryKernel:
         self.outbox: list[OutboxEvent] = []
         self._source_scope: dict[str, tuple[str, str, str, str, str]] = {}
         self._source_occurrences: dict[tuple[str, str, str], str] = {}
-        self._idempotency: dict[tuple[str, str, str, str], _IdempotencyEntry] = {}
+        self._idempotency: dict[tuple[str, str, str, str, str], _IdempotencyEntry] = {}
         self._previous_memory_state: dict[str, MemoryState] = {}
         self._crash_handoffs: dict[str, int] = defaultdict(int)
         self._memory_reuses: dict[str, int] = defaultdict(int)
@@ -1249,7 +1249,13 @@ class InMemoryKernel:
         operation: str,
         command: BaseModel,
     ) -> Any | None:
-        key = (actor.tenant_id, actor.agent_id, operation, command.idempotency_key)
+        key = (
+            actor.tenant_id,
+            actor.run_id,
+            actor.agent_id,
+            operation,
+            command.idempotency_key,
+        )
         entry = self._idempotency.get(key)
         if entry is None:
             return None
@@ -1267,7 +1273,13 @@ class InMemoryKernel:
         command: BaseModel,
         result: TModel,
     ) -> TModel:
-        key = (actor.tenant_id, actor.agent_id, operation, command.idempotency_key)
+        key = (
+            actor.tenant_id,
+            actor.run_id,
+            actor.agent_id,
+            operation,
+            command.idempotency_key,
+        )
         self._idempotency[key] = _IdempotencyEntry(self._fingerprint(command), result)
         return result
 

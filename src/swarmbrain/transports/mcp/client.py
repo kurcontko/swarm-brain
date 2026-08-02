@@ -80,11 +80,21 @@ class SwarmBrainHttpClient:
 
         if self.settings.expected_run_id is None:
             return None
-        return await self._request(
+        result = await self._request(
             "POST",
             f"/v1/runs/{self.settings.expected_run_id}/agents:join",
             json={},
         )
+        if (
+            result.get("run_id") != self.settings.expected_run_id
+            or result.get("agent_id") != self.settings.expected_agent_id
+        ):
+            raise BridgeHttpError(
+                409,
+                "joined actor does not match the bridge's expected run and agent",
+                code="actor_identity_mismatch",
+            )
+        return result
 
     async def claim_task(
         self,
@@ -111,6 +121,15 @@ class SwarmBrainHttpClient:
         )
         task = result["task"]
         lease = result["lease"]
+        if self.settings.expected_run_id is not None and (
+            task.get("run_id") != self.settings.expected_run_id
+            or lease.get("owner_agent_id") != self.settings.expected_agent_id
+        ):
+            raise BridgeHttpError(
+                409,
+                "claimed lease does not match the bridge's expected run and agent",
+                code="actor_identity_mismatch",
+            )
         binding = LeaseBinding(
             task_id=str(task["task_id"]),
             lease_id=str(lease["lease_id"]),
@@ -293,17 +312,27 @@ class SwarmBrainHttpClient:
         try:
             while self._leases.get(binding.task_id) is binding:
                 await self._sleep(interval)
-                async with binding.lock:
-                    response = await self._request(
-                        "POST",
-                        f"/v1/leases/{binding.lease_id}:renew",
-                        json={
-                            "expected_version": binding.lease_version,
-                            "extension_seconds": binding.extension_seconds,
-                        },
-                        headers={"Idempotency-Key": str(uuid4())},
-                    )
-                    binding.lease_version = int(response["lease"]["version"])
+                renewal_key = str(uuid4())
+                while self._leases.get(binding.task_id) is binding:
+                    try:
+                        async with binding.lock:
+                            response = await self._request(
+                                "POST",
+                                f"/v1/leases/{binding.lease_id}:renew",
+                                json={
+                                    "expected_version": binding.lease_version,
+                                    "extension_seconds": binding.extension_seconds,
+                                },
+                                headers={"Idempotency-Key": renewal_key},
+                            )
+                            binding.lease_version = int(response["lease"]["version"])
+                        break
+                    except BridgeHttpError as exc:
+                        if not exc.retryable and exc.status_code < 500:
+                            return
+                    except httpx.TransportError:
+                        pass
+                    await self._sleep(min(1.0, max(0.05, interval / 10)))
         except asyncio.CancelledError:
             raise
         except Exception:

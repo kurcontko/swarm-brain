@@ -22,6 +22,9 @@ REQUIRED_TABLES = {
     "idempotency_records",
     "action_attempts",
     "outbox_events",
+    "outbox_work_items",
+    "outbox_work_attempts",
+    "outbox_work_effects",
     "swarm_events",
 }
 
@@ -49,7 +52,7 @@ def test_schema_encodes_lease_and_idempotency_invariants() -> None:
 
     assert "CREATE UNIQUE INDEX IF NOT EXISTS task_leases_one_active_per_task" in schema
     assert "WHERE status = 'active'" in schema
-    assert "UNIQUE (tenant_id, actor_id, operation, idempotency_key)" in schema
+    assert "UNIQUE (tenant_id, run_id, actor_id, operation, idempotency_key)" in schema
     assert "visibility != 'task' OR task_id IS NOT NULL" in schema
     assert "recorded_to IS NULL" in schema
     assert "supersedes_id" in schema
@@ -76,8 +79,23 @@ def test_claim_and_event_indexes_cover_contract_filters() -> None:
     schema = read_schema()
 
     assert "STORING (required_capabilities, tags, title, description, version)" in schema
-    assert "WHERE status IN ('pending', 'failed')" in schema
+    assert "WHERE status IN ('pending', 'publishing', 'failed')" in schema
     assert "aggregate_type, aggregate_id, aggregate_version" in schema
+
+
+def test_external_work_queue_is_separate_leased_fenced_and_idempotent() -> None:
+    schema = read_schema()
+    blocks = _create_table_blocks(schema)
+
+    work = blocks["outbox_work_items"]
+    assert "lease_token UUID" in work
+    assert "lease_version INT8 NOT NULL" in work
+    assert "locked_until TIMESTAMPTZ" in work
+    assert "UNIQUE (tenant_id, run_id, kind, dedupe_key)" in work
+    assert "status != 'leased'" in work
+    assert "outbox_work_items_claim" in schema
+    assert "PRIMARY KEY (work_id, attempt, stage)" in blocks["outbox_work_attempts"]
+    assert "PRIMARY KEY (work_id, effect_key)" in blocks["outbox_work_effects"]
 
 
 def test_schema_avoids_sequential_primary_key_antipatterns() -> None:

@@ -57,17 +57,32 @@ async def run_serializable(
     for attempt in range(1, resolved_policy.max_attempts + 1):
         if on_attempt is not None:
             await on_attempt(attempt, None)
+        body_completed = False
         try:
             async with pool.connection() as connection, connection.transaction():
-                return await body(connection)
+                result = await body(connection)
+                body_completed = True
+            if on_attempt is not None:
+                await on_attempt(attempt, "00000")
+            return result
         except Exception as exc:
             sqlstate = getattr(exc, "sqlstate", None)
             if on_attempt is not None:
                 await on_attempt(attempt, sqlstate)
 
-            # 40003 means the commit result is indeterminate. The caller must
-            # query idempotency_records; replaying here could duplicate effects.
-            if sqlstate == "40003":
+            # 40003 explicitly means an indeterminate COMMIT. A connection
+            # failure after the body returned is equally ambiguous: the server
+            # may have committed before the client lost the acknowledgement.
+            # The caller must query idempotency_records; replaying here could
+            # duplicate effects.
+            if sqlstate == "40003" or (
+                body_completed
+                and (
+                    sqlstate is None
+                    or sqlstate.startswith("08")
+                    or sqlstate in {"57P01", "57P02", "57P03"}
+                )
+            ):
                 raise AmbiguousTransactionResult(
                     "CockroachDB returned an ambiguous transaction result; "
                     "resolve it through the operation idempotency key",

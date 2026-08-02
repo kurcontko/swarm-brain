@@ -43,6 +43,26 @@ class FakePool:
         return FakeConnectionLease()
 
 
+class AmbiguousExitTransaction(FakeTransaction):
+    async def __aexit__(self, *_args: object) -> None:
+        raise DatabaseError("08006")
+
+
+class AmbiguousExitConnection(FakeConnection):
+    def transaction(self) -> AmbiguousExitTransaction:
+        return AmbiguousExitTransaction()
+
+
+class AmbiguousExitLease(FakeConnectionLease):
+    async def __aenter__(self) -> AmbiguousExitConnection:
+        return AmbiguousExitConnection()
+
+
+class AmbiguousExitPool(FakePool):
+    def connection(self) -> AmbiguousExitLease:
+        return AmbiguousExitLease()
+
+
 @pytest.mark.asyncio
 async def test_serialization_failures_retry_the_entire_transaction() -> None:
     calls = 0
@@ -87,6 +107,21 @@ async def test_ambiguous_commit_is_never_blindly_replayed() -> None:
 
     with pytest.raises(AmbiguousTransactionResult, match="idempotency key"):
         await run_serializable(FakePool(), body)
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_connection_loss_after_body_is_an_ambiguous_commit() -> None:
+    calls = 0
+
+    async def body(_connection: FakeConnection) -> str:
+        nonlocal calls
+        calls += 1
+        return "server may have committed"
+
+    with pytest.raises(AmbiguousTransactionResult, match="idempotency key"):
+        await run_serializable(AmbiguousExitPool(), body)
 
     assert calls == 1
 

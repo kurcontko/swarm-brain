@@ -106,6 +106,16 @@ class IdempotencyConflict(SwarmBrainError):
         )
 
 
+class AmbiguousCommit(SwarmBrainError):
+    def __init__(self) -> None:
+        super().__init__(
+            ErrorCode.AMBIGUOUS_COMMIT,
+            "the transaction outcome could not yet be resolved from its idempotency key",
+            status_code=503,
+            retryable=True,
+        )
+
+
 class PolicyRejected(SwarmBrainError):
     def __init__(self, reason: str) -> None:
         super().__init__(

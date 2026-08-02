@@ -18,6 +18,7 @@ from swarmbrain.domain.tasks import (
     ReleaseResult,
     ReleaseTaskCommand,
     Task,
+    TaskDependency,
 )
 
 
@@ -33,6 +34,8 @@ class CoordinationStore(Protocol):
     async def join_agent(self, actor: ActorContext) -> Agent: ...
 
     async def add_task(self, task: Task) -> Task: ...
+
+    async def add_dependency(self, dependency: TaskDependency) -> TaskDependency: ...
 
     async def claim_task(
         self,
