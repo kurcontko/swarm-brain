@@ -184,6 +184,26 @@ def test_cockroach_rows_map_to_strict_domain_contracts() -> None:
     assert conflict.reported_evidence == (evidence.as_ref(),)
 
 
+def test_cockroach_mapper_preserves_structured_content_and_custom_labels() -> None:
+    now = datetime(2026, 8, 2, 8, 30, tzinfo=UTC)
+    actor = _actor()
+    row = _memory_row(now=now, memory_id=_id(), actor=actor)
+    row.update(
+        {
+            "kind": "org.acme/preference",
+            "content": '{"preference":"vim"}',
+            "content_json": {"preference": "vim", "contexts": ["terminal"]},
+        }
+    )
+
+    memory = memory_from_row(row)
+
+    assert memory.kind == "org.acme/preference"
+    assert memory.content == {"preference": "vim", "contexts": ["terminal"]}
+    score, _ = lexical_score("vim", memory)
+    assert score > 0
+
+
 def test_dedup_scope_and_lexical_ranking_are_deterministic() -> None:
     now = datetime(2026, 8, 2, 8, 30, tzinfo=UTC)
     actor = _actor()

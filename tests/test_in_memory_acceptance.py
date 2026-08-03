@@ -245,6 +245,51 @@ async def test_cross_vendor_memory_reuse_preserves_evidence(
 
 
 @pytest.mark.asyncio
+async def test_structured_custom_memories_append_and_recall_without_implicit_merge(
+    scope_ids: dict[str, str],
+) -> None:
+    kernel = InMemoryKernel()
+    service = MemoryService(kernel, ConservativeMemoryPolicy(), review_store=kernel)
+    actor = make_actor(scope_ids)
+    document = {
+        "subject": "editor",
+        "preference": {"name": "vim", "reason": "modal editing"},
+        "contexts": ["terminal", "remote"],
+    }
+
+    first = await service.publish(
+        actor,
+        RememberCommand(
+            idempotency_key="custom-memory-a",
+            kind="org.acme/preference",
+            content=document,
+        ),
+    )
+    second = await service.publish(
+        actor,
+        RememberCommand(
+            idempotency_key="custom-memory-b",
+            kind="org.acme/preference",
+            content=document,
+        ),
+    )
+    recalled = await service.recall(
+        actor,
+        RecallQuery(text="vim", kinds=frozenset({"org.acme/preference"})),
+    )
+
+    assert first.operation is MemoryOperation.ADD
+    assert second.operation is MemoryOperation.ADD
+    assert first.memory is not None and second.memory is not None
+    assert first.memory.memory_id != second.memory.memory_id
+    assert {hit.memory.memory_id for hit in recalled.hits} == {
+        first.memory.memory_id,
+        second.memory.memory_id,
+    }
+    assert all(hit.memory.content == document for hit in recalled.hits)
+
+
+@pytest.mark.asyncio
 async def test_supersession_keeps_history_but_current_recall_returns_correction(
     scope_ids: dict[str, str],
 ) -> None:

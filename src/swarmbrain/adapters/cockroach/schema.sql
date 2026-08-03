@@ -213,12 +213,12 @@ CREATE TABLE IF NOT EXISTS sources (
     metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
     CONSTRAINT sources_trust_check CHECK (trust_label IN ('unknown', 'trusted', 'untrusted')),
     CONSTRAINT sources_review_check CHECK (review_state IN ('pending', 'approved', 'rejected')),
-    CONSTRAINT sources_type_check CHECK (
-        source_type IN ('source_code', 'command_output', 'test_result', 'log',
-                        'message', 'document', 'url', 'artifact', 'memory')
-    ),
     UNIQUE (tenant_id, repository_id, run_id, occurrence_key)
 );
+
+-- Semantic labels are an open application vocabulary.  Existing v3 clusters
+-- carried a closed allowlist, so installation explicitly removes it.
+ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_type_check;
 
 CREATE INDEX IF NOT EXISTS sources_scope_lookup
     ON sources (tenant_id, project_id, repository_id, swarm_id, run_id, id)
@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS memories (
     state STRING NOT NULL DEFAULT 'tentative',
     visibility STRING NOT NULL DEFAULT 'run',
     content STRING NOT NULL,
+    content_json JSONB NULL,
     title STRING NULL,
     tags STRING[] NOT NULL DEFAULT ARRAY[]::STRING[],
     normalized_sha256 BYTES NOT NULL,
@@ -273,10 +274,6 @@ CREATE TABLE IF NOT EXISTS memories (
     policy_confidence DECIMAL(5,4) NOT NULL DEFAULT 1.0000,
     version INT8 NOT NULL DEFAULT 1,
     metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
-    CONSTRAINT memories_kind_check CHECK (
-        kind IN ('observation', 'invariant', 'hypothesis', 'decision', 'attempt',
-                 'outcome', 'procedure', 'warning', 'handoff')
-    ),
     CONSTRAINT memories_state_check CHECK (
         state IN ('tentative', 'confirmed', 'refuted', 'superseded')
     ),
@@ -295,6 +292,9 @@ CREATE TABLE IF NOT EXISTS memories (
     ),
     CONSTRAINT memories_supersession_check CHECK (supersedes_id IS NULL OR supersedes_id != id)
 );
+
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS content_json JSONB NULL;
+ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_kind_check;
 
 CREATE INDEX IF NOT EXISTS memories_current_scope
     ON memories (tenant_id, repository_id, run_id, visibility, state, recorded_from DESC, id)
@@ -315,7 +315,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS memories_one_successor
     ON memories (supersedes_id)
     WHERE supersedes_id IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS memories_current_identity
+-- A fingerprint is a retrieval hint, not a uniqueness claim: two agents may
+-- independently observe the same content and both observations are preserved.
+DROP INDEX IF EXISTS memories_current_identity;
+
+CREATE INDEX IF NOT EXISTS memories_current_fingerprint
     ON memories (tenant_id, repository_id, dedup_scope, kind, normalized_sha256)
     WHERE recorded_to IS NULL AND state != 'refuted';
 
@@ -339,12 +343,10 @@ CREATE TABLE IF NOT EXISTS evidence (
     source_id UUID NOT NULL REFERENCES sources (id) ON DELETE RESTRICT,
     artifact JSONB NULL,
     metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT evidence_kind_check CHECK (
-        kind IN ('source_code', 'command_output', 'test_result', 'log',
-                 'message', 'document', 'url', 'artifact', 'memory')
-    )
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE evidence DROP CONSTRAINT IF EXISTS evidence_kind_check;
 
 CREATE INDEX IF NOT EXISTS evidence_source_lookup
     ON evidence (source_id, id)
@@ -355,11 +357,10 @@ CREATE TABLE IF NOT EXISTS memory_evidence (
     evidence_id UUID NOT NULL REFERENCES evidence (id) ON DELETE RESTRICT,
     relation STRING NOT NULL DEFAULT 'supports',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT memory_evidence_relation_check CHECK (
-        relation IN ('supports', 'refutes', 'derived_from')
-    ),
     PRIMARY KEY (memory_id, evidence_id, relation)
 );
+
+ALTER TABLE memory_evidence DROP CONSTRAINT IF EXISTS memory_evidence_relation_check;
 
 CREATE INDEX IF NOT EXISTS memory_evidence_by_evidence
     ON memory_evidence (evidence_id, memory_id)
@@ -374,12 +375,10 @@ CREATE TABLE IF NOT EXISTS memory_links (
     metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT memory_links_no_self CHECK (source_memory_id != target_memory_id),
-    CONSTRAINT memory_links_type_check CHECK (
-        link_type IN ('supersedes', 'derived_from', 'supports', 'contradicts',
-                      'duplicate_of', 'merged_from', 'related_to')
-    ),
     UNIQUE (source_memory_id, target_memory_id, link_type)
 );
+
+ALTER TABLE memory_links DROP CONSTRAINT IF EXISTS memory_links_type_check;
 
 CREATE INDEX IF NOT EXISTS memory_links_from
     ON memory_links (source_memory_id, created_at, id)

@@ -16,7 +16,6 @@ from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.common import utc_now
 from swarmbrain.domain.evidence import EvidenceSource, SourceReviewState, SourceTrust
 from swarmbrain.domain.extraction import (
-    EXTRACTABLE_SOURCE_KINDS,
     ExtractionInput,
     ExtractionProvenance,
     PreparedSourceIngest,
@@ -523,15 +522,12 @@ class InMemoryWorkStore:
         return source is not None and (
             source.source.review_state is not SourceReviewState.REJECTED
             and source.source.trust is not SourceTrust.UNTRUSTED
-            and source.source.kind in EXTRACTABLE_SOURCE_KINDS
         )
 
     @staticmethod
     def _cancellation_reason(prepared: PreparedSourceIngest) -> str | None:
         if prepared.command.trust is SourceTrust.UNTRUSTED:
             return "source_untrusted"
-        if prepared.command.kind not in EXTRACTABLE_SOURCE_KINDS:
-            return "source_kind_unsupported"
         return None
 
     def _validate_effect_spans(

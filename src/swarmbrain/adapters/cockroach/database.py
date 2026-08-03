@@ -23,7 +23,7 @@ from .retry import AmbiguousTransactionResult, RetryPolicy, run_serializable
 ModelT = TypeVar("ModelT", bound=BaseModel)
 TransactionBody = Callable[[Any], Awaitable[ModelT]]
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 REQUIRED_TABLES = frozenset(
     {
         "runs",
@@ -82,6 +82,7 @@ REQUIRED_COLUMNS = {
         "state",
         "dedup_scope",
         "normalized_sha256",
+        "content_json",
         "previous_state",
         "recorded_to",
         "version",
@@ -178,7 +179,7 @@ REQUIRED_INDEXES = frozenset(
         "memories_task_current",
         "memories_source",
         "memories_one_successor",
-        "memories_current_identity",
+        "memories_current_fingerprint",
         "evidence_source_lookup",
         "memory_evidence_by_evidence",
         "memory_links_from",

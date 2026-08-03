@@ -3,22 +3,31 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from enum import StrEnum
 from typing import Annotated, Self
 
-from pydantic import AwareDatetime, Field, StringConstraints, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from .common import (
     ContractModel,
     JsonObject,
+    MemoryContent,
     MutationCommand,
     SourceId,
     TaskId,
     UUIDString,
     utc_now,
 )
-from .evidence import EvidenceKind, EvidenceSource, Sha256, SourceTrust
-from .memory import MemoryKind
+from .evidence import EvidenceKind, EvidenceKindValue, EvidenceSource, Sha256, SourceTrust
+from .memory import MemoryKindValue
 
 GENERAL_SOURCE_KINDS = frozenset(
     {
@@ -35,10 +44,21 @@ ExtractorName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
 ]
-CandidateContent = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=32_768),
-]
+
+
+def _bounded_candidate_content(value: MemoryContent) -> MemoryContent:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > 32_768:
+        raise ValueError("candidate content exceeds 32768 encoded bytes")
+    return value
+
+
+CandidateContent = Annotated[MemoryContent, AfterValidator(_bounded_candidate_content)]
 
 
 class ExtractionRoute(StrEnum):
@@ -112,7 +132,7 @@ class SourceSpan(ContractModel):
 class IngestRawSourceCommand(MutationCommand):
     """Preserve exact source bytes before any fallible extraction work."""
 
-    kind: EvidenceKind
+    kind: EvidenceKindValue
     content: str = Field(min_length=1, max_length=1_000_000)
     observed_at: AwareDatetime
     task_id: TaskId | None = None
@@ -174,14 +194,14 @@ class SourceIngestResult(ContractModel):
 class ExtractionCandidate(ContractModel):
     """Untrusted proposal; storage-owned identity and lifecycle are impossible to set."""
 
-    kind: MemoryKind
+    kind: MemoryKindValue
     content: CandidateContent
     title: str | None = Field(default=None, max_length=500)
     tags: tuple[str, ...] = Field(default=(), max_length=64)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, allow_inf_nan=False)
     valid_from: AwareDatetime | None = None
     valid_to: AwareDatetime | None = None
-    spans: tuple[SourceSpan, ...] = Field(min_length=1, max_length=32)
+    spans: tuple[SourceSpan, ...] = Field(default=(), max_length=32)
 
     @field_validator("tags")
     @classmethod

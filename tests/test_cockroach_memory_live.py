@@ -396,3 +396,89 @@ async def test_concurrent_writers_cannot_create_divergent_successors(
         assert predecessor["recorded_to"] is not None
         assert str(predecessor["superseded_by_id"]) == str(successor["id"])
         assert successor["recorded_to"] is None
+
+
+async def test_structured_custom_memories_round_trip_and_append_independently(
+    database: CockroachDatabase,
+) -> None:
+    actor = _actor()
+    await _insert_run(database, actor)
+    store = CockroachMemoryStore(database)
+    policy = ConservativeMemoryPolicy()
+    content = {
+        "subject": "editor",
+        "preference": {"name": "vim", "strength": 0.8},
+        "contexts": ["terminal", "remote"],
+    }
+    source_content = b"A textual projection of a design document."
+    source = await store.register_source(
+        actor,
+        RegisterEvidenceSourceCommand(
+            idempotency_key=f"custom-source-{_id()}",
+            kind="application/pdf",
+            content_sha256=hashlib.sha256(source_content).hexdigest(),
+            observed_at=datetime.now(UTC),
+            uri="artifact://design.pdf",
+        ),
+    )
+    evidence = await store.add_evidence(
+        actor,
+        AddEvidenceCommand(
+            idempotency_key=f"custom-evidence-{_id()}",
+            source_id=source.source_id,
+            kind="org.acme/layout_hint",
+            locator="page:3",
+            excerpt="Prefer a modal editor.",
+        ),
+    )
+    assert source.kind == "application/pdf"
+    assert evidence.kind == "org.acme/layout_hint"
+
+    first = await store.remember(
+        actor,
+        RememberCommand(
+            idempotency_key=f"structured-first-{_id()}",
+            kind="org.acme/preference",
+            content=content,
+            evidence=(evidence.as_ref(),),
+        ),
+        policy,
+    )
+    second = await store.remember(
+        actor,
+        RememberCommand(
+            idempotency_key=f"structured-second-{_id()}",
+            kind="org.acme/preference",
+            content=content,
+        ),
+        policy,
+    )
+
+    assert first.operation is MemoryOperation.ADD
+    assert second.operation is MemoryOperation.ADD
+    assert first.memory is not None and second.memory is not None
+    assert first.memory.memory_id != second.memory.memory_id
+    recalled = await store.recall(
+        actor,
+        RecallQuery(text="vim", kinds=frozenset({"org.acme/preference"})),
+    )
+    assert {hit.memory.memory_id for hit in recalled.hits} == {
+        first.memory.memory_id,
+        second.memory.memory_id,
+    }
+    assert all(hit.memory.content == content for hit in recalled.hits)
+
+    async with database.pool.connection() as connection:
+        cursor = await connection.execute(
+            """
+            SELECT kind, content, content_json
+            FROM memories
+            WHERE id = ANY(%s::UUID[])
+            ORDER BY id
+            """,
+            ([first.memory.memory_id, second.memory.memory_id],),
+        )
+        rows = await cursor.fetchall()
+    assert len(rows) == 2
+    assert all(row["kind"] == "org.acme/preference" for row in rows)
+    assert all(row["content_json"] == content for row in rows)

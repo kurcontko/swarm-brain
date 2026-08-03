@@ -17,6 +17,7 @@ from .common import (
     MemoryId,
     MutationCommand,
     RunId,
+    SemanticLabel,
     ShortText,
     SourceId,
     TaskId,
@@ -36,6 +37,12 @@ class EvidenceKind(StrEnum):
     URL = "url"
     ARTIFACT = "artifact"
     MEMORY = "memory"
+
+
+EvidenceKindValue = Annotated[
+    EvidenceKind | SemanticLabel,
+    Field(union_mode="left_to_right"),
+]
 
 
 class SourceTrust(StrEnum):
@@ -75,7 +82,7 @@ class EvidenceSource(ContractModel):
     source_id: SourceId
     run_id: RunId
     task_id: TaskId | None = None
-    kind: EvidenceKind
+    kind: EvidenceKindValue
     uri: str | None = Field(default=None, max_length=2048)
     content_sha256: Sha256
     occurrence_key: str | None = Field(default=None, min_length=1, max_length=512)
@@ -114,7 +121,7 @@ class EvidenceRef(ContractModel):
 class Evidence(ContractModel):
     evidence_id: EvidenceId
     source_id: SourceId
-    kind: EvidenceKind
+    kind: EvidenceKindValue
     locator: str | None = Field(default=None, max_length=2048)
     excerpt: str | None = Field(default=None, max_length=8192)
     content_sha256: Sha256 | None = None
@@ -135,7 +142,7 @@ class Evidence(ContractModel):
 
 
 class RegisterEvidenceSourceCommand(MutationCommand):
-    kind: EvidenceKind
+    kind: EvidenceKindValue
     content_sha256: Sha256
     observed_at: AwareDatetime
     task_id: TaskId | None = None
@@ -147,7 +154,7 @@ class RegisterEvidenceSourceCommand(MutationCommand):
 
 class AddEvidenceCommand(MutationCommand):
     source_id: SourceId
-    kind: EvidenceKind
+    kind: EvidenceKindValue
     locator: str | None = Field(default=None, max_length=2048)
     excerpt: str | None = Field(default=None, max_length=8192)
     content_sha256: Sha256 | None = None
@@ -185,6 +192,7 @@ __all__ = [
     "ArtifactRef",
     "Evidence",
     "EvidenceKind",
+    "EvidenceKindValue",
     "EvidenceRef",
     "EvidenceSource",
     "RegisterEvidenceSourceCommand",

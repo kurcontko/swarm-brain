@@ -59,6 +59,22 @@ def test_schema_encodes_lease_and_idempotency_invariants() -> None:
     assert "superseded_by_id" in schema
 
 
+def test_memory_schema_keeps_lifecycle_strict_but_semantics_open() -> None:
+    schema = read_schema()
+    blocks = _create_table_blocks(schema)
+
+    assert "content_json JSONB NULL" in blocks["memories"]
+    assert "memories_state_check" in blocks["memories"]
+    assert "memories_visibility_check" in blocks["memories"]
+    assert "memories_kind_check CHECK" not in blocks["memories"]
+    assert "sources_type_check CHECK" not in blocks["sources"]
+    assert "evidence_kind_check CHECK" not in blocks["evidence"]
+    assert "memory_links_type_check CHECK" not in blocks["memory_links"]
+    assert "DROP INDEX IF EXISTS memories_current_identity" in schema
+    assert "CREATE INDEX IF NOT EXISTS memories_current_fingerprint" in schema
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS memories_current_fingerprint" not in schema
+
+
 def test_schema_persists_domain_fencing_provenance_and_structured_resolution() -> None:
     blocks = _create_table_blocks(read_schema())
 

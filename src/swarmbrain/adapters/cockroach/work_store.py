@@ -11,12 +11,14 @@ from uuid import UUID, uuid5
 from psycopg.types.json import Jsonb
 
 from swarmbrain.application.errors import IdempotencyConflict, ResourceNotFound
-from swarmbrain.application.memory_policy import memory_text_sha256
+from swarmbrain.application.memory_policy import (
+    memory_content_text,
+    memory_text_sha256,
+)
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.events import AggregateType, EventType, SwarmEvent
-from swarmbrain.domain.evidence import EvidenceKind, EvidenceSource, SourceReviewState, SourceTrust
+from swarmbrain.domain.evidence import EvidenceSource, SourceReviewState, SourceTrust
 from swarmbrain.domain.extraction import (
-    EXTRACTABLE_SOURCE_KINDS,
     ExtractionInput,
     ExtractionProvenance,
     PreparedSourceIngest,
@@ -116,7 +118,7 @@ def _source_from_row(row: Mapping[str, Any]) -> EvidenceSource:
         source_id=str(row["id"]),
         run_id=str(row["run_id"]),
         task_id=str(row["task_id"]) if row.get("task_id") is not None else None,
-        kind=EvidenceKind(str(row["source_type"])),
+        kind=str(row["source_type"]),
         uri=row.get("uri"),
         content_sha256=bytes(row["content_sha256"]).hex(),
         occurrence_key=str(row["occurrence_key"]),
@@ -174,7 +176,7 @@ class CockroachWorkStore:
                     actor.run_id,
                     _uuid(command.task_id) if command.task_id else None,
                     actor.agent_id,
-                    command.kind.value,
+                    str(command.kind),
                     _uuid(command.subject_id),
                     Jsonb(command.payload),
                     command.dedupe_key,
@@ -265,7 +267,7 @@ class CockroachWorkStore:
                     actor.run_id,
                     _uuid(command.task_id) if command.task_id else None,
                     actor.agent_id,
-                    command.kind.value,
+                    str(command.kind),
                     occurrence,
                     command.uri,
                     bytes.fromhex(command.content_sha256),
@@ -440,7 +442,6 @@ class CockroachWorkStore:
                               WHERE source.id = work.subject_id
                                 AND source.review_state != 'rejected'
                                 AND source.trust_label != 'untrusted'
-                                AND source.source_type = ANY(%s::STRING[])
                           )
                       )
                     ORDER BY
@@ -467,7 +468,6 @@ class CockroachWorkStore:
                 """,
                 (
                     sorted(kind.value for kind in command.kinds),
-                    sorted(kind.value for kind in EXTRACTABLE_SOURCE_KINDS),
                     command.limit,
                     command.worker_id,
                     timedelta(seconds=command.lease_seconds),
@@ -965,12 +965,13 @@ class CockroachWorkStore:
             """
             INSERT INTO memories (
                 id, tenant_id, project_id, repository_id, swarm_id, run_id,
-                task_id, agent_id, kind, state, visibility, content, title,
-                tags, normalized_sha256, dedup_scope, confidence, valid_from,
+                task_id, agent_id, kind, state, visibility, content,
+                content_json, title, tags, normalized_sha256, dedup_scope,
+                confidence, valid_from,
                 valid_to, source_id, policy_reason, policy_confidence, metadata
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, 'tentative', 'run',
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1.0, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1.0, %s
             )
             ON CONFLICT DO NOTHING
             RETURNING id, recorded_from, version
@@ -984,8 +985,9 @@ class CockroachWorkStore:
                 item.run_id,
                 _uuid(item.task_id) if item.task_id else None,
                 item.requested_by_agent_id,
-                candidate.kind.value,
-                candidate.content,
+                str(candidate.kind),
+                memory_content_text(candidate.content),
+                Jsonb(candidate.content) if not isinstance(candidate.content, str) else None,
                 candidate.title,
                 list(candidate.tags),
                 bytes.fromhex(memory_text_sha256(candidate.content)),
@@ -1003,33 +1005,21 @@ class CockroachWorkStore:
         memory_recorded_at = inserted.get("recorded_from") if inserted is not None else None
         memory_version = int(inserted.get("version", 1)) if inserted is not None else 1
         if inserted is None:
-            duplicate_cursor = await connection.execute(
+            existing_memory_cursor = await connection.execute(
                 """
                 SELECT id, recorded_from, version
                 FROM memories
-                WHERE tenant_id = %s
-                  AND repository_id = %s
-                  AND dedup_scope = %s
-                  AND kind = %s
-                  AND normalized_sha256 = %s
-                  AND recorded_to IS NULL
-                  AND state != 'refuted'
+                WHERE id = %s
                 FOR UPDATE
                 """,
-                (
-                    item.tenant_id,
-                    item.repository_id,
-                    f"run:{item.run_id}",
-                    candidate.kind.value,
-                    bytes.fromhex(memory_text_sha256(candidate.content)),
-                ),
+                (memory_id,),
             )
-            duplicate = await duplicate_cursor.fetchone()
-            if duplicate is None:
-                raise RuntimeError("memory effect conflict did not resolve to a current memory")
-            memory_id = _uuid(str(duplicate["id"]))
-            memory_recorded_at = duplicate["recorded_from"]
-            memory_version = int(duplicate["version"])
+            existing_memory = await existing_memory_cursor.fetchone()
+            if existing_memory is None:
+                raise RuntimeError("memory effect conflict did not resolve by effect identity")
+            memory_id = _uuid(str(existing_memory["id"]))
+            memory_recorded_at = existing_memory["recorded_from"]
+            memory_version = int(existing_memory["version"])
 
         for evidence_id in evidence_ids:
             await connection.execute(
@@ -1244,8 +1234,6 @@ class CockroachWorkStore:
     def _cancellation_reason(prepared: PreparedSourceIngest) -> str | None:
         if prepared.command.trust is SourceTrust.UNTRUSTED:
             return "source_untrusted"
-        if prepared.command.kind not in EXTRACTABLE_SOURCE_KINDS:
-            return "source_kind_unsupported"
         return None
 
     @staticmethod

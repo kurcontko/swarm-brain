@@ -27,6 +27,7 @@ from swarmbrain.application.errors import (
     NoTaskAvailable,
     ResourceNotFound,
 )
+from swarmbrain.application.memory_policy import memory_content_text
 from swarmbrain.domain.agents import ActorContext, Agent
 from swarmbrain.domain.common import MemoryId, RunId, SourceId, utc_now
 from swarmbrain.domain.conflicts import (
@@ -775,7 +776,9 @@ class InMemoryKernel:
             query_tokens = _tokens(query.text)
             scored: list[RecallHit] = []
             for memory in candidates:
-                haystack = " ".join((memory.title or "", memory.content, *memory.tags))
+                haystack = " ".join(
+                    (memory.title or "", memory_content_text(memory.content), *memory.tags)
+                )
                 memory_tokens = _tokens(haystack)
                 overlap = len(query_tokens & memory_tokens) / max(1, len(query_tokens))
                 substring = query.text.casefold() in haystack.casefold()

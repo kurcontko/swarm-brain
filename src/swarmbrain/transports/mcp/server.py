@@ -9,6 +9,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from swarmbrain.config import BridgeSettings
+from swarmbrain.domain.common import MemoryContent
 
 from .client import SwarmBrainHttpClient
 
@@ -104,7 +105,7 @@ def create_server(
     @server.tool()
     async def publish_memory(
         idempotency_key: str,
-        content: str,
+        content: MemoryContent,
         kind: str = "observation",
         desired_state: str = "tentative",
         visibility: str = "run",
@@ -119,7 +120,7 @@ def create_server(
         confidence: float = 0.5,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Publish a conservative, source-preserving temporal memory proposal."""
+        """Append a flexible, source-preserving temporal memory proposal."""
 
         return await client().publish_memory(
             content=content,

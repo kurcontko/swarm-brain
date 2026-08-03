@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 
 from swarmbrain.application.errors import IdempotencyConflict, InvalidState, ResourceNotFound
-from swarmbrain.application.memory_policy import memory_text_sha256
+from swarmbrain.application.memory_policy import memory_content_text, memory_text_sha256
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.conflicts import (
     Conflict,
@@ -43,7 +43,6 @@ from swarmbrain.domain.memory import (
     Memory,
     MemoryLineage,
     MemoryOperation,
-    MemoryPolicyDecision,
     MemoryReviewDecision,
     MemoryState,
     RecallBundle,
@@ -83,8 +82,9 @@ EVIDENCE_ALIAS_COLUMNS = ", ".join(f"e.{column.strip()}" for column in EVIDENCE_
 
 MEMORY_COLUMNS = """
     m.id, m.tenant_id, m.project_id, m.repository_id, m.swarm_id, m.run_id,
-    m.task_id, m.agent_id, m.kind, m.state, m.visibility, m.content, m.title,
-    m.tags, m.normalized_sha256, m.dedup_scope, m.confidence, m.valid_from,
+    m.task_id, m.agent_id, m.kind, m.state, m.visibility, m.content,
+    m.content_json, m.title, m.tags, m.normalized_sha256, m.dedup_scope,
+    m.confidence, m.valid_from,
     m.valid_to, m.recorded_from, m.recorded_to, m.supersedes_id,
     m.superseded_by_id, m.source_id, m.previous_state, m.policy_reason,
     m.policy_confidence, m.version, m.metadata
@@ -176,7 +176,7 @@ class CockroachMemoryStore:
                     actor.run_id,
                     _uuid(command.task_id) if command.task_id else None,
                     actor.agent_id,
-                    command.kind.value,
+                    str(command.kind),
                     occurrence,
                     command.uri,
                     bytes.fromhex(command.content_sha256),
@@ -199,7 +199,7 @@ class CockroachMemoryStore:
                 aggregate_id=source.source_id,
                 aggregate_version=source.version,
                 task_id=source.task_id,
-                payload={"kind": source.kind.value},
+                payload={"kind": str(source.kind)},
                 idempotency_key=command.idempotency_key,
                 occurred_at=source.recorded_at,
             )
@@ -240,7 +240,7 @@ class CockroachMemoryStore:
                 (
                     evidence_id,
                     actor.tenant_id,
-                    command.kind.value,
+                    str(command.kind),
                     command.locator,
                     _digest(command.content_sha256),
                     command.excerpt,
@@ -432,21 +432,6 @@ class CockroachMemoryStore:
                     operation=decision.operation.value,
                 )
 
-            duplicate_id = await self._find_current_identity(
-                connection,
-                actor,
-                identity_scope,
-                command.kind.value,
-                normalized_sha256,
-            )
-            if decision.operation is MemoryOperation.ADD and duplicate_id is not None:
-                decision = MemoryPolicyDecision(
-                    operation=MemoryOperation.MERGE,
-                    reason="same scope, kind, and exact canonical content already exist",
-                    confidence=0.99,
-                    target_memory_ids=(duplicate_id,),
-                )
-
             if decision.operation is MemoryOperation.MERGE:
                 if not decision.target_memory_ids:
                     raise InvalidState("merge decision has no target memory")
@@ -501,11 +486,6 @@ class CockroachMemoryStore:
                         require_current=True,
                         for_update=True,
                     )
-                    if duplicate_id is not None and duplicate_id != predecessor.memory_id:
-                        raise InvalidState(
-                            "replacement duplicates another current memory",
-                            memory_id=duplicate_id,
-                        )
                     recorded_from = max(
                         recorded_from,
                         predecessor.recorded_from + timedelta(microseconds=1),
@@ -524,13 +504,14 @@ class CockroachMemoryStore:
                     """
                     INSERT INTO memories (
                         id, tenant_id, project_id, repository_id, swarm_id, run_id,
-                        task_id, agent_id, kind, state, visibility, content, title,
-                        tags, normalized_sha256, dedup_scope, confidence, valid_from,
+                        task_id, agent_id, kind, state, visibility, content,
+                        content_json, title, tags, normalized_sha256, dedup_scope,
+                        confidence, valid_from,
                         valid_to, recorded_from, supersedes_id, source_id,
                         policy_reason, policy_confidence, metadata
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
                     (
@@ -542,10 +523,11 @@ class CockroachMemoryStore:
                         actor.run_id,
                         _uuid(command.task_id) if command.task_id else None,
                         actor.agent_id,
-                        command.kind.value,
+                        str(command.kind),
                         command.desired_state.value,
                         command.visibility.value,
-                        command.content,
+                        memory_content_text(command.content),
+                        Jsonb(command.content) if not isinstance(command.content, str) else None,
                         command.title,
                         list(command.tags),
                         normalized_sha256,
@@ -732,7 +714,7 @@ class CockroachMemoryStore:
             parameters.append(sorted(state.value for state in query.effective_states))
             if query.kinds:
                 clauses.append("m.kind = ANY(%s::STRING[])")
-                parameters.append(sorted(kind.value for kind in query.kinds))
+                parameters.append(sorted(str(kind) for kind in query.kinds))
 
             if query.recorded_at is not None:
                 clauses.extend(
@@ -951,20 +933,6 @@ class CockroachMemoryStore:
                 if command.decision is MemoryReviewDecision.CONFIRM
                 else MemoryState.REFUTED
             )
-            if state is MemoryState.CONFIRMED:
-                duplicate_id = await self._find_current_identity(
-                    connection,
-                    actor,
-                    dedup_scope(memory.visibility, memory.run_id, memory.task_id),
-                    memory.kind.value,
-                    bytes.fromhex(memory_text_sha256(memory.content)),
-                )
-                if duplicate_id is not None and duplicate_id != memory.memory_id:
-                    raise InvalidState(
-                        "confirmed memory would duplicate another current memory",
-                        memory_id=memory.memory_id,
-                        duplicate_memory_id=duplicate_id,
-                    )
             cursor = await connection.execute(
                 """
                 UPDATE memories
@@ -1142,37 +1110,25 @@ class CockroachMemoryStore:
                     (_uuid(memory_id),),
                 )
                 if predecessor_id is not None:
-                    predecessor = await self._require_memory(
+                    await self._require_memory(
                         connection,
                         actor,
                         str(predecessor_id),
                         require_current=False,
                         for_update=True,
                     )
-                    duplicate_id = await self._find_current_identity(
-                        connection,
-                        actor,
-                        dedup_scope(
-                            predecessor.visibility,
-                            predecessor.run_id,
-                            predecessor.task_id,
-                        ),
-                        predecessor.kind.value,
-                        bytes.fromhex(memory_text_sha256(predecessor.content)),
+                    await connection.execute(
+                        """
+                        UPDATE memories
+                        SET state = COALESCE(previous_state, 'tentative'),
+                            recorded_to = NULL,
+                            superseded_by_id = NULL,
+                            version = version + 1
+                        WHERE id = %s
+                          AND superseded_by_id = %s
+                        """,
+                        (_uuid(str(predecessor_id)), _uuid(memory_id)),
                     )
-                    if duplicate_id is None or duplicate_id == predecessor.memory_id:
-                        await connection.execute(
-                            """
-                            UPDATE memories
-                            SET state = COALESCE(previous_state, 'tentative'),
-                                recorded_to = NULL,
-                                superseded_by_id = NULL,
-                                version = version + 1
-                            WHERE id = %s
-                              AND superseded_by_id = %s
-                            """,
-                            (_uuid(str(predecessor_id)), _uuid(memory_id)),
-                        )
 
             result = SourceRejectionResult(
                 source=rejected_source,
@@ -1809,38 +1765,6 @@ class CockroachMemoryStore:
                 include_rejected=False,
             )
             return tuple(memory_from_row(row, evidence.get(str(row["id"]), ())) for row in rows)
-
-    async def _find_current_identity(
-        self,
-        connection: Any,
-        actor: ActorContext,
-        identity_scope: str,
-        kind: str,
-        normalized_sha256: bytes,
-    ) -> str | None:
-        cursor = await connection.execute(
-            """
-            SELECT id
-            FROM memories
-            WHERE tenant_id = %s
-              AND repository_id = %s
-              AND dedup_scope = %s
-              AND kind = %s
-              AND normalized_sha256 = %s
-              AND recorded_to IS NULL
-              AND state != 'refuted'
-            FOR UPDATE
-            """,
-            (
-                actor.tenant_id,
-                actor.repository_id,
-                identity_scope,
-                kind,
-                normalized_sha256,
-            ),
-        )
-        row = await cursor.fetchone()
-        return None if row is None else str(row["id"])
 
     @staticmethod
     async def _insert_memory_evidence(

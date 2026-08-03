@@ -17,8 +17,10 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    FiniteFloat,
     StringConstraints,
 )
+from typing_extensions import TypeAliasType
 
 
 def utc_now() -> datetime:
@@ -48,6 +50,25 @@ ShortText = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=4096),
 ]
 ContentText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+SemanticLabel = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
+]
+# Nested JSON may contain null; the outer memory content deliberately may not.
+NestedJsonValue = TypeAliasType(
+    "NestedJsonValue",
+    str
+    | int
+    | FiniteFloat
+    | bool
+    | None
+    | list["NestedJsonValue"]
+    | dict[str, "NestedJsonValue"],
+)
+MemoryContent = TypeAliasType(
+    "MemoryContent",
+    str | int | FiniteFloat | bool | list[NestedJsonValue] | dict[str, NestedJsonValue],
+)
 Confidence = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
 JsonObject: TypeAlias = dict[str, Any]
 
@@ -105,11 +126,14 @@ __all__ = [
     "IdempotencyKey",
     "JsonObject",
     "LeaseId",
+    "MemoryContent",
     "MemoryId",
     "MutationCommand",
+    "NestedJsonValue",
     "ProjectId",
     "RepositoryId",
     "RunId",
+    "SemanticLabel",
     "ShortText",
     "SourceId",
     "SwarmId",

@@ -172,9 +172,35 @@ async def test_full_in_memory_vertical_slice_through_canonical_http(
         assert corrected.status_code == 200
         correct_id = corrected.json()["memory"]["memory_id"]
 
+        structured = await client.post(
+            "/v1/memories",
+            json={
+                "kind": "org.acme/preference",
+                "content": {
+                    "subject": "editor",
+                    "preference": {"name": "vim", "strength": 0.8},
+                },
+            },
+            headers={**auth, "Idempotency-Key": "http-structured-memory"},
+        )
+        assert structured.status_code == 200, structured.text
+        assert structured.json()["memory"]["kind"] == "org.acme/preference"
+        assert structured.json()["memory"]["content"]["preference"]["name"] == "vim"
+
+        structured_recall = await client.post(
+            "/v1/memories:recall",
+            json={"text": "vim", "kinds": ["org.acme/preference"]},
+            headers=auth,
+        )
+        assert structured_recall.status_code == 200
+        assert structured_recall.json()["hits"][0]["memory"]["content"] == {
+            "subject": "editor",
+            "preference": {"name": "vim", "strength": 0.8},
+        }
+
         recalled = await client.post(
             "/v1/memories:recall",
-            json={"text": "SQL port", "include_evidence": True},
+            json={"text": "SQL port", "kinds": ["invariant"], "include_evidence": True},
             headers=auth,
         )
         assert [hit["memory"]["memory_id"] for hit in recalled.json()["hits"]] == [correct_id]
@@ -304,6 +330,14 @@ async def test_mcp_registers_exactly_six_thin_scope_safe_tools() -> None:
     }
     for tool in tools:
         assert forbidden.isdisjoint(tool.inputSchema["properties"])
+    publish = next(tool for tool in tools if tool.name == "publish_memory")
+    content_schema = publish.inputSchema["properties"]["content"]
+    assert content_schema == {"$ref": "#/$defs/MemoryContent"}
+    memory_content_schema = json.dumps(publish.inputSchema["$defs"]["MemoryContent"])
+    assert '"string"' in memory_content_schema
+    assert '"object"' in memory_content_schema
+    assert '"array"' in memory_content_schema
+    assert '"null"' not in memory_content_schema
 
 
 @pytest.mark.asyncio

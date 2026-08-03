@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Sequence
 
+from swarmbrain.domain.common import MemoryContent
 from swarmbrain.domain.memory import (
     Memory,
     MemoryOperation,
@@ -13,22 +15,34 @@ from swarmbrain.domain.memory import (
 )
 
 
-def canonical_memory_text(value: str) -> str:
-    """Conservative text identity used for deduplication, never semantic mutation."""
+def memory_content_text(value: MemoryContent) -> str:
+    """Return the stable textual projection used by lexical and vector adapters."""
 
-    return re.sub(r"\s+", " ", value.strip()).casefold()
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def memory_text_sha256(value: str) -> str:
+def canonical_memory_text(value: MemoryContent) -> str:
+    """Stable fingerprint input; structured content stays type-distinct from text."""
+
+    if isinstance(value, str):
+        # Preserve the original v0 fingerprint for every legacy text payload.
+        return re.sub(r"\s+", " ", value.strip()).casefold()
+    return f"json:{memory_content_text(value)}"
+
+
+def memory_text_sha256(value: MemoryContent) -> str:
     return hashlib.sha256(canonical_memory_text(value).encode("utf-8")).hexdigest()
 
 
 class ConservativeMemoryPolicy:
     """Deterministic add/update/merge/noop policy adapted from Sen.
 
-    Semantic similarity may be used later to propose relationships, but only
-    exact canonical identity or an explicit supersession target may authorize a
-    mutating operation in v0.
+    Independent observations append by default.  Exact identity is useful for
+    fingerprinting and retrieval, but is not treated as proof that two memories
+    are the same event.  Only an explicit supersession target can update or
+    merge an existing memory.
     """
 
     model_name = "swarmbrain-conservative-v0"
@@ -77,29 +91,9 @@ class ConservativeMemoryPolicy:
                 target_memory_ids=(target.memory_id,),
             )
 
-        incoming_hash = memory_text_sha256(command.content)
-        duplicate = next(
-            (
-                memory
-                for memory in current_memories
-                if memory_text_sha256(memory.content) == incoming_hash
-                and memory.kind is command.kind
-                and memory.visibility is command.visibility
-                and memory.task_id == command.task_id
-            ),
-            None,
-        )
-        if duplicate is not None:
-            return MemoryPolicyDecision(
-                operation=MemoryOperation.MERGE,
-                reason="same scope, kind, and exact canonical content already exist",
-                confidence=0.99,
-                target_memory_ids=(duplicate.memory_id,),
-            )
-
         return MemoryPolicyDecision(
             operation=MemoryOperation.ADD,
-            reason="new scoped memory with no exact duplicate or supersession target",
+            reason="append independent memory; no explicit supersession target",
             confidence=0.9,
         )
 

@@ -12,7 +12,8 @@ ports and CockroachDB-oriented transaction boundaries.
 - transactional task claim, lease renewal, checkpoint, completion, and release;
 - idempotent mutation handling;
 - task/run/repository-scoped temporal memories with evidence and lineage;
-- append-only supersession, conservative deduplication, and poisoning guards;
+- append-by-default memory observations, explicit supersession, and poisoning guards;
+- lossless JSON memory documents with open application-defined semantic labels;
 - evidence-backed conflict reporting and resolution;
 - an in-memory adapter for deterministic local development and tests;
 - an explicit CockroachDB schema command and a pooled async composition seam;
@@ -26,6 +27,26 @@ remain lazy, so a memory-only install does not require the optional driver.
 API startup opens the selected backend and verifies its prerequisites. It never
 installs or changes database schema. Operators must run the schema command
 explicitly before starting a CockroachDB-backed API.
+
+## Flexible memory contract
+
+Memory content is a required, non-null JSON value: existing strings remain
+fully compatible, while objects, arrays, numbers, and booleans round-trip
+without being flattened. `MemoryKind`, `EvidenceKind`, and `MemoryLinkKind`
+list useful built-ins but do not form a closed ontology; applications may use
+their own labels such as `org.acme/preference` or `application/pdf`.
+
+Independent publications append by default, even when kind and content are
+identical. Idempotency still makes retries of the same command exactly-once,
+while an explicit `supersedes_memory_id` remains the only path that replaces a
+current assertion. The database stores a deterministic text projection for
+search and the original structured value in `content_json`.
+
+Extraction candidates may cite zero or more exact source spans. A supplied
+span is still checked character-for-character against the preserved source;
+zero spans means a source-derived synthesis, not a fabricated quotation. Scope,
+visibility, lifecycle states, trust/review state, auth, lease fencing, and
+idempotency remain strict.
 
 ## Development
 

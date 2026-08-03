@@ -156,10 +156,11 @@ available as the `initial_memory` property in Python.
 
 ### Source and evidence
 
-Enums:
+Built-in semantic labels and closed operational enums:
 
 - `EvidenceKind`: `source_code|command_output|test_result|log|message|document|
-  url|artifact|memory`;
+  url|artifact|memory`; callers may also use an application-defined non-empty
+  string label (max 255 characters), for example `application/pdf`;
 - `SourceTrust`: `unknown|trusted|untrusted`;
 - `SourceReviewState`: `pending|approved|rejected`.
 
@@ -175,7 +176,7 @@ the artifact port separately and never in this model.
 ```text
 source_id, run_id: UUID
 task_id?: UUID
-kind: EvidenceKind
+kind: EvidenceKind or application-defined semantic label
 uri?: string(max 2048)
 content_sha256: sha256
 occurrence_key?: string(1..512)
@@ -202,16 +203,17 @@ reviewed source, rolled-back memory IDs, and replay status.
 
 ### Temporal memory
 
-Enums:
+Built-in semantic labels and closed operational enums:
 
 - `MemoryKind`: `observation|invariant|hypothesis|decision|attempt|outcome|
-  procedure|warning|handoff`;
+  procedure|warning|handoff`; callers may also use an application-defined
+  non-empty string label (max 255 characters);
 - `MemoryState`: `tentative|confirmed|refuted|superseded`;
 - `Visibility`: `task|run|repository`;
 - `MemoryOperation`: `add|update|merge|delete|noop`;
 - `MemoryReviewDecision`: `confirm|refute`;
 - `MemoryLinkKind`: `supersedes|derived_from|supports|contradicts|duplicate_of|
-  merged_from|related_to`.
+  merged_from|related_to`; application-defined relation labels are also valid.
 
 `Memory`
 
@@ -220,7 +222,7 @@ memory_id, tenant_id, project_id, repository_id, swarm_id, run_id: UUID
 task_id?: UUID
 author_agent_id: UUID
 kind, state=tentative, visibility=run
-content: non-empty string
+content: required non-null JSON value (string, object, array, number, boolean)
 title?: string(max 500)
 tags: normalized unique lowercase string[] = []
 confidence: number[0,1] = 0.5
@@ -245,6 +247,14 @@ cannot request `desired_state=superseded`; confirmation/refutation and an
 explicit predecessor remain capability- and policy-gated. Tenant, repository,
 run, author, system time, version, and policy outcome are server-owned.
 
+The policy is append-by-default: identical content published under a different
+idempotency key remains a distinct observation. Exact-content hashing is a
+retrieval hint, not a uniqueness constraint. Only an explicit
+`supersedes_memory_id` can update an existing current assertion; an explicit
+target with identical canonical content may merge corroborating evidence.
+Structured content has a deterministic text projection for recall, but the
+original JSON value is preserved losslessly.
+
 `MemoryPolicyDecision` returns operation, non-empty reason, confidence, and
 target memory IDs. Update/merge/delete require targets; add forbids targets.
 `RememberResult` returns the same operation, decision, optional resulting
@@ -257,7 +267,7 @@ delete.
 ```text
 text: non-empty string
 task_id?: UUID
-kinds: MemoryKind[] = []       # empty means all
+kinds: semantic-label[] = []   # built-in or custom; empty means all
 visibilities: Visibility[] = [task,run,repository]
 states?: MemoryState[]         # default effective states: tentative,confirmed
 include_refuted: boolean = false
@@ -282,6 +292,11 @@ time. The requested/current IDs must refer to included rows.
 confirm/refute decision, reason, and at least one evidence reference;
 `ReviewMemoryResult` returns memory and replay status. It is capability-gated
 and not a model-visible v0 tool.
+
+Extraction proposals follow the same flexible content/kind contract. Their
+`spans` collection is optional: every supplied span is validated as an exact
+quotation of the immutable raw source, while no spans denotes a derived
+synthesis and does not invent character offsets.
 
 `EmbeddingVector` validates finite values and exact dimension length;
 `EmbeddingMatch` is a memory ID and `[0,1]` score. These are adapter contracts,

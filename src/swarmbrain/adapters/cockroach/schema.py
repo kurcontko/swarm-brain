@@ -149,7 +149,7 @@ async def install_schema(database_url: str) -> int:
             """,
             (
                 SCHEMA_VERSION,
-                "Swarm Brain P1 durable coordination, memory, idempotency, and work queues",
+                "Swarm Brain flexible memory documents and open semantic vocabularies",
                 digest,
             ),
         )

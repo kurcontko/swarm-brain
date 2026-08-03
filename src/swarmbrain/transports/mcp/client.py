@@ -9,6 +9,7 @@ from uuid import uuid4
 import httpx
 
 from swarmbrain.config import BridgeSettings
+from swarmbrain.domain.common import MemoryContent
 
 
 class BridgeHttpError(RuntimeError):
@@ -179,7 +180,7 @@ class SwarmBrainHttpClient:
     async def publish_memory(
         self,
         *,
-        content: str,
+        content: MemoryContent,
         kind: str = "observation",
         desired_state: str = "tentative",
         visibility: str = "run",

@@ -289,11 +289,12 @@ class ExtractionService:
             return ExtractionRoute.SKIP, "source_rejected"
         if source.trust is SourceTrust.UNTRUSTED:
             return ExtractionRoute.SKIP, "source_untrusted"
-        if source.kind is EvidenceKind.SOURCE_CODE:
+        if source.kind == EvidenceKind.SOURCE_CODE:
             return ExtractionRoute.CODING, None
-        if source.kind in GENERAL_SOURCE_KINDS:
-            return ExtractionRoute.GENERAL, None
-        return ExtractionRoute.SKIP, "source_kind_unsupported"
+        # Every trusted textual source is preservable and eligible for the
+        # general extractor.  Registered built-ins only select specialized
+        # routing; an application-defined source label is not an error.
+        return ExtractionRoute.GENERAL, None
 
     @staticmethod
     def _serializable_provider_output(values: Sequence[ProviderCandidate]) -> list[object]:

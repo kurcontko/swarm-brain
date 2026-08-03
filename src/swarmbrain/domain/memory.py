@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from math import isfinite
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
@@ -14,11 +14,13 @@ from .common import (
     ContentText,
     ContractModel,
     JsonObject,
+    MemoryContent,
     MemoryId,
     MutationCommand,
     ProjectId,
     RepositoryId,
     RunId,
+    SemanticLabel,
     ShortText,
     SwarmId,
     TaskId,
@@ -39,6 +41,14 @@ class MemoryKind(StrEnum):
     PROCEDURE = "procedure"
     WARNING = "warning"
     HANDOFF = "handoff"
+
+
+# Built-ins are conveniences, not a closed ontology.  Enum-first parsing keeps
+# existing callers on ``MemoryKind`` while accepting application-defined labels.
+MemoryKindValue = Annotated[
+    MemoryKind | SemanticLabel,
+    Field(union_mode="left_to_right"),
+]
 
 
 class MemoryState(StrEnum):
@@ -79,6 +89,12 @@ class MemoryLinkKind(StrEnum):
     RELATED_TO = "related_to"
 
 
+MemoryLinkKindValue = Annotated[
+    MemoryLinkKind | SemanticLabel,
+    Field(union_mode="left_to_right"),
+]
+
+
 class Memory(ContractModel):
     """One append-only version of a swarm memory.
 
@@ -95,10 +111,10 @@ class Memory(ContractModel):
     run_id: RunId
     task_id: TaskId | None = None
     author_agent_id: AgentId
-    kind: MemoryKind
+    kind: MemoryKindValue
     state: MemoryState = MemoryState.TENTATIVE
     visibility: Visibility = Visibility.RUN
-    content: ContentText
+    content: MemoryContent
     title: str | None = Field(default=None, max_length=500)
     tags: tuple[str, ...] = ()
     confidence: Confidence = 0.5
@@ -158,8 +174,8 @@ class MemoryPolicyDecision(ContractModel):
 class RememberCommand(MutationCommand):
     """Model-visible memory proposal; actor-owned scope is deliberately absent."""
 
-    kind: MemoryKind
-    content: ContentText
+    kind: MemoryKindValue
+    content: MemoryContent
     desired_state: MemoryState = MemoryState.TENTATIVE
     visibility: Visibility = Visibility.RUN
     task_id: TaskId | None = None
@@ -224,7 +240,7 @@ class RecallQuery(ContractModel):
 
     text: ContentText
     task_id: TaskId | None = None
-    kinds: frozenset[MemoryKind] = Field(default_factory=frozenset)
+    kinds: frozenset[MemoryKindValue] = Field(default_factory=frozenset)
     visibilities: frozenset[Visibility] = Field(default_factory=lambda: frozenset(Visibility))
     states: frozenset[MemoryState] | None = None
     include_refuted: bool = False
@@ -265,7 +281,7 @@ class MemoryLink(ContractModel):
     link_id: UUIDString
     source_memory_id: MemoryId
     target_memory_id: MemoryId
-    kind: MemoryLinkKind
+    kind: MemoryLinkKindValue
     evidence: tuple[EvidenceRef, ...] = ()
     reason: str | None = Field(default=None, max_length=4096)
     created_at: AwareDatetime = Field(default_factory=utc_now)
@@ -337,9 +353,11 @@ __all__ = [
     "EmbeddingVector",
     "Memory",
     "MemoryKind",
+    "MemoryKindValue",
     "MemoryLineage",
     "MemoryLink",
     "MemoryLinkKind",
+    "MemoryLinkKindValue",
     "MemoryOperation",
     "MemoryPolicyDecision",
     "MemoryReviewDecision",

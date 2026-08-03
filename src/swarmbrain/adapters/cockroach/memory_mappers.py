@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
+from swarmbrain.application.memory_policy import memory_content_text
 from swarmbrain.domain.conflicts import (
     Conflict,
     ConflictResolution,
@@ -16,7 +17,6 @@ from swarmbrain.domain.conflicts import (
 from swarmbrain.domain.evidence import (
     ArtifactRef,
     Evidence,
-    EvidenceKind,
     EvidenceRef,
     EvidenceSource,
     SourceReviewState,
@@ -24,9 +24,7 @@ from swarmbrain.domain.evidence import (
 )
 from swarmbrain.domain.memory import (
     Memory,
-    MemoryKind,
     MemoryLink,
-    MemoryLinkKind,
     MemoryState,
     Visibility,
 )
@@ -55,7 +53,7 @@ def source_from_row(row: Mapping[str, Any]) -> EvidenceSource:
         source_id=str(row["id"]),
         run_id=str(row["run_id"]),
         task_id=_uuid_text(row.get("task_id")),
-        kind=EvidenceKind(str(row["source_type"])),
+        kind=str(row["source_type"]),
         uri=row.get("uri"),
         content_sha256=_hex_digest(row["content_sha256"]),
         occurrence_key=str(row["occurrence_key"]),
@@ -77,7 +75,7 @@ def evidence_from_row(row: Mapping[str, Any]) -> Evidence:
     return Evidence(
         evidence_id=str(row["id"]),
         source_id=str(row["source_id"]),
-        kind=EvidenceKind(str(row["kind"])),
+        kind=str(row["kind"]),
         locator=row.get("locator"),
         excerpt=row.get("excerpt"),
         content_sha256=_hex_digest(row.get("content_sha256")),
@@ -103,10 +101,14 @@ def memory_from_row(
         run_id=str(row["run_id"]),
         task_id=_uuid_text(row.get("task_id")),
         author_agent_id=str(row["agent_id"]),
-        kind=MemoryKind(str(row["kind"])),
+        kind=str(row["kind"]),
         state=MemoryState(str(row["state"])),
         visibility=Visibility(str(row["visibility"])),
-        content=str(row["content"]),
+        content=(
+            row.get("content_json")
+            if row.get("content_json") is not None
+            else str(row["content"])
+        ),
         title=row.get("title"),
         tags=tuple(str(item) for item in (row.get("tags") or ())),
         confidence=float(confidence),
@@ -127,7 +129,7 @@ def link_from_row(row: Mapping[str, Any]) -> MemoryLink:
         link_id=str(row["id"]),
         source_memory_id=str(row["source_memory_id"]),
         target_memory_id=str(row["target_memory_id"]),
-        kind=MemoryLinkKind(str(row["link_type"])),
+        kind=str(row["link_type"]),
         reason=row.get("reason"),
         created_at=row["created_at"],
     )
@@ -176,7 +178,9 @@ def dedup_scope(visibility: Visibility, run_id: str, task_id: str | None) -> str
 
 def lexical_score(query: str, memory: Memory) -> tuple[float, tuple[str, ...]]:
     query_tokens = set(re.findall(r"[\w-]+", query.casefold()))
-    haystack = " ".join((memory.title or "", memory.content, *memory.tags))
+    haystack = " ".join(
+        (memory.title or "", memory_content_text(memory.content), *memory.tags)
+    )
     memory_tokens = set(re.findall(r"[\w-]+", haystack.casefold()))
     overlap = len(query_tokens & memory_tokens) / max(1, len(query_tokens))
     substring = query.casefold() in haystack.casefold()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from datetime import datetime
+from math import nan
 
 import pytest
 from pydantic import ValidationError
@@ -11,7 +12,13 @@ from swarmbrain.adapters.memory import InMemoryKernel
 from swarmbrain.domain import conflicts, events, evidence, leases, memory, tasks
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.common import ContractModel, MutationCommand
-from swarmbrain.domain.memory import RecallQuery, RememberCommand, Visibility
+from swarmbrain.domain.memory import (
+    MemoryKind,
+    MemoryLink,
+    RecallQuery,
+    RememberCommand,
+    Visibility,
+)
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
     ClaimTaskCommand,
@@ -120,3 +127,39 @@ def test_identifiers_are_canonical_uuid_strings() -> None:
     upper = new_id().upper()
     command = ClaimTaskCommand(idempotency_key="claim", task_id=upper)
     assert command.task_id == upper.lower()
+
+
+def test_memory_contract_accepts_json_documents_and_open_semantic_labels() -> None:
+    command = RememberCommand(
+        idempotency_key="preference-1",
+        kind="org.acme/preference",
+        content={
+            "subject": "editor",
+            "preference": {"name": "vim", "strength": 0.8},
+            "alternatives": ["helix", "zed"],
+        },
+    )
+    built_in = RememberCommand(
+        idempotency_key="observation-1",
+        kind="observation",
+        content=["ordered", {"value": 2}],
+    )
+    link = MemoryLink(
+        link_id=new_id(),
+        source_memory_id=new_id(),
+        target_memory_id=new_id(),
+        kind="org.acme/caused_by",
+    )
+
+    assert command.kind == "org.acme/preference"
+    assert command.content["preference"]["name"] == "vim"
+    assert built_in.kind is MemoryKind.OBSERVATION
+    assert link.kind == "org.acme/caused_by"
+    with pytest.raises(ValidationError):
+        RememberCommand(idempotency_key="null-1", kind="note", content=None)
+    with pytest.raises(ValidationError):
+        RememberCommand(
+            idempotency_key="nan-1",
+            kind="measurement",
+            content={"value": nan},
+        )

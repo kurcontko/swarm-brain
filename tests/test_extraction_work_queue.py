@@ -169,6 +169,17 @@ def test_candidate_contract_rejects_protected_storage_fields(
         ExtractionCandidate.model_validate(payload)
 
 
+def test_candidate_allows_structured_synthesis_without_claiming_an_exact_quote() -> None:
+    candidate = ExtractionCandidate(
+        kind="org.acme/synthesis",
+        content={"summary": "configuration needs validation", "signals": ["todo"]},
+    )
+
+    assert candidate.spans == ()
+    assert candidate.kind == "org.acme/synthesis"
+    assert candidate.content["signals"] == ["todo"]
+
+
 class InvalidProvider:
     descriptor = ProviderDescriptor(provider="test", model="malicious")
 
@@ -498,27 +509,32 @@ async def test_untrusted_source_is_preserved_but_never_claimed(
 
 
 @pytest.mark.asyncio
-async def test_unsupported_source_is_preserved_but_never_claimed(
+async def test_custom_source_kind_is_preserved_and_uses_general_route(
     scope_ids: dict[str, str],
 ) -> None:
     store = InMemoryWorkStore()
     service = ExtractionService(store, CodingRuleExtractor())
-    command = _command(idempotency_key="raw-url-1").model_copy(
-        update={
-            "kind": EvidenceKind.URL,
-            "occurrence_key": "https://example.invalid/source",
-        }
+    command = IngestRawSourceCommand(
+        idempotency_key="raw-custom-1",
+        kind="application/pdf",
+        content="A textual projection of a PDF document.",
+        observed_at=datetime(2026, 8, 2, 11, 0, tzinfo=UTC),
+        uri="artifact://design.pdf",
+        occurrence_key="design.pdf@abc123",
     )
     ingested = await service.ingest(make_actor(scope_ids), command)
 
     batch = await store.claim_work(
         ClaimWorkCommand(
-            worker_id="worker-supported-only",
+            worker_id="worker-open-vocabulary",
             kinds=frozenset({WorkKind.EXTRACT_SOURCE}),
         )
     )
 
     assert store.sources[ingested.source.source_id].raw_content == command.content
-    assert store.items[ingested.work_id].status is WorkStatus.CANCELLED
-    assert store.items[ingested.work_id].outcome == "source_kind_unsupported"
-    assert batch.leases == ()
+    assert store.items[ingested.work_id].status is WorkStatus.LEASED
+    assert len(batch.leases) == 1
+    request = await store.load_extraction_input(batch.leases[0])
+    extracted = await service.extract(request)
+    assert request.source.kind == "application/pdf"
+    assert extracted.route.value == "general"
