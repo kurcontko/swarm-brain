@@ -31,7 +31,8 @@ open metadata, unlisted fields are rejected.
 `Capability` values are `run:join`, `task:claim`, `task:checkpoint`,
 `task:complete`, `task:release`, `lease:renew`, `memory:publish`,
 `memory:recall`, `memory:confirm`, `memory:refute`, `source:review`,
-`conflict:report`, `conflict:resolve`, `events:read`, and `metrics:read`.
+`source:ingest`, `conflict:report`, `conflict:resolve`, `events:read`, and
+`metrics:read`.
 
 `ActorContext`
 
@@ -200,6 +201,53 @@ Source/evidence mutation commands are `RegisterEvidenceSourceCommand`,
 adds an idempotency key. Rejection has its own command because it must roll back
 derived current state transactionally. `SourceRejectionResult` returns the
 reviewed source, rolled-back memory IDs, and replay status.
+
+#### Durable raw-source ingestion
+
+`IngestSourceBody` contains only caller-owned source material: `kind`, `content`,
+optional `observed_at`, `task_id`, `uri`, `occurrence_key`, `metadata`, and an
+optional compatibility echo of the `Idempotency-Key` header. Trust, provider
+selection, extraction revision, chunk size, and queue priority are operator
+configuration and are rejected if supplied in the public body.
+
+The durable receipt is intentionally small:
+
+```text
+SourceIngestResult
+  source: EvidenceSource
+  work_id: UUID
+  chunk_count: integer >= 1
+  replayed: boolean = false
+```
+
+The status reader exposes `queued|leased|completed|failed|cancelled`, attempt
+counts, bounded outcome/route/candidate count, resulting memory IDs, and public
+timestamps. It never returns raw content, chunks, a lease token, worker owner,
+provider details, prompts, or internal error text.
+
+The dependency-free structured route accepts the explicit media type
+`application/vnd.swarmbrain.memory+json`. Its content is a JSON envelope whose
+`memories` array contains ordinary `ExtractionCandidate` values:
+
+```json
+{
+  "memories": [
+    {
+      "kind": "org.example/runbook-rule",
+      "content": {"retry_sqlstate": "40001", "strategy": ["backoff", "retry"]},
+      "title": "Serializable retry rule",
+      "tags": ["cockroachdb", "retry"],
+      "confidence": 0.9
+    }
+  ]
+}
+```
+
+Storage still assigns scope, state, visibility, IDs, author, system time, and
+lineage. A candidate without exact spans receives deterministic whole-source
+evidence (digest and source relation, no invented excerpt). Rejecting that
+source refutes its derived current memories and cancels pending, retryable, or
+leased extraction work in the same fenced transaction.
 
 ### Temporal memory
 
@@ -387,6 +435,15 @@ class MemoryService:
     async def review(self, actor: ActorContext, command: ReviewMemoryCommand) -> ReviewMemoryResult: ...
     async def reject_source(self, actor: ActorContext, command: RejectSourceCommand) -> SourceRejectionResult: ...
 
+class EvidenceService:
+    async def register_source(self, actor: ActorContext, command: RegisterEvidenceSourceCommand) -> EvidenceSource: ...
+    async def add_evidence(self, actor: ActorContext, command: AddEvidenceCommand) -> Evidence: ...
+    async def review_source(self, actor: ActorContext, command: ReviewSourceCommand) -> EvidenceSource: ...
+
+class ExtractionService:
+    async def ingest(self, actor: ActorContext, command: IngestRawSourceCommand) -> SourceIngestResult: ...
+    async def status(self, actor: ActorContext, source_id: str) -> SourceExtractionStatus: ...
+
 class ConflictService:
     async def report(self, actor: ActorContext, command: ReportConflictCommand) -> ReportConflictResult: ...
     async def resolve(self, actor: ActorContext, command: ResolveConflictCommand) -> ResolveConflictResult: ...
@@ -416,6 +473,9 @@ Current source protocols are `@runtime_checkable`, async, and storage-oriented:
 - `ConflictStore.report_conflict(actor, command)` and
   `resolve_conflict(actor, command)`;
 - `EmbeddingProvider`, scope-aware `EmbeddingIndex`;
+- `SourceIngestStore` for atomic source/chunk/work persistence and safe status;
+  `WorkQueueStore` for compatible claims, fenced apply/failure, and effect-once
+  records;
 - `ArtifactReader`, `ArtifactWriter`, `ArtifactStore`;
 - `EventSink`, `AuditLog`, `OutboxStore`, `EventReader`, `MetricsReader`.
 
@@ -440,6 +500,10 @@ must match exactly or the request is rejected.
 | `POST /v1/memories` | `RememberCommand` minus header key → `RememberResult` | `memory:publish` | `200` |
 | `POST /v1/memories:recall` | `RecallQuery` → `RecallBundle` | `memory:recall` | `200` |
 | `GET /v1/memories/{memory_id}/lineage` | no body → `MemoryLineage` | `memory:recall` | `200` |
+| `POST /v1/evidence/sources` | caller-owned source descriptor → `EvidenceSource` | `memory:publish` | `200` |
+| `POST /v1/evidence` | `AddEvidenceCommand` minus header key → `Evidence` | `memory:publish` | `200` |
+| `POST /v1/sources:ingest` | `IngestSourceBody` → `SourceIngestResult` | `source:ingest` | `202` |
+| `GET /v1/sources/{source_id}/extraction` | no body → `SourceExtractionStatus` | `source:ingest` | `200` |
 | `POST /v1/tasks/{task_id}/checkpoints` | `CheckpointCommand` minus path/key → `CheckpointResult` | `task:checkpoint` | `200` |
 | `POST /v1/tasks/{task_id}:complete` | `CompleteTaskCommand` minus path/key → `CompletionResult` | `task:complete` | `200` |
 | `POST /v1/tasks/{task_id}:release` | `ReleaseTaskCommand` minus path/key → `ReleaseResult` | `task:release` | `200` |
@@ -454,6 +518,50 @@ without becoming MCP tools. They must reuse the domain commands above.
 Path `run_id` must equal the authenticated run. Task/lease/memory/conflict IDs
 are looked up with tenant/repository/run predicates; an out-of-scope ID is
 reported as not found or scope mismatch without revealing its existence.
+
+Initial memory in `ClaimTaskResult` is optional enrichment. It is populated
+only when the actor has both `task:claim` and `memory:recall`; a claim-only
+actor receives `memory: null`. Once a lease is committed, a recall failure is
+logged and the successful claim is still returned, so the owner never loses
+the lease identity because the optional retrieval lane is unavailable.
+
+### Durable worker process
+
+CockroachDB ingestion is deliberately unavailable on the in-memory backend.
+After the schema is installed explicitly, run the API and worker as separate
+processes against the same database:
+
+```bash
+export SWARMBRAIN_BACKEND=cockroach
+export SWARMBRAIN_DATABASE_URL='postgresql://root@127.0.0.1:26257/swarmbrain?sslmode=disable'
+export SWARMBRAIN_TOKEN_SECRET='replace-with-a-local-secret'
+
+uv run --extra serve --extra crdb swarmbrain-api
+uv run --extra crdb swarmbrain-worker
+```
+
+`swarmbrain-worker --once` performs one bounded queue cycle. The long-running
+form polls until `SIGINT` or `SIGTERM`, then closes its pool. Extraction claims
+only work carrying the same deterministic extractor name and revision. The
+worker limit is fixed at one until lease heartbeats are implemented; effects
+remain exactly-once, while a slow external inference may be attempted again
+after lease expiry. If the last allowed attempt expires with its worker, the
+next claim cycle terminalizes it as `failed` with `lease_expired` instead of
+leaving an unclaimable leased row.
+
+`SWARMBRAIN_EMBEDDINGS=none|deterministic|bedrock` controls the optional dense
+lane. CockroachDB uses an additive, fully scope-prefixed `VECTOR(1024)` index;
+structured content is embedded through its canonical deterministic text
+projection. `deterministic` is credential-free and intended for tests/local
+flow verification. Bedrock is a lazy optional integration and runs outside
+database transactions. The source-ingest transaction persists the resolved
+embedding model on extraction work. Fenced extraction apply atomically creates
+one deduplicated `embed_memory` child per materialized memory, so a rolling
+deploy cannot silently switch models. The provider computes a vector outside
+the transaction; vector UPSERT and work completion then commit together behind
+the current lease fence. A stale worker therefore cannot create or overwrite a
+vector. Dense-provider or ANN-index failure degrades recall to its already
+computed lexical bundle.
 
 ### Idempotency behavior
 
@@ -472,7 +580,7 @@ idempotency_key)` inside the business transaction.
 
 ## Model-visible MCP tools
 
-The stdio server registers exactly six tools. It reads the API URL/token from
+The stdio server registers exactly seven tools. It reads the API URL/token from
 its environment and calls canonical HTTP. No input contains tenant, project,
 repository, swarm, run, agent, harness, provider, model, token, capability, or
 author fields.
@@ -485,12 +593,19 @@ author fields.
 | `checkpoint_task` | `CheckpointCommand` fields | `CheckpointResult` |
 | `complete_task` | `CompleteTaskCommand` fields | `CompletionResult` |
 | `report_conflict` | `ReportConflictCommand` fields | `ReportConflictResult` |
+| `ingest_memory_source` | caller-owned `IngestSourceBody` fields plus idempotency key | `SourceIngestResult` |
 
 `claim_task` begins automatic lease renewal in the bridge. Completion stops it.
 Renewal, release, memory review/source rejection, conflict resolution, events,
 metrics, token issuance, and join are runtime/operator/dashboard HTTP actions,
 not model tools. The bridge contains no memory policy, ranking, claim logic, or
 direct database access.
+
+Inline MCP evidence is registered before its parent mutation. Its deterministic
+child namespace includes the authenticated agent, parent operation, parent
+idempotency key, and evidence position. This preserves restart replay without
+conflating the same caller key across tools or agents; changing evidence under
+the same actor/operation/key is rejected before another HTTP request.
 
 ## Error model
 
@@ -539,26 +654,18 @@ existence is required.
 
 ## Current conformance boundary
 
-The current tree contains these strict models/ports, capability-gated
-application facades, in-memory runtime, signed-token codec, canonical FastAPI
-route functions, and exactly six registered MCP functions over the HTTP client.
-Thirty-two checked-in tests cover strict domain schemas, mutation idempotency
-shape, auth-owned-field rejection, canonical UUID/time validation, runtime port
-conformance, CockroachDB DDL/retry, and ten deterministic in-memory scenarios:
-claim contention, dependency blocking, idempotent completion with one
-event/outbox row, crash handoff with stale-owner fencing, cross-agent recall,
-supersession/history, poisoning resistance, source-rejection rollback, and
-conflict resolution, plus fail-closed cross-repository recall/lineage and
-rejection of unregistered evidence references. The in-memory adapter also
-validates task associations, dependency scope, checkpoint/completion memory
-IDs, and evidence source/ID pairs before mutation. Transport tests cover signed
-tokens, authentication/scope,
-replay headers, typed OpenAPI request/response references, a full in-memory
-vertical slice across every canonical route, the exact MCP tool schema/HTTP
-translation, and automatic bridge renewal against fake HTTP. They do not yet
-prove a real stdio process, live CockroachDB, or restart durability. P0 is
-deliberately in-memory and has no Cockroach repository. Likewise, DDL must stay
-aligned with domain enums/fields through schema/contract tests; a field in one
-layer is not evidence another layer persists it. The PR gates in
-[implementation plan](implementation-plan.md) define the evidence needed to
-advance that boundary.
+The current tree implements the strict models/ports, capability-gated services,
+signed-token codec, canonical FastAPI routes, seven MCP functions, CockroachDB
+repositories, and separate durable worker described above. The checked-in live
+gates cover API→worker→API restart, scope-safe status/recall, spanless evidence,
+source rejection, effect-once replay, source→child-embedding→semantic recall,
+stale-vector fencing, final-attempt lease expiry, fixed-width vector
+persistence, and cross-project/repository ANN isolation. Schema tests keep
+Pydantic contracts, required columns/indexes, and the additive legacy-vector
+migration aligned.
+
+Provider quality and long-running lease-heartbeat behavior remain outside this
+conformance claim. The deterministic provider proves orchestration and storage,
+not semantic model quality. The PR gates in
+[implementation plan](implementation-plan.md) remain the authority for broader
+release evidence.

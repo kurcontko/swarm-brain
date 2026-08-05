@@ -40,6 +40,8 @@ from swarmbrain.domain.evidence import (
     SourceRejectionResult,
 )
 from swarmbrain.domain.memory import (
+    EmbeddingMatch,
+    EmbeddingVector,
     Memory,
     MemoryLineage,
     MemoryOperation,
@@ -66,6 +68,7 @@ from .memory_mappers import (
     memory_from_row,
     source_from_row,
 )
+from .vector import COCKROACH_VECTOR_DIMENSIONS, vector_literal
 
 SOURCE_COLUMNS = """
     id, tenant_id, project_id, repository_id, swarm_id, run_id, task_id,
@@ -396,6 +399,110 @@ class CockroachMemoryStore:
             return None if row is None else evidence_from_row(row)
 
     # ------------------------------------------------------------------
+    # Embedding index
+
+    async def upsert_embeddings(
+        self,
+        actor: ActorContext,
+        vectors: Sequence[EmbeddingVector],
+        *,
+        idempotency_key: str,
+    ) -> None:
+        """Upsert fixed-width vectors after deriving scope from the memory row."""
+
+        del idempotency_key  # (memory_id, model) is the natural idempotency key
+        prepared: list[tuple[EmbeddingVector, str]] = []
+        for vector in vectors:
+            if vector.dimensions != COCKROACH_VECTOR_DIMENSIONS:
+                raise ValueError(
+                    f"CockroachDB vector index requires {COCKROACH_VECTOR_DIMENSIONS} dimensions"
+                )
+            prepared.append((vector, vector_literal(vector.values)))
+        if not prepared:
+            return
+
+        async with self.database.pool.connection() as connection:
+            for vector, literal in prepared:
+                cursor = await connection.execute(
+                    """
+                    INSERT INTO memory_vector_embeddings (
+                        memory_id, tenant_id, project_id, repository_id,
+                        model, dimensions, embedding
+                    )
+                    SELECT m.id, m.tenant_id, m.project_id, m.repository_id,
+                           %s, %s, %s::VECTOR
+                    FROM memories AS m
+                    WHERE m.id = %s
+                      AND m.tenant_id = %s
+                      AND m.project_id = %s
+                      AND m.repository_id = %s
+                    ON CONFLICT (memory_id, model) DO UPDATE SET
+                        dimensions = excluded.dimensions,
+                        embedding = excluded.embedding,
+                        created_at = now()
+                    """,
+                    (
+                        vector.model,
+                        vector.dimensions,
+                        literal,
+                        _uuid(vector.memory_id),
+                        actor.tenant_id,
+                        actor.project_id,
+                        actor.repository_id,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ResourceNotFound("memory", vector.memory_id)
+
+    async def search_embeddings(
+        self,
+        actor: ActorContext,
+        query_vector: Sequence[float],
+        *,
+        model: str,
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> tuple[EmbeddingMatch, ...]:
+        """Return scoped ANN ids; callers must re-fetch through ``recall``."""
+
+        if not model or len(model) > 255:
+            raise ValueError("model must contain between 1 and 255 characters")
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        if not 0.0 <= min_score <= 1.0:
+            raise ValueError("min_score must be between 0 and 1")
+        literal = vector_literal(query_vector)
+        async with self.database.pool.connection() as connection:
+            cursor = await connection.execute(
+                """
+                SELECT memory_id, embedding <=> %s::VECTOR AS distance
+                FROM memory_vector_embeddings
+                WHERE tenant_id = %s
+                  AND project_id = %s
+                  AND repository_id = %s
+                  AND model = %s
+                ORDER BY embedding <=> %s::VECTOR
+                LIMIT %s
+                """,
+                (
+                    literal,
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    model,
+                    literal,
+                    limit,
+                ),
+            )
+            rows = await cursor.fetchall()
+        matches = []
+        for row in rows:
+            score = max(0.0, min(1.0, 1.0 - float(row["distance"])))
+            if score >= min_score:
+                matches.append(EmbeddingMatch(memory_id=str(row["memory_id"]), score=score))
+        return tuple(matches)
+
+    # ------------------------------------------------------------------
     # Memory
 
     async def remember(
@@ -712,6 +819,9 @@ class CockroachMemoryStore:
 
             clauses.append("m.state = ANY(%s::STRING[])")
             parameters.append(sorted(state.value for state in query.effective_states))
+            if query.memory_ids:
+                clauses.append("m.id = ANY(%s::UUID[])")
+                parameters.append(sorted(_uuid(item) for item in query.memory_ids))
             if query.kinds:
                 clauses.append("m.kind = ANY(%s::STRING[])")
                 parameters.append(sorted(str(kind) for kind in query.kinds))
@@ -1039,6 +1149,39 @@ class CockroachMemoryStore:
             if source_row is None:
                 raise InvalidState("source changed during rejection", source_id=source.source_id)
             rejected_source = source_from_row(source_row)
+
+            # Make queue state agree with source policy and fence any worker
+            # that leased the source before this rejection committed.
+            await connection.execute(
+                """
+                UPDATE outbox_work_items
+                SET status = 'cancelled',
+                    outcome = 'source_rejected',
+                    locked_by = NULL,
+                    lease_token = NULL,
+                    lease_version = lease_version + 1,
+                    locked_until = NULL,
+                    completed_at = now(),
+                    updated_at = now(),
+                    version = version + 1
+                WHERE subject_id = %s
+                  AND kind = 'extract_source'
+                  AND tenant_id = %s
+                  AND project_id = %s
+                  AND repository_id = %s
+                  AND swarm_id = %s
+                  AND run_id = %s
+                  AND status IN ('pending', 'retry', 'leased')
+                """,
+                (
+                    _uuid(source.source_id),
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    actor.swarm_id,
+                    actor.run_id,
+                ),
+            )
 
             cursor = await connection.execute(
                 f"""

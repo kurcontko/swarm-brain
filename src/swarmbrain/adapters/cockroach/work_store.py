@@ -27,6 +27,7 @@ from swarmbrain.domain.extraction import (
 )
 from swarmbrain.domain.work import (
     AppliedWorkEffect,
+    ApplyEmbeddingWorkCommand,
     ApplyExtractionWorkCommand,
     ApplyWorkResult,
     ClaimWorkCommand,
@@ -35,6 +36,7 @@ from swarmbrain.domain.work import (
     EnqueueWorkResult,
     FailWorkCommand,
     PreparedWorkEnqueue,
+    SourceExtractionStatus,
     WorkCompletionConflict,
     WorkEffect,
     WorkEffectConflict,
@@ -46,9 +48,12 @@ from swarmbrain.domain.work import (
     WorkLeaseBatch,
     WorkLeaseLost,
     WorkStatus,
+    durable_work_id,
+    source_extraction_state,
 )
 
 from .database import CockroachDatabase
+from .vector import vector_literal
 
 WORK_COLUMNS = """
     id, tenant_id, project_id, repository_id, swarm_id, run_id, task_id,
@@ -141,7 +146,10 @@ def _source_from_row(row: Mapping[str, Any]) -> EvidenceSource:
 class CockroachWorkStore:
     """Share one database while keeping remote/model work outside `database.run`."""
 
-    def __init__(self, database: CockroachDatabase) -> None:
+    def __init__(
+        self,
+        database: CockroachDatabase,
+    ) -> None:
         self.database = database
 
     async def enqueue_work(
@@ -372,6 +380,7 @@ class CockroachWorkStore:
                             "extractor_name": prepared.extractor_name,
                             "extractor_revision": prepared.extractor_revision,
                             "use_provider": command.use_provider,
+                            "embedding_model": prepared.embedding_model,
                         }
                     ),
                     prepared.work_dedupe_key,
@@ -407,8 +416,8 @@ class CockroachWorkStore:
 
             return SourceIngestResult(
                 source=_source_from_row(source_row),
-                chunks=chunks,
                 work_id=str(work_row["id"]),
+                chunk_count=len(chunks),
                 replayed=not inserted_source,
             )
 
@@ -420,8 +429,88 @@ class CockroachWorkStore:
             body,
         )
 
+    async def get_extraction_status(
+        self,
+        actor: ActorContext,
+        source_id: str,
+    ) -> SourceExtractionStatus:
+        async def body(connection: Any) -> SourceExtractionStatus:
+            cursor = await connection.execute(
+                f"""
+                SELECT {WORK_ALIAS_COLUMNS}
+                FROM outbox_work_items AS work
+                JOIN sources AS source ON source.id = work.subject_id
+                WHERE source.id = %s
+                  AND source.tenant_id = %s
+                  AND source.project_id = %s
+                  AND source.repository_id = %s
+                  AND source.swarm_id = %s
+                  AND source.run_id = %s
+                  AND work.kind = 'extract_source'
+                ORDER BY work.created_at DESC, work.id DESC
+                LIMIT 1
+                """,
+                (
+                    _uuid(source_id),
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    actor.swarm_id,
+                    actor.run_id,
+                ),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                raise ResourceNotFound("source", source_id)
+            item = _work_from_row(row)
+            effects_cursor = await connection.execute(
+                """
+                SELECT resource_id
+                FROM outbox_work_effects
+                WHERE work_id = %s AND kind = 'memory'
+                ORDER BY resource_id
+                """,
+                (_uuid(item.work_id),),
+            )
+            memory_ids = tuple(
+                str(effect["resource_id"]) for effect in await effects_cursor.fetchall()
+            )
+            return SourceExtractionStatus(
+                source_id=source_id,
+                work_id=item.work_id,
+                status=source_extraction_state(item.status),
+                attempts=item.attempts,
+                max_attempts=item.max_attempts,
+                outcome=item.outcome,
+                route=(item.result or {}).get("route"),
+                candidate_count=(item.result or {}).get("candidate_count"),
+                memory_ids=memory_ids,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                completed_at=item.completed_at,
+            )
+
+        return await self.database.run(body)
+
     async def claim_work(self, command: ClaimWorkCommand) -> WorkLeaseBatch:
         async def body(connection: Any) -> WorkLeaseBatch:
+            await connection.execute(
+                """
+                UPDATE outbox_work_items
+                SET status = 'failed',
+                    outcome = 'failed',
+                    last_error = 'lease_expired',
+                    locked_by = NULL,
+                    lease_token = NULL,
+                    locked_until = NULL,
+                    completed_at = now(),
+                    updated_at = now(),
+                    version = version + 1
+                WHERE status = 'leased'
+                  AND locked_until <= now()
+                  AND attempts >= max_attempts
+                """
+            )
             cursor = await connection.execute(
                 f"""
                 WITH candidates AS (
@@ -430,6 +519,19 @@ class CockroachWorkStore:
                     WHERE work.kind = ANY(%s::STRING[])
                       AND work.attempts < work.max_attempts
                       AND work.available_at <= now()
+                      AND (
+                          %s::STRING IS NULL
+                          OR work.kind != 'extract_source'
+                          OR (
+                              work.payload->>'extractor_name' = %s
+                              AND work.payload->>'extractor_revision' = %s
+                          )
+                      )
+                      AND (
+                          %s::STRING IS NULL
+                          OR work.kind != 'embed_memory'
+                          OR work.payload->>'model' = %s
+                      )
                       AND (
                           work.status IN ('pending', 'retry')
                           OR (work.status = 'leased' AND work.locked_until <= now())
@@ -468,6 +570,11 @@ class CockroachWorkStore:
                 """,
                 (
                     sorted(kind.value for kind in command.kinds),
+                    command.extractor_name,
+                    command.extractor_name,
+                    command.extractor_revision,
+                    command.embedding_model,
+                    command.embedding_model,
                     command.limit,
                     command.worker_id,
                     timedelta(seconds=command.lease_seconds),
@@ -575,7 +682,7 @@ class CockroachWorkStore:
             )
             source_cursor = await connection.execute(
                 """
-                SELECT id, source_type, content, valid_at, recorded_at
+                SELECT id, source_type, content, content_sha256, valid_at, recorded_at
                 FROM sources
                 WHERE id = %s
                   AND tenant_id = %s
@@ -617,9 +724,20 @@ class CockroachWorkStore:
             await self._insert_attempts(connection, command.work_id, command.provenance)
             applied: list[AppliedWorkEffect] = []
             for effect in command.effects:
-                applied.append(
-                    await self._apply_memory_effect(connection, item, source_row, effect)
+                applied_effect = await self._apply_memory_effect(
+                    connection,
+                    item,
+                    source_row,
+                    effect,
                 )
+                applied.append(applied_effect)
+                if isinstance(item.payload.get("embedding_model"), str):
+                    await self._enqueue_effect_embedding(
+                        connection,
+                        item,
+                        effect,
+                        applied_effect,
+                    )
 
             update_cursor = await connection.execute(
                 f"""
@@ -658,6 +776,131 @@ class CockroachWorkStore:
 
         return await self.database.run(body)
 
+    async def apply_embedding(
+        self,
+        command: ApplyEmbeddingWorkCommand,
+    ) -> CompleteWorkResult:
+        """Atomically fence the lease, upsert its vector, and complete the work."""
+
+        literal = vector_literal(command.vector.values)
+
+        async def body(connection: Any) -> CompleteWorkResult:
+            row = await self._locked_work_row(connection, command.work_id)
+            item = _work_from_row(row)
+            self._validate_embedding_apply(item, command)
+            if item.status is WorkStatus.COMPLETED:
+                self._require_completion_fence(item, command)
+                if item.outcome != command.outcome or (item.result or {}) != command.result:
+                    raise WorkCompletionConflict(command.work_id)
+                replay_cursor = await connection.execute(
+                    """
+                    SELECT dimensions, embedding = %s::VECTOR AS vector_matches
+                    FROM memory_vector_embeddings
+                    WHERE memory_id = %s
+                      AND tenant_id = %s
+                      AND project_id = %s
+                      AND repository_id = %s
+                      AND model = %s
+                    """,
+                    (
+                        literal,
+                        _uuid(command.vector.memory_id),
+                        item.tenant_id,
+                        item.project_id,
+                        item.repository_id,
+                        command.vector.model,
+                    ),
+                )
+                replay_row = await replay_cursor.fetchone()
+                if replay_row is None or (
+                    int(replay_row["dimensions"]) != command.vector.dimensions
+                    or not bool(replay_row["vector_matches"])
+                ):
+                    raise WorkCompletionConflict("completed_embedding_vector")
+                return CompleteWorkResult(item=item, replayed=True)
+
+            self._require_lease_row(
+                row,
+                worker_id=command.worker_id,
+                lease_token=command.lease_token,
+                lease_version=command.lease_version,
+                work_version=command.expected_work_version,
+                attempt=command.attempt,
+            )
+            vector_cursor = await connection.execute(
+                """
+                INSERT INTO memory_vector_embeddings (
+                    memory_id, tenant_id, project_id, repository_id,
+                    model, dimensions, embedding
+                )
+                SELECT memory.id, memory.tenant_id, memory.project_id,
+                       memory.repository_id, %s, %s, %s::VECTOR
+                FROM memories AS memory
+                WHERE memory.id = %s
+                  AND memory.tenant_id = %s
+                  AND memory.project_id = %s
+                  AND memory.repository_id = %s
+                  AND memory.swarm_id = %s
+                  AND memory.run_id = %s
+                ON CONFLICT (memory_id, model) DO UPDATE SET
+                    dimensions = excluded.dimensions,
+                    embedding = excluded.embedding,
+                    created_at = now()
+                RETURNING memory_id
+                """,
+                (
+                    command.vector.model,
+                    command.vector.dimensions,
+                    literal,
+                    _uuid(command.vector.memory_id),
+                    item.tenant_id,
+                    item.project_id,
+                    item.repository_id,
+                    item.swarm_id,
+                    item.run_id,
+                ),
+            )
+            if await vector_cursor.fetchone() is None:
+                raise ResourceNotFound("memory", command.vector.memory_id)
+
+            update_cursor = await connection.execute(
+                f"""
+                UPDATE outbox_work_items
+                SET status = 'completed',
+                    outcome = %s,
+                    result = %s,
+                    last_error = NULL,
+                    locked_until = NULL,
+                    completed_at = now(),
+                    updated_at = now(),
+                    version = version + 1
+                WHERE id = %s
+                  AND status = 'leased'
+                  AND locked_by = %s
+                  AND lease_token = %s
+                  AND lease_version = %s
+                  AND version = %s
+                  AND locked_until > now()
+                RETURNING {WORK_COLUMNS}
+                """,
+                (
+                    command.outcome,
+                    Jsonb(command.result),
+                    _uuid(command.work_id),
+                    command.worker_id,
+                    _uuid(command.lease_token),
+                    command.lease_version,
+                    command.expected_work_version,
+                ),
+            )
+            updated = await update_cursor.fetchone()
+            if updated is None:
+                # Raising rolls back the vector upsert in this same transaction.
+                raise WorkLeaseLost(command.work_id)
+            return CompleteWorkResult(item=_work_from_row(updated))
+
+        return await self.database.run(body)
+
     async def complete_work(self, command: CompleteWorkCommand) -> CompleteWorkResult:
         async def body(connection: Any) -> CompleteWorkResult:
             row = await self._locked_work_row(connection, command.work_id)
@@ -676,8 +919,8 @@ class CockroachWorkStore:
                 work_version=command.expected_work_version,
                 attempt=command.attempt,
             )
-            if item.kind is WorkKind.EXTRACT_SOURCE:
-                raise WorkCompletionConflict("extract_source_requires_effect_apply")
+            if item.kind in {WorkKind.EXTRACT_SOURCE, WorkKind.EMBED_MEMORY}:
+                raise WorkCompletionConflict(f"{item.kind.value}_requires_fenced_apply")
             cursor = await connection.execute(
                 f"""
                 UPDATE outbox_work_items
@@ -854,7 +1097,7 @@ class CockroachWorkStore:
     @staticmethod
     def _require_completion_fence(
         item: WorkItem,
-        command: ApplyExtractionWorkCommand | CompleteWorkCommand,
+        command: (ApplyExtractionWorkCommand | ApplyEmbeddingWorkCommand | CompleteWorkCommand),
     ) -> None:
         if (
             item.locked_by != command.worker_id
@@ -864,6 +1107,19 @@ class CockroachWorkStore:
             or item.version != command.expected_work_version + 1
         ):
             raise WorkLeaseLost(command.work_id)
+
+    @staticmethod
+    def _validate_embedding_apply(
+        item: WorkItem,
+        command: ApplyEmbeddingWorkCommand,
+    ) -> None:
+        if item.kind is not WorkKind.EMBED_MEMORY:
+            raise WorkCompletionConflict("apply_embedding_requires_embed_memory")
+        if (
+            item.subject_id != command.vector.memory_id
+            or item.payload.get("model") != command.vector.model
+        ):
+            raise WorkCompletionConflict("embedding_vector_does_not_match_work")
 
     @staticmethod
     async def _insert_attempts(
@@ -934,6 +1190,35 @@ class CockroachWorkStore:
 
         memory_id = uuid5(_uuid(item.work_id), f"effect:{effect.effect_key}:memory")
         evidence_ids: list[UUID] = []
+        if not effect.candidate.spans:
+            evidence_id = uuid5(
+                _uuid(item.work_id),
+                f"effect:{effect.effect_key}:evidence:source",
+            )
+            evidence_ids.append(evidence_id)
+            await connection.execute(
+                """
+                INSERT INTO evidence (
+                    id, tenant_id, kind, locator, content_sha256, excerpt,
+                    source_id, metadata
+                ) VALUES (%s, %s, %s, 'source', %s, NULL, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (
+                    evidence_id,
+                    item.tenant_id,
+                    str(source_row["source_type"]),
+                    source_row["content_sha256"],
+                    _uuid(item.subject_id),
+                    Jsonb(
+                        {
+                            "work_id": item.work_id,
+                            "effect_key": effect.effect_key,
+                            "attribution": "whole_source",
+                        }
+                    ),
+                ),
+            )
         for position, span in enumerate(effect.candidate.spans):
             evidence_id = uuid5(
                 _uuid(item.work_id),
@@ -1063,6 +1348,78 @@ class CockroachWorkStore:
             payload_sha256=effect.payload_sha256,
             resource_id=str(memory_id),
         )
+
+    @staticmethod
+    async def _enqueue_effect_embedding(
+        connection: Any,
+        item: WorkItem,
+        effect: WorkEffect,
+        applied: AppliedWorkEffect,
+    ) -> None:
+        embedding_model = item.payload.get("embedding_model")
+        if not isinstance(embedding_model, str):
+            return
+        dedupe_key = f"embed:{applied.resource_id}:{embedding_model}"
+        work_id = durable_work_id(
+            item.tenant_id,
+            item.run_id,
+            WorkKind.EMBED_MEMORY,
+            dedupe_key,
+        )
+        payload = {
+            "content": memory_content_text(effect.candidate.content),
+            "model": embedding_model,
+            "metadata": {},
+        }
+        cursor = await connection.execute(
+            """
+            INSERT INTO outbox_work_items (
+                id, tenant_id, project_id, repository_id, swarm_id, run_id,
+                task_id, requested_by_agent_id, kind, subject_id, payload,
+                dedupe_key, priority
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, 'embed_memory', %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (tenant_id, run_id, kind, dedupe_key) DO NOTHING
+            RETURNING id, subject_id, payload
+            """,
+            (
+                _uuid(work_id),
+                item.tenant_id,
+                item.project_id,
+                item.repository_id,
+                item.swarm_id,
+                item.run_id,
+                _uuid(item.task_id) if item.task_id else None,
+                item.requested_by_agent_id,
+                _uuid(applied.resource_id),
+                Jsonb(payload),
+                dedupe_key,
+                item.priority,
+            ),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            cursor = await connection.execute(
+                """
+                SELECT id, subject_id, payload
+                FROM outbox_work_items
+                WHERE tenant_id = %s
+                  AND run_id = %s
+                  AND kind = 'embed_memory'
+                  AND dedupe_key = %s
+                FOR UPDATE
+                """,
+                (item.tenant_id, item.run_id, dedupe_key),
+            )
+            row = await cursor.fetchone()
+        if row is None or (
+            str(row["id"]) != work_id
+            or str(row["subject_id"]) != applied.resource_id
+            or (_json_object(row.get("payload")) or {}) != payload
+        ):
+            raise WorkEffectConflict(f"embedding_work:{applied.resource_id}")
 
     @staticmethod
     async def _emit_memory_effect(

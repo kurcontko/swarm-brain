@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import hashlib
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -65,6 +70,8 @@ class SwarmBrainHttpClient:
         )
         self._leases: dict[str, LeaseBinding] = {}
         self._renewals: dict[str, asyncio.Task[None]] = {}
+        self._inline_evidence: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+        self._actor_namespace = self._stable_actor_namespace(settings)
 
     async def close(self) -> None:
         renewals = list(self._renewals.values())
@@ -208,7 +215,10 @@ class SwarmBrainHttpClient:
                 "task_id": task_id,
                 "title": title,
                 "tags": tags or [],
-                "evidence": evidence or [],
+                "evidence": await self._resolve_evidence(
+                    evidence,
+                    parent_scope=self._evidence_parent_scope("memory.remember", key),
+                ),
                 "supersedes_memory_id": supersedes_memory_id,
                 "related_memory_ids": related_memory_ids or [],
                 "valid_from": valid_from,
@@ -217,6 +227,33 @@ class SwarmBrainHttpClient:
                 "metadata": metadata or {},
             },
             headers={"Idempotency-Key": key},
+        )
+
+    async def ingest_memory_source(
+        self,
+        *,
+        content: str,
+        kind: str,
+        observed_at: str | None = None,
+        task_id: str | None = None,
+        uri: str | None = None,
+        occurrence_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v1/sources:ingest",
+            json={
+                "kind": kind,
+                "content": content,
+                "observed_at": observed_at,
+                "task_id": task_id,
+                "uri": uri,
+                "occurrence_key": occurrence_key,
+                "metadata": metadata or {},
+            },
+            headers={"Idempotency-Key": idempotency_key or str(uuid4())},
         )
 
     async def checkpoint_task(
@@ -294,19 +331,166 @@ class SwarmBrainHttpClient:
         metadata: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        key = idempotency_key or str(uuid4())
         return await self._request(
             "POST",
             "/v1/conflicts",
             json={
                 "memory_ids": memory_ids,
                 "description": description,
-                "evidence": evidence or [],
+                "evidence": await self._resolve_evidence(
+                    evidence,
+                    parent_scope=self._evidence_parent_scope("conflict.report", key),
+                ),
                 "task_id": task_id,
                 "severity": severity,
                 "metadata": metadata or {},
             },
-            headers={"Idempotency-Key": idempotency_key or str(uuid4())},
+            headers={"Idempotency-Key": key},
         )
+
+    async def _resolve_evidence(
+        self,
+        evidence: list[dict[str, Any]] | None,
+        *,
+        parent_scope: str,
+    ) -> list[dict[str, Any]]:
+        fingerprint = self._inline_evidence_fingerprint(evidence or [])
+        cached = self._inline_evidence.get(parent_scope)
+        if cached is not None:
+            cached_fingerprint, resolved = cached
+            if cached_fingerprint != fingerprint:
+                raise ValueError(
+                    "the idempotency key was already used with different inline evidence"
+                )
+            return resolved
+        if not evidence:
+            self._inline_evidence[parent_scope] = (fingerprint, [])
+            return []
+        resolved: list[dict[str, Any]] = []
+        for index, item in enumerate(evidence):
+            if "evidence_id" in item and "source_id" in item:
+                resolved.append(item)
+                continue
+            resolved.append(
+                await self._register_inline_evidence(
+                    dict(item),
+                    key=f"{parent_scope}:ev{index}",
+                )
+            )
+        self._inline_evidence[parent_scope] = (fingerprint, resolved)
+        return resolved
+
+    def _evidence_parent_scope(self, operation: str, parent_key: str) -> str:
+        digest = hashlib.sha256(
+            f"{self._actor_namespace}:{operation}:{parent_key}".encode()
+        ).hexdigest()
+        return f"{operation}:{digest}"
+
+    @staticmethod
+    def _stable_actor_namespace(settings: BridgeSettings) -> str:
+        if settings.expected_agent_id is not None:
+            return settings.expected_agent_id
+        try:
+            prefix, encoded_payload, _signature = settings.agent_token.split(".", 2)
+            if prefix != "sbv0":
+                raise ValueError("unsupported token prefix")
+            padding = "=" * (-len(encoded_payload) % 4)
+            payload = json.loads(
+                base64.urlsafe_b64decode(encoded_payload + padding).decode("utf-8")
+            )
+            agent_id = payload["actor"]["agent_id"]
+            if not isinstance(agent_id, str) or not agent_id:
+                raise ValueError("missing actor id")
+            return agent_id
+        except (
+            binascii.Error,
+            KeyError,
+            TypeError,
+            ValueError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ):
+            # Non-Swarm-Brain tokens are useful only for mock clients. Real
+            # signed tokens expose a stable actor claim, independent of token
+            # rotation, while the server still performs signature validation.
+            return f"token:{hashlib.sha256(settings.agent_token.encode()).hexdigest()}"
+
+    @staticmethod
+    def _inline_evidence_fingerprint(evidence: list[dict[str, Any]]) -> str:
+        canonical = json.dumps(
+            evidence,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    async def _register_inline_evidence(
+        self,
+        material: dict[str, Any],
+        *,
+        key: str,
+    ) -> dict[str, Any]:
+        kind = material.pop("kind", None)
+        if not kind:
+            raise ValueError(
+                "inline evidence requires 'kind'; cite existing rows with "
+                "evidence_id and source_id instead"
+            )
+        excerpt = material.pop("excerpt", None)
+        content_sha256 = material.pop("content_sha256", None)
+        if content_sha256 is None:
+            if not excerpt:
+                raise ValueError("inline evidence requires content_sha256 or a non-empty excerpt")
+            content_sha256 = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+        source_payload = {
+            "kind": kind,
+            "content_sha256": content_sha256,
+            "observed_at": material.pop("observed_at", None) or datetime.now(UTC).isoformat(),
+            "uri": material.pop("uri", None),
+            "occurrence_key": material.pop("occurrence_key", None) or f"swarmbrain-mcp:{key}",
+            "task_id": material.pop("task_id", None),
+            "metadata": material.pop("metadata", None) or {},
+        }
+        locator = material.pop("locator", None)
+        if material:
+            raise ValueError(f"unsupported inline evidence fields: {sorted(material)}")
+        source = await self._request(
+            "POST",
+            "/v1/evidence/sources",
+            json=source_payload,
+            # observed_at is intentionally fresh; occurrence identity makes
+            # source registration converge across bridge process restarts.
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        evidence_key = self._child_idempotency_key(key, "evidence")
+        row = await self._request(
+            "POST",
+            "/v1/evidence",
+            json={
+                "source_id": source["source_id"],
+                "kind": kind,
+                "locator": locator,
+                "excerpt": excerpt,
+                "content_sha256": content_sha256,
+                "metadata": source_payload["metadata"],
+            },
+            headers={"Idempotency-Key": evidence_key},
+        )
+        return {
+            "evidence_id": row["evidence_id"],
+            "source_id": row["source_id"],
+            "locator": row.get("locator"),
+            "excerpt": row.get("excerpt"),
+            "content_sha256": row.get("content_sha256"),
+            "metadata": row.get("metadata") or {},
+        }
+
+    @staticmethod
+    def _child_idempotency_key(parent: str, label: str) -> str:
+        digest = hashlib.sha256(f"{parent}:{label}".encode()).hexdigest()
+        return f"mcp:{label}:{digest}"
 
     async def _renew(self, binding: LeaseBinding) -> None:
         interval = max(0.001, binding.extension_seconds * self._renewal_interval_fraction)

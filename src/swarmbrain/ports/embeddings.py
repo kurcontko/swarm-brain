@@ -40,6 +40,7 @@ class EmbeddingIndex(Protocol):
         actor: ActorContext,
         query_vector: Sequence[float],
         *,
+        model: str,
         limit: int = 10,
         min_score: float = 0.0,
     ) -> tuple[EmbeddingMatch, ...]: ...

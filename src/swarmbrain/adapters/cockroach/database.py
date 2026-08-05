@@ -23,7 +23,7 @@ from .retry import AmbiguousTransactionResult, RetryPolicy, run_serializable
 ModelT = TypeVar("ModelT", bound=BaseModel)
 TransactionBody = Callable[[Any], Awaitable[ModelT]]
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 REQUIRED_TABLES = frozenset(
     {
         "runs",
@@ -39,6 +39,7 @@ REQUIRED_TABLES = frozenset(
         "source_extractions",
         "memories",
         "memory_embeddings",
+        "memory_vector_embeddings",
         "evidence",
         "memory_evidence",
         "memory_links",
@@ -89,6 +90,15 @@ REQUIRED_COLUMNS = {
     },
     "evidence": {"id", "source_id", "tenant_id"},
     "memory_embeddings": {"memory_id", "model", "dimensions", "embedding"},
+    "memory_vector_embeddings": {
+        "memory_id",
+        "tenant_id",
+        "project_id",
+        "repository_id",
+        "model",
+        "dimensions",
+        "embedding",
+    },
     "memory_evidence": {"memory_id", "evidence_id", "relation"},
     "memory_links": {
         "id",
@@ -180,6 +190,7 @@ REQUIRED_INDEXES = frozenset(
         "memories_source",
         "memories_one_successor",
         "memories_current_fingerprint",
+        "memory_vector_embeddings_ann",
         "evidence_source_lookup",
         "memory_evidence_by_evidence",
         "memory_links_from",
@@ -188,6 +199,7 @@ REQUIRED_INDEXES = frozenset(
         "outbox_events_unpublished",
         "source_extractions_scope",
         "outbox_work_items_claim",
+        "outbox_work_items_expired_leases",
         "outbox_work_items_subject",
         "outbox_work_attempts_timeline",
         "outbox_work_effects_resource",

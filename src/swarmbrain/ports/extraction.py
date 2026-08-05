@@ -13,7 +13,7 @@ from swarmbrain.domain.extraction import (
     ProviderDescriptor,
     SourceIngestResult,
 )
-from swarmbrain.domain.work import WorkLease
+from swarmbrain.domain.work import SourceExtractionStatus, WorkLease
 
 ProviderCandidate = Mapping[str, object] | ExtractionCandidate
 
@@ -29,6 +29,12 @@ class SourceIngestStore(Protocol):
     ) -> SourceIngestResult: ...
 
     async def load_extraction_input(self, lease: WorkLease) -> ExtractionInput: ...
+
+    async def get_extraction_status(
+        self,
+        actor: ActorContext,
+        source_id: str,
+    ) -> SourceExtractionStatus: ...
 
 
 @runtime_checkable

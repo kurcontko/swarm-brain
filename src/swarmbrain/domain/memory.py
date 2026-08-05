@@ -240,6 +240,7 @@ class RecallQuery(ContractModel):
 
     text: ContentText
     task_id: TaskId | None = None
+    memory_ids: frozenset[MemoryId] = Field(default_factory=frozenset)
     kinds: frozenset[MemoryKindValue] = Field(default_factory=frozenset)
     visibilities: frozenset[Visibility] = Field(default_factory=lambda: frozenset(Visibility))
     states: frozenset[MemoryState] | None = None
@@ -324,7 +325,7 @@ class ReviewMemoryResult(ContractModel):
 
 class EmbeddingVector(ContractModel):
     memory_id: MemoryId
-    model: ShortText
+    model: SemanticLabel
     dimensions: int = Field(ge=1)
     values: tuple[float, ...] = Field(min_length=1)
     created_at: AwareDatetime = Field(default_factory=utc_now)

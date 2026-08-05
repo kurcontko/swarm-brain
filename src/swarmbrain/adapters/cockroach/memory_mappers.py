@@ -105,9 +105,7 @@ def memory_from_row(
         state=MemoryState(str(row["state"])),
         visibility=Visibility(str(row["visibility"])),
         content=(
-            row.get("content_json")
-            if row.get("content_json") is not None
-            else str(row["content"])
+            row.get("content_json") if row.get("content_json") is not None else str(row["content"])
         ),
         title=row.get("title"),
         tags=tuple(str(item) for item in (row.get("tags") or ())),
@@ -178,9 +176,7 @@ def dedup_scope(visibility: Visibility, run_id: str, task_id: str | None) -> str
 
 def lexical_score(query: str, memory: Memory) -> tuple[float, tuple[str, ...]]:
     query_tokens = set(re.findall(r"[\w-]+", query.casefold()))
-    haystack = " ".join(
-        (memory.title or "", memory_content_text(memory.content), *memory.tags)
-    )
+    haystack = " ".join((memory.title or "", memory_content_text(memory.content), *memory.tags))
     memory_tokens = set(re.findall(r"[\w-]+", haystack.casefold()))
     overlap = len(query_tokens & memory_tokens) / max(1, len(query_tokens))
     substring = query.casefold() in haystack.casefold()

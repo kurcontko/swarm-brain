@@ -30,6 +30,14 @@ from swarmbrain.domain.conflicts import (
     ResolveConflictResult,
 )
 from swarmbrain.domain.events import EventPage, RunMetrics
+from swarmbrain.domain.evidence import (
+    AddEvidenceCommand,
+    Evidence,
+    EvidenceSource,
+    RegisterEvidenceSourceCommand,
+    SourceTrust,
+)
+from swarmbrain.domain.extraction import IngestRawSourceCommand, SourceIngestResult
 from swarmbrain.domain.leases import RenewLeaseCommand, RenewLeaseResult
 from swarmbrain.domain.memory import (
     MemoryLineage,
@@ -48,11 +56,15 @@ from swarmbrain.domain.tasks import (
     ReleaseResult,
     ReleaseTaskCommand,
 )
+from swarmbrain.domain.work import SourceExtractionStatus
 
 from .contracts import (
+    AddEvidenceBody,
     CheckpointBody,
     ClaimTaskBody,
     CompleteTaskBody,
+    IngestSourceBody,
+    RegisterEvidenceSourceBody,
     ReleaseTaskBody,
     RememberBody,
     RenewLeaseBody,
@@ -194,6 +206,69 @@ def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
     @app.get("/v1/memories/{memory_id}/lineage", response_model=MemoryLineage)
     async def memory_lineage(memory_id: str, actor: ActorDependency) -> MemoryLineage:
         return await runtime.memory.lineage(actor, memory_id)
+
+    @app.post(
+        "/v1/sources:ingest",
+        response_model=SourceIngestResult,
+        status_code=202,
+    )
+    async def ingest_source(
+        body: IngestSourceBody,
+        actor: ActorDependency,
+        idempotency_key: IdempotencyHeader,
+        response: Response,
+    ) -> SourceIngestResult:
+        if runtime.extraction is None:
+            raise InvalidState("durable source ingestion requires the cockroach backend")
+        profile = runtime.ingestion_profile
+        command = _command(
+            IngestRawSourceCommand,
+            body,
+            idempotency_key=idempotency_key,
+            observed_at=body.observed_at,
+            trust=profile.trust,
+            use_provider=profile.use_provider,
+            chunk_chars=profile.chunk_chars,
+            priority=profile.priority,
+        )
+        return _mark_replay(response, await runtime.extraction.ingest(actor, command))
+
+    @app.get(
+        "/v1/sources/{source_id}/extraction",
+        response_model=SourceExtractionStatus,
+    )
+    async def source_extraction_status(
+        source_id: UUID,
+        actor: ActorDependency,
+    ) -> SourceExtractionStatus:
+        if runtime.extraction is None:
+            raise InvalidState("durable source ingestion requires the cockroach backend")
+        return await runtime.extraction.status(actor, str(source_id))
+
+    @app.post("/v1/evidence/sources", response_model=EvidenceSource)
+    async def register_evidence_source(
+        body: RegisterEvidenceSourceBody,
+        actor: ActorDependency,
+        idempotency_key: IdempotencyHeader,
+        response: Response,
+    ) -> EvidenceSource:
+        command = _command(
+            RegisterEvidenceSourceCommand,
+            body,
+            idempotency_key=idempotency_key,
+            trust=SourceTrust.UNKNOWN,
+        )
+        return _mark_replay(response, await runtime.evidence.register_source(actor, command))
+
+    @app.post("/v1/evidence", response_model=Evidence)
+    async def add_evidence(
+        body: AddEvidenceBody,
+        actor: ActorDependency,
+        idempotency_key: IdempotencyHeader,
+        response: Response,
+    ) -> Evidence:
+        command = _command(AddEvidenceCommand, body, idempotency_key=idempotency_key)
+        return _mark_replay(response, await runtime.evidence.add_evidence(actor, command))
 
     @app.post("/v1/tasks/{task_id}/checkpoints", response_model=CheckpointResult)
     async def checkpoint_task(

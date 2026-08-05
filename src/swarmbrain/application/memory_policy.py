@@ -78,8 +78,8 @@ class ConservativeMemoryPolicy:
                 return MemoryPolicyDecision(
                     operation=MemoryOperation.NOOP,
                     reason=(
-                        "unsupported tentative memory cannot supersede confirmed "
-                        "evidence-backed memory"
+                        "confirmed memory may only be superseded by a confirmed, "
+                        "evidence-backed replacement"
                     ),
                     confidence=1.0,
                 )
@@ -99,8 +99,6 @@ class ConservativeMemoryPolicy:
 
     @staticmethod
     def _would_poison(target: Memory, command: RememberCommand) -> bool:
-        return (
-            target.state is MemoryState.CONFIRMED
-            and bool(target.evidence)
-            and (command.desired_state is not MemoryState.CONFIRMED or not command.evidence)
+        return target.state is MemoryState.CONFIRMED and (
+            command.desired_state is not MemoryState.CONFIRMED or not command.evidence
         )

@@ -63,6 +63,8 @@ class ExtractionWorker:
                 kinds=frozenset({WorkKind.EXTRACT_SOURCE}),
                 limit=limit,
                 lease_seconds=lease_seconds,
+                extractor_name=self.extraction.deterministic.name,
+                extractor_revision=self.extraction.deterministic.revision,
             )
         )
         applied: list[ApplyWorkResult] = []
@@ -75,6 +77,12 @@ class ExtractionWorker:
     async def _process(self, lease: WorkLease) -> ApplyWorkResult | None:
         try:
             request = await self.sources.load_extraction_input(lease)
+            if (
+                lease.item.payload.get("extractor_name") != self.extraction.deterministic.name
+                or lease.item.payload.get("extractor_revision")
+                != self.extraction.deterministic.revision
+            ):
+                raise ValueError("leased work requires a different extractor profile")
             # This may invoke a remote provider. It deliberately precedes the
             # short, retryable apply transaction below.
             extraction = await self.extraction.extract(

@@ -6,6 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.work import (
+    ApplyEmbeddingWorkCommand,
     ApplyExtractionWorkCommand,
     ApplyWorkResult,
     ClaimWorkCommand,
@@ -33,6 +34,11 @@ class WorkQueueStore(Protocol):
         self,
         command: ApplyExtractionWorkCommand,
     ) -> ApplyWorkResult: ...
+
+    async def apply_embedding(
+        self,
+        command: ApplyEmbeddingWorkCommand,
+    ) -> CompleteWorkResult: ...
 
     async def complete_work(
         self,

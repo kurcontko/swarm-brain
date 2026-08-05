@@ -6,6 +6,7 @@ import hashlib
 import json
 from enum import StrEnum
 from typing import Annotated, Self
+from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import (
     AwareDatetime,
@@ -24,6 +25,7 @@ from .common import (
     ProjectId,
     RepositoryId,
     RunId,
+    SourceId,
     SwarmId,
     TaskId,
     TenantId,
@@ -31,7 +33,8 @@ from .common import (
     utc_now,
 )
 from .evidence import Sha256
-from .extraction import ExtractionCandidate, ExtractionProvenance
+from .extraction import ExtractionCandidate, ExtractionProvenance, ExtractionRoute
+from .memory import EmbeddingVector
 
 WorkerId = Annotated[
     str,
@@ -45,6 +48,28 @@ class WorkKind(StrEnum):
     PERSIST_ARTIFACT = "persist_artifact"
 
 
+def durable_work_id(
+    tenant_id: str,
+    run_id: str,
+    kind: WorkKind,
+    dedupe_key: str,
+) -> str:
+    return str(
+        uuid5(
+            NAMESPACE_URL,
+            ":".join(
+                (
+                    "swarmbrain-work",
+                    tenant_id,
+                    run_id,
+                    kind.value,
+                    dedupe_key,
+                )
+            ),
+        )
+    )
+
+
 class WorkStatus(StrEnum):
     PENDING = "pending"
     LEASED = "leased"
@@ -52,6 +77,20 @@ class WorkStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class SourceExtractionState(StrEnum):
+    QUEUED = "queued"
+    LEASED = "leased"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+def source_extraction_state(status: WorkStatus) -> SourceExtractionState:
+    if status in {WorkStatus.PENDING, WorkStatus.RETRY}:
+        return SourceExtractionState.QUEUED
+    return SourceExtractionState(status.value)
 
 
 class WorkEffectKind(StrEnum):
@@ -62,9 +101,9 @@ HANDLER_WORK_KINDS = frozenset({WorkKind.EMBED_MEMORY, WorkKind.PERSIST_ARTIFACT
 
 
 class EmbedMemoryWorkPayload(ContractModel):
-    """Durable input needed to reproduce one embedding request after restart."""
+    """Durable textual projection needed to reproduce an embedding request."""
 
-    content: str = Field(min_length=1, max_length=1_000_000)
+    content: str
     model: str = Field(min_length=1, max_length=255)
     metadata: JsonObject = Field(default_factory=dict)
 
@@ -198,11 +237,37 @@ class WorkLeaseBatch(ContractModel):
     leases: tuple[WorkLease, ...] = ()
 
 
+class SourceExtractionStatus(ContractModel):
+    """Scope-safe public view of extraction work; lease secrets are omitted."""
+
+    source_id: SourceId
+    work_id: UUIDString
+    status: SourceExtractionState
+    attempts: int = Field(ge=0)
+    max_attempts: int = Field(ge=1)
+    outcome: str | None = Field(default=None, max_length=255)
+    route: ExtractionRoute | None = None
+    candidate_count: int | None = Field(default=None, ge=0)
+    memory_ids: tuple[UUIDString, ...] = ()
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    completed_at: AwareDatetime | None = None
+
+
 class ClaimWorkCommand(ContractModel):
     worker_id: WorkerId
     kinds: frozenset[WorkKind] = Field(default_factory=lambda: frozenset(WorkKind), min_length=1)
     limit: int = Field(default=1, ge=1, le=100)
     lease_seconds: int = Field(default=60, ge=5, le=3600)
+    extractor_name: str | None = Field(default=None, min_length=1, max_length=255)
+    extractor_revision: str | None = Field(default=None, min_length=1, max_length=255)
+    embedding_model: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_extractor_profile(self) -> Self:
+        if (self.extractor_name is None) != (self.extractor_revision is None):
+            raise ValueError("extractor_name and extractor_revision must be configured together")
+        return self
 
 
 class WorkEffect(ContractModel):
@@ -274,6 +339,22 @@ class CompleteWorkCommand(ContractModel):
     result: JsonObject = Field(default_factory=dict)
 
 
+class ApplyEmbeddingWorkCommand(CompleteWorkCommand):
+    """Fence an embedding vector and work completion into one atomic write."""
+
+    vector: EmbeddingVector
+
+    @model_validator(mode="after")
+    def bind_result_to_vector(self) -> Self:
+        if (
+            self.result.get("model") != self.vector.model
+            or self.result.get("dimensions") != self.vector.dimensions
+            or self.result.get("vector_sha256") != embedding_vector_sha256(self.vector)
+        ):
+            raise ValueError("embedding result must identify the exact vector")
+        return self
+
+
 class CompleteWorkResult(ContractModel):
     item: WorkItem
     replayed: bool = False
@@ -282,6 +363,25 @@ class CompleteWorkResult(ContractModel):
 class WorkHandlerResult(ContractModel):
     outcome: str = Field(default="completed", min_length=1, max_length=255)
     result: JsonObject = Field(default_factory=dict)
+
+
+class EmbeddingWorkHandlerResult(WorkHandlerResult):
+    vector: EmbeddingVector
+
+    @model_validator(mode="after")
+    def bind_result_to_vector(self) -> Self:
+        if (
+            self.result.get("model") != self.vector.model
+            or self.result.get("dimensions") != self.vector.dimensions
+            or self.result.get("vector_sha256") != embedding_vector_sha256(self.vector)
+        ):
+            raise ValueError("embedding result must identify the exact vector")
+        return self
+
+
+def embedding_vector_sha256(vector: EmbeddingVector) -> str:
+    payload = json.dumps(vector.values, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class FailWorkCommand(ContractModel):
@@ -323,18 +423,22 @@ class WorkFailureConflict(RuntimeError):
 
 __all__ = [
     "AppliedWorkEffect",
+    "ApplyEmbeddingWorkCommand",
     "ApplyExtractionWorkCommand",
     "ApplyWorkResult",
     "ClaimWorkCommand",
     "CompleteWorkCommand",
     "CompleteWorkResult",
     "EmbedMemoryWorkPayload",
+    "EmbeddingWorkHandlerResult",
     "EnqueueWorkCommand",
     "EnqueueWorkResult",
     "FailWorkCommand",
     "HANDLER_WORK_KINDS",
     "PersistArtifactWorkPayload",
     "PreparedWorkEnqueue",
+    "SourceExtractionStatus",
+    "SourceExtractionState",
     "WorkEffect",
     "WorkEffectConflict",
     "WorkEffectKind",
@@ -348,5 +452,8 @@ __all__ = [
     "WorkLeaseLost",
     "WorkStatus",
     "WorkerId",
+    "durable_work_id",
+    "embedding_vector_sha256",
+    "source_extraction_state",
     "validate_work_payload",
 ]

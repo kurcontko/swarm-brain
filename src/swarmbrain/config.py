@@ -4,6 +4,9 @@ import os
 from dataclasses import dataclass, field
 from enum import StrEnum
 from urllib.parse import urlsplit
+from uuid import uuid4
+
+from swarmbrain.domain.evidence import SourceTrust
 
 
 def _env(name: str, *, default: str | None = None, required: bool = False) -> str | None:
@@ -24,9 +27,35 @@ def _integer_env(name: str, *, default: int) -> int:
         raise RuntimeError(f"{name} must be an integer") from exc
 
 
+def _float_env(name: str, *, default: float) -> float:
+    value = _env(name, default=str(default))
+    assert value is not None
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a number") from exc
+
+
+def _boolean_env(name: str, *, default: bool) -> bool:
+    value = _env(name, default="true" if default else "false")
+    assert value is not None
+    normalized = value.casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be a boolean")
+
+
 class BackendKind(StrEnum):
     MEMORY = "memory"
     COCKROACH = "cockroach"
+
+
+class EmbeddingsKind(StrEnum):
+    NONE = "none"
+    DETERMINISTIC = "deterministic"
+    BEDROCK = "bedrock"
 
 
 def _backend_kind(value: BackendKind | str) -> BackendKind:
@@ -34,6 +63,20 @@ def _backend_kind(value: BackendKind | str) -> BackendKind:
         return BackendKind(value)
     except ValueError as exc:
         raise ValueError("backend must be one of: memory, cockroach") from exc
+
+
+def _embeddings_kind(value: EmbeddingsKind | str) -> EmbeddingsKind:
+    try:
+        return EmbeddingsKind(value)
+    except ValueError as exc:
+        raise ValueError("embeddings must be one of: none, deterministic, bedrock") from exc
+
+
+def _source_trust(value: SourceTrust | str) -> SourceTrust:
+    try:
+        return SourceTrust(value)
+    except ValueError as exc:
+        raise ValueError("ingest trust must be one of: unknown, trusted, untrusted") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,13 +88,38 @@ class ApiSettings:
     database_pool_max_size: int = 12
     host: str = "127.0.0.1"
     port: int = 8080
+    embeddings: EmbeddingsKind = EmbeddingsKind.NONE
+    embeddings_model: str | None = None
+    embeddings_dimensions: int = 1024
+    aws_region: str | None = None
+    ingest_trust: SourceTrust = SourceTrust.UNKNOWN
+    ingest_use_provider: bool = False
+    ingest_chunk_chars: int = 65_536
+    ingest_priority: int = 0
 
     def __post_init__(self) -> None:
         backend = _backend_kind(self.backend)
         object.__setattr__(self, "backend", backend)
+        embeddings = _embeddings_kind(self.embeddings)
+        object.__setattr__(self, "embeddings", embeddings)
+        object.__setattr__(self, "ingest_trust", _source_trust(self.ingest_trust))
 
         if not self.token_secret:
             raise ValueError("token_secret is required")
+        if self.embeddings_model is not None and not 1 <= len(self.embeddings_model) <= 255:
+            raise ValueError("embeddings model must contain between 1 and 255 characters")
+        if self.embeddings_dimensions < 2:
+            raise ValueError("embeddings dimensions must be at least 2")
+        if (
+            backend is BackendKind.COCKROACH
+            and embeddings is not EmbeddingsKind.NONE
+            and self.embeddings_dimensions != 1024
+        ):
+            raise ValueError("cockroach embeddings require exactly 1024 dimensions")
+        if not 1024 <= self.ingest_chunk_chars <= 262_144:
+            raise ValueError("ingest chunk chars must be between 1024 and 262144")
+        if not -1000 <= self.ingest_priority <= 1000:
+            raise ValueError("ingest priority must be between -1000 and 1000")
         if not 0 <= self.database_pool_min_size <= self.database_pool_max_size:
             raise ValueError("database pool minimum must be between zero and the maximum")
         if self.database_pool_max_size < 1:
@@ -88,6 +156,20 @@ class ApiSettings:
                 ),
                 host=_env("SWARMBRAIN_HOST", default="127.0.0.1") or "127.0.0.1",
                 port=_integer_env("SWARMBRAIN_PORT", default=8080),
+                embeddings=_embeddings_kind(
+                    (_env("SWARMBRAIN_EMBEDDINGS", default="none") or "none").casefold()
+                ),
+                embeddings_model=_env("SWARMBRAIN_EMBEDDINGS_MODEL"),
+                embeddings_dimensions=_integer_env(
+                    "SWARMBRAIN_EMBEDDINGS_DIMENSIONS", default=1024
+                ),
+                aws_region=_env("SWARMBRAIN_AWS_REGION"),
+                ingest_trust=_source_trust(
+                    (_env("SWARMBRAIN_INGEST_TRUST", default="unknown") or "unknown").casefold()
+                ),
+                ingest_use_provider=_boolean_env("SWARMBRAIN_INGEST_USE_PROVIDER", default=False),
+                ingest_chunk_chars=_integer_env("SWARMBRAIN_INGEST_CHUNK_CHARS", default=65_536),
+                ingest_priority=_integer_env("SWARMBRAIN_INGEST_PRIORITY", default=0),
             )
         except ValueError as exc:
             raise RuntimeError(f"invalid Swarm Brain API configuration: {exc}") from exc
@@ -128,4 +210,48 @@ class BridgeSettings:
             raise RuntimeError(f"invalid Swarm Brain bridge configuration: {exc}") from exc
 
 
-__all__ = ["ApiSettings", "BackendKind", "BridgeSettings"]
+@dataclass(frozen=True, slots=True)
+class WorkerSettings:
+    worker_id: str = field(default_factory=lambda: f"worker-{uuid4()}")
+    poll_interval_seconds: float = 0.5
+    lease_seconds: int = 60
+    retry_delay_seconds: int = 30
+    limit: int = 1
+
+    def __post_init__(self) -> None:
+        if not 1 <= len(self.worker_id.strip()) <= 255:
+            raise ValueError("worker_id must contain between 1 and 255 characters")
+        if self.poll_interval_seconds <= 0:
+            raise ValueError("worker poll interval must be positive")
+        if not 5 <= self.lease_seconds <= 3600:
+            raise ValueError("worker lease seconds must be between 5 and 3600")
+        if self.retry_delay_seconds < 1:
+            raise ValueError("worker retry delay must be positive")
+        if self.limit != 1:
+            raise ValueError("worker limit must be 1 until extraction leases have heartbeats")
+
+    @classmethod
+    def from_env(cls) -> WorkerSettings:
+        try:
+            return cls(
+                worker_id=_env("SWARMBRAIN_WORKER_ID") or f"worker-{uuid4()}",
+                poll_interval_seconds=_float_env(
+                    "SWARMBRAIN_WORKER_POLL_INTERVAL_SECONDS", default=0.5
+                ),
+                lease_seconds=_integer_env("SWARMBRAIN_WORKER_LEASE_SECONDS", default=60),
+                retry_delay_seconds=_integer_env(
+                    "SWARMBRAIN_WORKER_RETRY_DELAY_SECONDS", default=30
+                ),
+                limit=_integer_env("SWARMBRAIN_WORKER_LIMIT", default=1),
+            )
+        except ValueError as exc:
+            raise RuntimeError(f"invalid Swarm Brain worker configuration: {exc}") from exc
+
+
+__all__ = [
+    "ApiSettings",
+    "BackendKind",
+    "BridgeSettings",
+    "EmbeddingsKind",
+    "WorkerSettings",
+]

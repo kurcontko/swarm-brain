@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from swarmbrain.domain.agents import ActorContext, Agent, Capability
 from swarmbrain.domain.events import EventPage, RunMetrics
 from swarmbrain.domain.leases import RenewLeaseCommand, RenewLeaseResult
@@ -19,6 +21,8 @@ from swarmbrain.ports.coordination_store import CoordinationStore
 
 from .capabilities import require_capability
 from .memory_service import MemoryService
+
+logger = logging.getLogger(__name__)
 
 
 class CoordinationService:
@@ -49,21 +53,31 @@ class CoordinationService:
     ) -> ClaimTaskResult:
         require_capability(actor, Capability.TASK_CLAIM)
         result = await self.store.claim_task(actor, command)
-        if self.memory_service is None:
+        if self.memory_service is None or not actor.has_capability(Capability.MEMORY_RECALL):
             return result
 
         query_text = " ".join(
             part for part in (result.task.title, result.task.description, *result.task.tags) if part
         )
-        memory = await self.memory_service.recall(
-            actor,
-            RecallQuery(
-                text=query_text,
-                task_id=result.task.task_id,
-                visibilities=frozenset(Visibility),
-                limit=self.initial_memory_limit,
-            ),
-        )
+        try:
+            memory = await self.memory_service.recall(
+                actor,
+                RecallQuery(
+                    text=query_text,
+                    task_id=result.task.task_id,
+                    visibilities=frozenset(Visibility),
+                    limit=self.initial_memory_limit,
+                ),
+            )
+        except Exception:
+            # Claim is already committed. Initial memory is optional context,
+            # so a recall outage must not hide the lease from its new owner.
+            logger.warning(
+                "initial memory recall failed after task claim",
+                extra={"task_id": result.task.task_id, "agent_id": actor.agent_id},
+                exc_info=True,
+            )
+            return result
         return result.model_copy(update={"memory": memory})
 
     async def renew(

@@ -547,7 +547,7 @@ async def test_durable_extraction_work_queue_and_plans(
             ingested.source.source_id,
             ingested.work_id,
             raw_content,
-            len(ingested.chunks),
+            ingested.chunk_count,
             len(effects),
         )
         await _assert_index_plans(
@@ -559,7 +559,7 @@ async def test_durable_extraction_work_queue_and_plans(
         await _cleanup(database, actor)
 
 
-async def test_embedding_and_artifact_handlers_use_durable_generic_work(
+async def test_artifact_handler_uses_durable_generic_work(
     database: CockroachDatabase,
     scope_ids: dict[str, str],
 ) -> None:
@@ -568,14 +568,6 @@ async def test_embedding_and_artifact_handlers_use_durable_generic_work(
     store = CockroachWorkStore(database)
     service = DurableWorkService(store)
     timestamp = datetime.now(UTC)
-    embedding = EnqueueWorkCommand(
-        idempotency_key=f"embed-live-{_id()}",
-        kind=WorkKind.EMBED_MEMORY,
-        subject_id=_id(),
-        dedupe_key=f"memory:model-live:{_id()}",
-        payload={"content": "A live durable memory", "model": "model-live"},
-        available_at=timestamp,
-    )
     artifact_content = b"live durable artifact"
     artifact = EnqueueWorkCommand(
         idempotency_key=f"artifact-live-{_id()}",
@@ -593,26 +585,17 @@ async def test_embedding_and_artifact_handlers_use_durable_generic_work(
     )
 
     try:
-        queued_embedding = await service.enqueue(actor, embedding)
-        replayed_embedding = await service.enqueue(actor, embedding)
         queued_artifact = await service.enqueue(actor, artifact)
-        assert replayed_embedding.replayed is True
-        assert replayed_embedding.item.work_id == queued_embedding.item.work_id
 
-        embedding_handler = _CountingWorkHandler(WorkKind.EMBED_MEMORY)
         artifact_handler = _CountingWorkHandler(WorkKind.PERSIST_ARTIFACT)
-        worker = LeasedWorkWorker(store, (embedding_handler, artifact_handler))
-        completed = await worker.run_once("live-handler-worker", limit=2)
-        empty = await worker.run_once("live-handler-worker", limit=2)
+        worker = LeasedWorkWorker(store, (artifact_handler,))
+        completed = await worker.run_once("live-handler-worker", limit=1)
+        empty = await worker.run_once("live-handler-worker", limit=1)
 
-        assert len(completed) == 2
+        assert len(completed) == 1
         assert empty == ()
-        assert embedding_handler.calls == 1
         assert artifact_handler.calls == 1
-        assert {item.item.work_id for item in completed} == {
-            queued_embedding.item.work_id,
-            queued_artifact.item.work_id,
-        }
+        assert completed[0].item.work_id == queued_artifact.item.work_id
 
         async with database.pool.connection() as connection:
             cursor = await connection.execute(
@@ -620,20 +603,17 @@ async def test_embedding_and_artifact_handlers_use_durable_generic_work(
                 SELECT kind, status, attempts, outcome, result
                 FROM outbox_work_items
                 WHERE tenant_id = %s AND run_id = %s
-                  AND kind IN ('embed_memory', 'persist_artifact')
+                  AND kind = 'persist_artifact'
                 ORDER BY kind
                 """,
                 (actor.tenant_id, actor.run_id),
             )
             rows = await cursor.fetchall()
-        assert len(rows) == 2
+        assert len(rows) == 1
         assert all(str(row["status"]) == WorkStatus.COMPLETED.value for row in rows)
         assert all(int(row["attempts"]) == 1 for row in rows)
         assert all(str(row["outcome"]) == "completed" for row in rows)
-        assert {str(row["result"]["kind"]) for row in rows} == {
-            WorkKind.EMBED_MEMORY.value,
-            WorkKind.PERSIST_ARTIFACT.value,
-        }
+        assert str(rows[0]["result"]["kind"]) == WorkKind.PERSIST_ARTIFACT.value
 
         retry_command = artifact.model_copy(
             update={
@@ -665,5 +645,74 @@ async def test_embedding_and_artifact_handlers_use_durable_generic_work(
         replayed_failure = await store.fail_work(failure)
         assert replayed_failure == first_failure
         assert replayed_failure.status is WorkStatus.RETRY
+    finally:
+        await _cleanup(database, actor)
+
+
+async def test_expired_final_attempt_is_terminalized_live(
+    database: CockroachDatabase,
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    await _insert_run(database, actor)
+    store = CockroachWorkStore(database)
+    service = DurableWorkService(store)
+    content = b"terminal lease"
+    command = EnqueueWorkCommand(
+        idempotency_key=f"terminal-lease-live-{_id()}",
+        kind=WorkKind.PERSIST_ARTIFACT,
+        subject_id=_id(),
+        dedupe_key=f"terminal-lease:{_id()}",
+        payload={
+            "name": "terminal.txt",
+            "media_type": "text/plain",
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size_bytes": len(content),
+            "staging_uri": "file:///staging/terminal.txt",
+        },
+        max_attempts=1,
+    )
+
+    try:
+        queued = await service.enqueue(actor, command)
+        lease = (
+            await store.claim_work(
+                ClaimWorkCommand(
+                    worker_id="terminal-live-a",
+                    kinds=frozenset({WorkKind.PERSIST_ARTIFACT}),
+                    lease_seconds=5,
+                )
+            )
+        ).leases[0]
+        assert lease.attempt == 1
+        await _expire_lease(database, queued.item.work_id)
+
+        reclaimed = await store.claim_work(
+            ClaimWorkCommand(
+                worker_id="terminal-live-b",
+                kinds=frozenset({WorkKind.PERSIST_ARTIFACT}),
+            )
+        )
+        assert reclaimed.leases == ()
+
+        async with database.pool.connection() as connection:
+            cursor = await connection.execute(
+                """
+                SELECT status, outcome, last_error, locked_by, lease_token,
+                       locked_until, completed_at
+                FROM outbox_work_items
+                WHERE id = %s
+                """,
+                (queued.item.work_id,),
+            )
+            row = await cursor.fetchone()
+        assert row is not None
+        assert row["status"] == WorkStatus.FAILED.value
+        assert row["outcome"] == "failed"
+        assert row["last_error"] == "lease_expired"
+        assert row["locked_by"] is None
+        assert row["lease_token"] is None
+        assert row["locked_until"] is None
+        assert row["completed_at"] is not None
     finally:
         await _cleanup(database, actor)

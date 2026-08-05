@@ -14,6 +14,7 @@ from swarmbrain.adapters.cockroach.database import (
 )
 
 DATABASE_URL = os.getenv("SWARMBRAIN_TEST_DATABASE_URL")
+VECTOR_1024 = "[1" + ",0" * 1023 + "]"
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(not DATABASE_URL, reason="SWARMBRAIN_TEST_DATABASE_URL is not set"),
@@ -86,6 +87,17 @@ async def test_explain_accepts_every_critical_covering_index(
             """,
             (identifier, identifier, identifier),
         ),
+        "memory_vector_embeddings_ann": (
+            """
+            SELECT memory_id
+            FROM memory_vector_embeddings@memory_vector_embeddings_ann
+            WHERE tenant_id = %s AND project_id = %s AND repository_id = %s
+              AND model = %s
+            ORDER BY embedding <=> %s::VECTOR
+            LIMIT 20
+            """,
+            (identifier, identifier, identifier, "deterministic-v0", VECTOR_1024),
+        ),
         "evidence_source_lookup": (
             """
             SELECT id, tenant_id, kind, locator, content_sha256, excerpt,
@@ -113,6 +125,16 @@ async def test_explain_accepts_every_critical_covering_index(
             WHERE status IN ('pending', 'publishing', 'failed')
               AND available_at <= now()
             ORDER BY available_at, locked_until, id
+            LIMIT 20
+            """,
+            (),
+        ),
+        "outbox_work_items_expired_leases": (
+            """
+            SELECT id, attempts, max_attempts
+            FROM outbox_work_items@outbox_work_items_expired_leases
+            WHERE status = 'leased' AND locked_until <= now()
+            ORDER BY locked_until, id
             LIMIT 20
             """,
             (),

@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
-from swarmbrain.application.errors import IdempotencyConflict
+from swarmbrain.application.errors import IdempotencyConflict, ResourceNotFound
+from swarmbrain.application.memory_policy import memory_content_text
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.common import utc_now
 from swarmbrain.domain.evidence import EvidenceSource, SourceReviewState, SourceTrust
@@ -22,8 +23,10 @@ from swarmbrain.domain.extraction import (
     SourceChunk,
     SourceIngestResult,
 )
+from swarmbrain.domain.memory import EmbeddingMatch, EmbeddingVector
 from swarmbrain.domain.work import (
     AppliedWorkEffect,
+    ApplyEmbeddingWorkCommand,
     ApplyExtractionWorkCommand,
     ApplyWorkResult,
     ClaimWorkCommand,
@@ -32,6 +35,7 @@ from swarmbrain.domain.work import (
     EnqueueWorkResult,
     FailWorkCommand,
     PreparedWorkEnqueue,
+    SourceExtractionStatus,
     WorkCompletionConflict,
     WorkEffect,
     WorkEffectConflict,
@@ -42,6 +46,8 @@ from swarmbrain.domain.work import (
     WorkLeaseBatch,
     WorkLeaseLost,
     WorkStatus,
+    durable_work_id,
+    source_extraction_state,
 )
 
 
@@ -64,10 +70,31 @@ class _EnqueueReplay:
     result: EnqueueWorkResult
 
 
+@dataclass(frozen=True, slots=True)
+class _StoredEmbedding:
+    tenant_id: str
+    project_id: str
+    repository_id: str
+    vector: EmbeddingVector
+
+
+def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = sum(value * value for value in left) ** 0.5
+    right_norm = sum(value * value for value in right) ** 0.5
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return dot / (left_norm * right_norm)
+
+
 class InMemoryWorkStore:
     """Reference lease/fence/effect semantics for local tests and development."""
 
-    def __init__(self, *, clock: Callable[[], datetime] = utc_now) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], datetime] = utc_now,
+    ) -> None:
         self._clock = clock
         self._lock = asyncio.Lock()
         self.sources: dict[str, _StoredSource] = {}
@@ -78,6 +105,7 @@ class InMemoryWorkStore:
         self.effect_resources: dict[str, dict[str, Any]] = {}
         self.events: dict[str, dict[str, Any]] = {}
         self.outbox_events: dict[str, dict[str, Any]] = {}
+        self.memory_embeddings: dict[tuple[str, str], _StoredEmbedding] = {}
         self._ingest_replays: dict[tuple[str, str, str, str], _IngestReplay] = {}
         self._enqueue_replays: dict[tuple[str, str, str, str], _EnqueueReplay] = {}
         self._work_dedupe: dict[tuple[str, str, WorkKind, str], str] = {}
@@ -176,8 +204,8 @@ class InMemoryWorkStore:
             if current is not None:
                 result = SourceIngestResult(
                     source=current.source,
-                    chunks=self.chunks[prepared.source_id],
                     work_id=prepared.work_id,
+                    chunk_count=len(self.chunks[prepared.source_id]),
                     replayed=True,
                 )
                 self._ingest_replays[replay_key] = _IngestReplay(fingerprint, result)
@@ -195,7 +223,7 @@ class InMemoryWorkStore:
                 occurrence_key=occurrence,
                 trust=prepared.command.trust,
                 review_state=SourceReviewState.PENDING,
-                observed_at=prepared.command.observed_at,
+                observed_at=prepared.command.observed_at or now,
                 recorded_at=now,
                 metadata=prepared.command.metadata,
             )
@@ -215,6 +243,7 @@ class InMemoryWorkStore:
                     "extractor_name": prepared.extractor_name,
                     "extractor_revision": prepared.extractor_revision,
                     "use_provider": prepared.command.use_provider,
+                    "embedding_model": prepared.embedding_model,
                 },
                 dedupe_key=prepared.work_dedupe_key,
                 priority=prepared.command.priority,
@@ -228,8 +257,8 @@ class InMemoryWorkStore:
             )
             result = SourceIngestResult(
                 source=source,
-                chunks=prepared.chunks,
                 work_id=prepared.work_id,
+                chunk_count=len(prepared.chunks),
             )
             self.sources[prepared.source_id] = _StoredSource(
                 actor=actor,
@@ -249,15 +278,102 @@ class InMemoryWorkStore:
             self._ingest_replays[replay_key] = _IngestReplay(fingerprint, result)
             return result
 
+    async def get_extraction_status(
+        self,
+        actor: ActorContext,
+        source_id: str,
+    ) -> SourceExtractionStatus:
+        async with self._lock:
+            stored = self.sources.get(source_id)
+            if stored is None or (
+                stored.actor.tenant_id,
+                stored.actor.project_id,
+                stored.actor.repository_id,
+                stored.actor.swarm_id,
+                stored.actor.run_id,
+            ) != (
+                actor.tenant_id,
+                actor.project_id,
+                actor.repository_id,
+                actor.swarm_id,
+                actor.run_id,
+            ):
+                raise ResourceNotFound("source", source_id)
+            item = next(
+                (
+                    candidate
+                    for candidate in self.items.values()
+                    if candidate.kind is WorkKind.EXTRACT_SOURCE
+                    and candidate.subject_id == source_id
+                ),
+                None,
+            )
+            if item is None:
+                raise ResourceNotFound("source extraction", source_id)
+            memory_ids = tuple(
+                sorted(
+                    effect.resource_id
+                    for (work_id, _), effect in self.effects.items()
+                    if work_id == item.work_id
+                )
+            )
+            return SourceExtractionStatus(
+                source_id=source_id,
+                work_id=item.work_id,
+                status=source_extraction_state(item.status),
+                attempts=item.attempts,
+                max_attempts=item.max_attempts,
+                outcome=item.outcome,
+                route=(item.result or {}).get("route"),
+                candidate_count=(item.result or {}).get("candidate_count"),
+                memory_ids=memory_ids,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                completed_at=item.completed_at,
+            )
+
     async def claim_work(self, command: ClaimWorkCommand) -> WorkLeaseBatch:
         now = self._clock()
         async with self._lock:
+            for work_id, item in tuple(self.items.items()):
+                if (
+                    item.status is WorkStatus.LEASED
+                    and item.locked_until is not None
+                    and item.locked_until <= now
+                    and item.attempts >= item.max_attempts
+                ):
+                    self.items[work_id] = item.model_copy(
+                        update={
+                            "status": WorkStatus.FAILED,
+                            "outcome": "failed",
+                            "last_error": "lease_expired",
+                            "locked_by": None,
+                            "lease_token": None,
+                            "locked_until": None,
+                            "completed_at": now,
+                            "updated_at": now,
+                            "version": item.version + 1,
+                        }
+                    )
             candidates = [
                 item
                 for item in self.items.values()
                 if item.kind in command.kinds
                 and item.attempts < item.max_attempts
                 and item.available_at <= now
+                and (
+                    item.kind is not WorkKind.EXTRACT_SOURCE
+                    or command.extractor_name is None
+                    or (
+                        item.payload.get("extractor_name") == command.extractor_name
+                        and item.payload.get("extractor_revision") == command.extractor_revision
+                    )
+                )
+                and (
+                    item.kind is not WorkKind.EMBED_MEMORY
+                    or command.embedding_model is None
+                    or item.payload.get("model") == command.embedding_model
+                )
                 and (
                     item.status in {WorkStatus.PENDING, WorkStatus.RETRY}
                     or (
@@ -394,6 +510,39 @@ class InMemoryWorkStore:
                 }
 
             now = self._clock()
+            new_embedding_items: dict[str, WorkItem] = {}
+            embedding_model = item.payload.get("embedding_model")
+            if isinstance(embedding_model, str):
+                for effect, applied_effect in zip(
+                    command.effects,
+                    new_effects,
+                    strict=True,
+                ):
+                    embedding_item = self._embedding_work_item(
+                        item,
+                        applied_effect.resource_id,
+                        memory_content_text(effect.candidate.content),
+                        embedding_model,
+                        now,
+                    )
+                    dedupe_key = (
+                        item.tenant_id,
+                        item.run_id,
+                        WorkKind.EMBED_MEMORY,
+                        embedding_item.dedupe_key,
+                    )
+                    current_id = self._work_dedupe.get(dedupe_key)
+                    if current_id is not None:
+                        current = self.items[current_id]
+                        if (
+                            current.work_id != embedding_item.work_id
+                            or current.subject_id != embedding_item.subject_id
+                            or current.payload != embedding_item.payload
+                        ):
+                            raise WorkEffectConflict(f"embedding_work:{applied_effect.resource_id}")
+                        continue
+                    new_embedding_items[embedding_item.work_id] = embedding_item
+
             completed = item.model_copy(
                 update={
                     "status": WorkStatus.COMPLETED,
@@ -419,12 +568,76 @@ class InMemoryWorkStore:
             self.effect_resources.update(new_resources)
             self.events.update(new_events)
             self.outbox_events.update(new_outbox_events)
+            for embedding_item in new_embedding_items.values():
+                self.items[embedding_item.work_id] = embedding_item
+                self._work_dedupe[
+                    (
+                        embedding_item.tenant_id,
+                        embedding_item.run_id,
+                        WorkKind.EMBED_MEMORY,
+                        embedding_item.dedupe_key,
+                    )
+                ] = embedding_item.work_id
             for provenance in command.provenance:
                 self.attempts[(command.work_id, provenance.attempt, provenance.stage.value)] = (
                     provenance
                 )
             self.items[command.work_id] = completed
             return ApplyWorkResult(item=completed, effects=tuple(new_effects))
+
+    async def apply_embedding(
+        self,
+        command: ApplyEmbeddingWorkCommand,
+    ) -> CompleteWorkResult:
+        async with self._lock:
+            item = self.items.get(command.work_id)
+            if item is not None and item.status is WorkStatus.COMPLETED:
+                self._require_completion_fence(item, command)
+                if item.outcome != command.outcome or (item.result or {}) != command.result:
+                    raise WorkCompletionConflict(command.work_id)
+                stored = self.memory_embeddings.get(
+                    (command.vector.memory_id, command.vector.model)
+                )
+                if stored is None or (
+                    stored.vector.dimensions != command.vector.dimensions
+                    or stored.vector.values != command.vector.values
+                ):
+                    raise WorkCompletionConflict("completed_embedding_vector")
+                return CompleteWorkResult(item=item, replayed=True)
+
+            self._require_lease(
+                item,
+                worker_id=command.worker_id,
+                lease_token=command.lease_token,
+                lease_version=command.lease_version,
+                work_version=command.expected_work_version,
+                attempt=command.attempt,
+            )
+            assert item is not None
+            self._validate_embedding_apply(item, command.vector)
+            now = self._clock()
+            completed = item.model_copy(
+                update={
+                    "status": WorkStatus.COMPLETED,
+                    "outcome": command.outcome,
+                    "result": command.result,
+                    "last_error": None,
+                    "locked_until": None,
+                    "completed_at": now,
+                    "updated_at": now,
+                    "version": item.version + 1,
+                }
+            )
+            self.memory_embeddings[(command.vector.memory_id, command.vector.model)] = (
+                _StoredEmbedding(
+                    tenant_id=item.tenant_id,
+                    project_id=item.project_id,
+                    repository_id=item.repository_id,
+                    vector=command.vector,
+                )
+            )
+            self.items[item.work_id] = completed
+            return CompleteWorkResult(item=completed)
 
     async def complete_work(self, command: CompleteWorkCommand) -> CompleteWorkResult:
         async with self._lock:
@@ -444,8 +657,8 @@ class InMemoryWorkStore:
                 attempt=command.attempt,
             )
             assert item is not None
-            if item.kind is WorkKind.EXTRACT_SOURCE:
-                raise WorkCompletionConflict("extract_source_requires_effect_apply")
+            if item.kind in {WorkKind.EXTRACT_SOURCE, WorkKind.EMBED_MEMORY}:
+                raise WorkCompletionConflict(f"{item.kind.value}_requires_fenced_apply")
             now = self._clock()
             completed = item.model_copy(
                 update={
@@ -461,6 +674,61 @@ class InMemoryWorkStore:
             )
             self.items[item.work_id] = completed
             return CompleteWorkResult(item=completed)
+
+    async def upsert_embeddings(
+        self,
+        actor: ActorContext,
+        vectors: Sequence[EmbeddingVector],
+        *,
+        idempotency_key: str,
+    ) -> None:
+        """Direct index boundary for tests; workers use fenced apply_embedding."""
+
+        del idempotency_key
+        async with self._lock:
+            for vector in vectors:
+                self.memory_embeddings[(vector.memory_id, vector.model)] = _StoredEmbedding(
+                    tenant_id=actor.tenant_id,
+                    project_id=actor.project_id,
+                    repository_id=actor.repository_id,
+                    vector=vector,
+                )
+
+    async def search_embeddings(
+        self,
+        actor: ActorContext,
+        query_vector: Sequence[float],
+        *,
+        model: str,
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> tuple[EmbeddingMatch, ...]:
+        async with self._lock:
+            matches: list[EmbeddingMatch] = []
+            for (memory_id, vector_model), stored in self.memory_embeddings.items():
+                if vector_model != model or (
+                    stored.tenant_id,
+                    stored.project_id,
+                    stored.repository_id,
+                ) != (
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                ):
+                    continue
+                if len(stored.vector.values) != len(query_vector):
+                    continue
+                score = max(
+                    0.0,
+                    min(
+                        1.0,
+                        _cosine_similarity(stored.vector.values, query_vector),
+                    ),
+                )
+                if score >= min_score:
+                    matches.append(EmbeddingMatch(memory_id=memory_id, score=score))
+            matches.sort(key=lambda match: (match.score, match.memory_id), reverse=True)
+            return tuple(matches[: max(1, min(100, limit))])
 
     async def fail_work(self, command: FailWorkCommand) -> WorkItem:
         async with self._lock:
@@ -523,6 +791,51 @@ class InMemoryWorkStore:
             source.source.review_state is not SourceReviewState.REJECTED
             and source.source.trust is not SourceTrust.UNTRUSTED
         )
+
+    def _embedding_work_item(
+        self,
+        parent: WorkItem,
+        memory_id: str,
+        content: str,
+        embedding_model: str,
+        now: datetime,
+    ) -> WorkItem:
+        dedupe_key = f"embed:{memory_id}:{embedding_model}"
+        work_id = durable_work_id(
+            parent.tenant_id,
+            parent.run_id,
+            WorkKind.EMBED_MEMORY,
+            dedupe_key,
+        )
+        return WorkItem(
+            work_id=work_id,
+            tenant_id=parent.tenant_id,
+            project_id=parent.project_id,
+            repository_id=parent.repository_id,
+            swarm_id=parent.swarm_id,
+            run_id=parent.run_id,
+            task_id=parent.task_id,
+            requested_by_agent_id=parent.requested_by_agent_id,
+            kind=WorkKind.EMBED_MEMORY,
+            subject_id=memory_id,
+            payload={
+                "content": content,
+                "model": embedding_model,
+                "metadata": {},
+            },
+            dedupe_key=dedupe_key,
+            priority=parent.priority,
+            available_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+
+    @staticmethod
+    def _validate_embedding_apply(item: WorkItem, vector: EmbeddingVector) -> None:
+        if item.kind is not WorkKind.EMBED_MEMORY:
+            raise WorkCompletionConflict("apply_embedding_requires_embed_memory")
+        if item.subject_id != vector.memory_id or item.payload.get("model") != vector.model:
+            raise WorkCompletionConflict("embedding_vector_does_not_match_work")
 
     @staticmethod
     def _cancellation_reason(prepared: PreparedSourceIngest) -> str | None:
@@ -591,7 +904,7 @@ class InMemoryWorkStore:
     @staticmethod
     def _require_completion_fence(
         item: WorkItem,
-        command: ApplyExtractionWorkCommand | CompleteWorkCommand,
+        command: (ApplyExtractionWorkCommand | ApplyEmbeddingWorkCommand | CompleteWorkCommand),
     ) -> None:
         if (
             item.locked_by != command.worker_id

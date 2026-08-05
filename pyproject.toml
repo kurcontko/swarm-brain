@@ -22,6 +22,9 @@ crdb = [
     "psycopg[binary]>=3.2,<4",
     "psycopg-pool>=3.2,<4",
 ]
+aws = [
+    "boto3>=1.34,<2",
+]
 dev = [
     "fastapi>=0.115,<1",
     "mcp>=1.27,<2",
@@ -37,6 +40,7 @@ swarmbrain-api = "swarmbrain.cli.api:main"
 swarmbrain-mcp = "swarmbrain.transports.mcp.server:main"
 swarmbrain-schema = "swarmbrain.cli.schema:main"
 swarmbrain-token = "swarmbrain.cli.token:main"
+swarmbrain-worker = "swarmbrain.cli.worker:main"
 
 [build-system]
 requires = ["hatchling"]

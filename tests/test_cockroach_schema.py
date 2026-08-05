@@ -15,6 +15,7 @@ REQUIRED_TABLES = {
     "task_completions",
     "memories",
     "memory_embeddings",
+    "memory_vector_embeddings",
     "evidence",
     "memory_evidence",
     "memory_links",
@@ -75,6 +76,24 @@ def test_memory_schema_keeps_lifecycle_strict_but_semantics_open() -> None:
     assert "CREATE UNIQUE INDEX IF NOT EXISTS memories_current_fingerprint" not in schema
 
 
+def test_vector_schema_is_additive_fixed_width_and_fully_scope_prefixed() -> None:
+    schema = read_schema()
+    blocks = _create_table_blocks(schema)
+
+    assert "embedding FLOAT8[] NOT NULL" in blocks["memory_embeddings"]
+    vectors = blocks["memory_vector_embeddings"]
+    assert "tenant_id STRING NOT NULL" in vectors
+    assert "project_id STRING NOT NULL" in vectors
+    assert "repository_id STRING NOT NULL" in vectors
+    assert "model STRING(255) NOT NULL" in vectors
+    assert "embedding VECTOR(1024) NOT NULL" in vectors
+    assert "CHECK (dimensions = 1024)" in vectors
+    assert "CREATE VECTOR INDEX IF NOT EXISTS memory_vector_embeddings_ann" in schema
+    assert "tenant_id, project_id, repository_id, model, embedding vector_cosine_ops" in " ".join(
+        schema.split()
+    )
+
+
 def test_schema_persists_domain_fencing_provenance_and_structured_resolution() -> None:
     blocks = _create_table_blocks(read_schema())
 
@@ -110,6 +129,8 @@ def test_external_work_queue_is_separate_leased_fenced_and_idempotent() -> None:
     assert "UNIQUE (tenant_id, run_id, kind, dedupe_key)" in work
     assert "status != 'leased'" in work
     assert "outbox_work_items_claim" in schema
+    assert "outbox_work_items_expired_leases" in schema
+    assert "WHERE status = 'leased'" in schema
     assert "PRIMARY KEY (work_id, attempt, stage)" in blocks["outbox_work_attempts"]
     assert "PRIMARY KEY (work_id, effect_key)" in blocks["outbox_work_effects"]
 

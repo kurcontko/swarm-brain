@@ -1,5 +1,12 @@
 # Swarm Brain v0 architecture
 
+> **Historical P0 design snapshot.** This document records the original issue
+> #1 boundary and intentionally contains implementation statements that are no
+> longer current. Use [API contracts](api.md), the
+> [runtime README](../../swarm-brain/README.md), and the executable
+> [schema.sql](../../swarm-brain/src/swarmbrain/adapters/cockroach/schema.sql)
+> for the current v6 implementation.
+
 This document turns the design in [issue #1](issue-1.md) into a bounded,
 self-contained system under `swarm-brain/`. Swarm Brain does not import `sen`
 or `mnemotree` at runtime. It adapts audited ideas from both and owns all new

@@ -333,6 +333,28 @@ CREATE TABLE IF NOT EXISTS memory_embeddings (
     PRIMARY KEY (memory_id, model)
 );
 
+-- v6 adds the ANN plane additively.  The legacy FLOAT8[] table above remains
+-- intact so installing v6 never converts or discards pre-existing vectors.
+CREATE TABLE IF NOT EXISTS memory_vector_embeddings (
+    memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
+    tenant_id STRING NOT NULL,
+    project_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
+    model STRING(255) NOT NULL,
+    dimensions INT8 NOT NULL,
+    embedding VECTOR(1024) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT memory_vector_embeddings_dimensions_check CHECK (dimensions = 1024),
+    PRIMARY KEY (memory_id, model)
+);
+
+-- Every ANN lookup must constrain the complete authenticated repository scope
+-- and the embedding model before cosine similarity work is considered.
+CREATE VECTOR INDEX IF NOT EXISTS memory_vector_embeddings_ann
+    ON memory_vector_embeddings (
+        tenant_id, project_id, repository_id, model, embedding vector_cosine_ops
+    );
+
 CREATE TABLE IF NOT EXISTS evidence (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id STRING NOT NULL,
@@ -610,6 +632,11 @@ CREATE INDEX IF NOT EXISTS outbox_work_items_claim
         lease_version, version
     )
     WHERE status IN ('pending', 'retry', 'leased');
+
+CREATE INDEX IF NOT EXISTS outbox_work_items_expired_leases
+    ON outbox_work_items (locked_until, id)
+    STORING (attempts, max_attempts)
+    WHERE status = 'leased';
 
 CREATE INDEX IF NOT EXISTS outbox_work_items_subject
     ON outbox_work_items (subject_id, kind, created_at DESC, id)

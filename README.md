@@ -17,7 +17,8 @@ ports and CockroachDB-oriented transaction boundaries.
 - evidence-backed conflict reporting and resolution;
 - an in-memory adapter for deterministic local development and tests;
 - an explicit CockroachDB schema command and a pooled async composition seam;
-- the canonical FastAPI surface and a six-tool stdio MCP bridge.
+- durable, fenced extraction/embedding/artifact work with deterministic fallback;
+- the canonical FastAPI surface and a seven-tool stdio MCP bridge.
 
 Backend selection is fail-closed. `SWARMBRAIN_BACKEND` must be either `memory`
 or `cockroach`; there is no implicit fallback. The memory backend rejects a
@@ -90,6 +91,8 @@ export SWARMBRAIN_TOKEN_SECRET=local-development-secret
 uv run --extra crdb swarmbrain-schema install
 uv run --extra crdb swarmbrain-schema verify
 uv run --extra serve --extra crdb swarmbrain-api
+# In a separate process, using the same database and embedding configuration:
+uv run --extra crdb swarmbrain-worker
 ```
 
 The durable composition creates one `CockroachDatabase` pool shared by the
@@ -116,6 +119,7 @@ uv run swarmbrain-token \
   --capability run:join --capability task:claim --capability task:checkpoint \
   --capability task:complete --capability lease:renew \
   --capability memory:publish --capability memory:recall \
+  --capability source:ingest \
   --capability conflict:report
 ```
 

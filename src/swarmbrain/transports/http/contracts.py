@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from pydantic import BaseModel, create_model
+from pydantic import AwareDatetime, BaseModel, Field, create_model
 
-from swarmbrain.domain.common import ContractModel
+from swarmbrain.domain.common import ContractModel, IdempotencyKey, JsonObject, TaskId
 from swarmbrain.domain.conflicts import ReportConflictCommand, ResolveConflictCommand
+from swarmbrain.domain.evidence import AddEvidenceCommand, EvidenceKindValue, Sha256
 from swarmbrain.domain.leases import RenewLeaseCommand
 from swarmbrain.domain.memory import RememberCommand
 from swarmbrain.domain.tasks import (
@@ -62,12 +63,44 @@ ResolveConflictBody = _body_schema(
 )
 
 
+class IngestSourceBody(ContractModel):
+    """Public source material only; trust and extraction policy are operator-owned."""
+
+    kind: EvidenceKindValue
+    content: str = Field(min_length=1, max_length=1_000_000)
+    observed_at: AwareDatetime | None = None
+    task_id: TaskId | None = None
+    uri: str | None = Field(default=None, max_length=2048)
+    occurrence_key: str | None = Field(default=None, min_length=1, max_length=512)
+    metadata: JsonObject = Field(default_factory=dict)
+    idempotency_key: IdempotencyKey | None = None
+
+
+class RegisterEvidenceSourceBody(ContractModel):
+    """Unreviewed evidence source; callers cannot self-assign trust."""
+
+    kind: EvidenceKindValue
+    content_sha256: Sha256
+    observed_at: AwareDatetime
+    task_id: TaskId | None = None
+    uri: str | None = Field(default=None, max_length=2048)
+    occurrence_key: str | None = Field(default=None, min_length=1, max_length=512)
+    metadata: JsonObject = Field(default_factory=dict)
+    idempotency_key: IdempotencyKey | None = None
+
+
+AddEvidenceBody = _body_schema("AddEvidenceBody", AddEvidenceCommand)
+
+
 __all__ = [
+    "AddEvidenceBody",
     "CheckpointBody",
     "ClaimTaskBody",
     "CompleteTaskBody",
+    "IngestSourceBody",
     "ReleaseTaskBody",
     "RememberBody",
+    "RegisterEvidenceSourceBody",
     "RenewLeaseBody",
     "ReportConflictBody",
     "ResolveConflictBody",

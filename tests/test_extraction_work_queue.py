@@ -11,7 +11,9 @@ from pydantic import ValidationError
 
 from conftest import make_actor
 from swarmbrain.adapters.extraction import (
+    STRUCTURED_MEMORY_SOURCE_KIND,
     CodingRuleExtractor,
+    DefaultRuleExtractor,
     InMemoryWorkStore,
     LazyExtractionProvider,
 )
@@ -31,6 +33,7 @@ from swarmbrain.domain.memory import MemoryKind
 from swarmbrain.domain.work import (
     ApplyExtractionWorkCommand,
     ClaimWorkCommand,
+    SourceExtractionState,
     WorkEffect,
     WorkEffectConflict,
     WorkKind,
@@ -104,7 +107,10 @@ async def test_raw_ingest_preserves_exact_content_chunks_and_work_atomically(
     assert first.replayed is False
     assert replay.replayed is True
     assert replay.work_id == first.work_id
-    assert "".join(chunk.content for chunk in first.chunks) == command.content
+    assert first.chunk_count == len(store.chunks[first.source.source_id])
+    assert (
+        "".join(chunk.content for chunk in store.chunks[first.source.source_id]) == command.content
+    )
     assert store.sources[first.source.source_id].raw_content == command.content
     assert store.items[first.work_id].subject_id == first.source.source_id
 
@@ -135,6 +141,131 @@ async def test_deterministic_coding_route_produces_only_exact_source_spans(
     for candidate in result.candidates:
         for span in candidate.spans:
             assert request.raw_content[span.char_start : span.char_end] == span.excerpt
+
+
+@pytest.mark.asyncio
+async def test_structured_envelope_materializes_spanless_flexible_memory(
+    scope_ids: dict[str, str],
+) -> None:
+    store = InMemoryWorkStore()
+    service = ExtractionService(store, DefaultRuleExtractor())
+    actor = make_actor(scope_ids)
+    command = IngestRawSourceCommand(
+        idempotency_key="structured-source-1",
+        kind=STRUCTURED_MEMORY_SOURCE_KIND,
+        content=json.dumps(
+            {
+                "memories": [
+                    {
+                        "kind": "org.acme/preference",
+                        "content": {
+                            "preference": "dark-mode",
+                            "context": ["editor", "terminal"],
+                        },
+                        "confidence": 0.91,
+                    }
+                ]
+            }
+        ),
+        observed_at=datetime(2026, 8, 2, 11, 0, tzinfo=UTC),
+    )
+
+    ingested = await service.ingest(actor, command)
+    queued = await service.status(actor, ingested.source.source_id)
+    assert queued.status is SourceExtractionState.QUEUED
+    assert queued.memory_ids == ()
+
+    applied = await ExtractionWorker(store, store, service).run_once("structured-worker")
+    assert len(applied) == 1
+    completed = await service.status(actor, ingested.source.source_id)
+    assert completed.status is SourceExtractionState.COMPLETED
+    assert completed.route.value == "general"
+    assert completed.candidate_count == 1
+    assert len(completed.memory_ids) == 1
+    resource = store.effect_resources[completed.memory_ids[0]]
+    assert resource["candidate"]["content"] == {
+        "preference": "dark-mode",
+        "context": ["editor", "terminal"],
+    }
+    assert resource["evidence"] == []
+
+
+@pytest.mark.asyncio
+async def test_structured_envelope_deduplicates_identical_candidates_before_apply(
+    scope_ids: dict[str, str],
+) -> None:
+    store = InMemoryWorkStore()
+    service = ExtractionService(store, DefaultRuleExtractor())
+    actor = make_actor(scope_ids)
+    candidate = {
+        "kind": "org.acme/preference",
+        "content": {"preference": "flexible-memory"},
+        "confidence": 0.9,
+    }
+    ingested = await service.ingest(
+        actor,
+        IngestRawSourceCommand(
+            idempotency_key="structured-source-duplicate-1",
+            kind=STRUCTURED_MEMORY_SOURCE_KIND,
+            content=json.dumps({"memories": [candidate, candidate]}),
+            observed_at=datetime(2026, 8, 2, 11, 0, tzinfo=UTC),
+        ),
+    )
+
+    applied = await ExtractionWorker(store, store, service).run_once("structured-dedupe-worker")
+
+    assert len(applied) == 1
+    assert applied[0].item.status is WorkStatus.COMPLETED
+    assert len(applied[0].effects) == 1
+    status = await service.status(actor, ingested.source.source_id)
+    assert status.candidate_count == 1
+    assert len(status.memory_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_extraction_atomically_enqueues_embedding_for_materialized_memory(
+    scope_ids: dict[str, str],
+) -> None:
+    store = InMemoryWorkStore()
+    service = ExtractionService(
+        store,
+        DefaultRuleExtractor(),
+        embedding_model="model-a",
+    )
+    actor = make_actor(scope_ids)
+    ingested = await service.ingest(
+        actor,
+        IngestRawSourceCommand(
+            idempotency_key="structured-source-embedding-1",
+            kind=STRUCTURED_MEMORY_SOURCE_KIND,
+            content=json.dumps(
+                {
+                    "memories": [
+                        {
+                            "kind": "org.acme/flexible",
+                            "content": {"shape": [1, {"free": True}]},
+                        }
+                    ]
+                }
+            ),
+            observed_at=datetime(2026, 8, 2, 11, 0, tzinfo=UTC),
+        ),
+    )
+
+    applied = await ExtractionWorker(store, store, service).run_once("structured-embedding-worker")
+
+    assert len(applied) == 1
+    embedding_items = [item for item in store.items.values() if item.kind is WorkKind.EMBED_MEMORY]
+    assert len(embedding_items) == 1
+    embedding = embedding_items[0]
+    assert embedding.status is WorkStatus.PENDING
+    assert embedding.subject_id == applied[0].effects[0].resource_id
+    assert embedding.payload == {
+        "content": '{"shape":[1,{"free":true}]}',
+        "model": "model-a",
+        "metadata": {},
+    }
+    assert store.items[ingested.work_id].status is WorkStatus.COMPLETED
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Annotated, Self
 
@@ -21,6 +22,7 @@ from .common import (
     JsonObject,
     MemoryContent,
     MutationCommand,
+    SemanticLabel,
     SourceId,
     TaskId,
     UUIDString,
@@ -134,7 +136,7 @@ class IngestRawSourceCommand(MutationCommand):
 
     kind: EvidenceKindValue
     content: str = Field(min_length=1, max_length=1_000_000)
-    observed_at: AwareDatetime
+    observed_at: AwareDatetime | None = None
     task_id: TaskId | None = None
     uri: str | None = Field(default=None, max_length=2048)
     occurrence_key: str | None = Field(default=None, min_length=1, max_length=512)
@@ -158,6 +160,7 @@ class PreparedSourceIngest(ContractModel):
     chunks: tuple[SourceChunk, ...] = Field(min_length=1, max_length=4096)
     extractor_name: ExtractorName
     extractor_revision: str = Field(min_length=1, max_length=255)
+    embedding_model: SemanticLabel | None = None
     work_dedupe_key: str = Field(min_length=1, max_length=512)
 
     @model_validator(mode="after")
@@ -179,16 +182,26 @@ class PreparedSourceIngest(ContractModel):
 
 
 class SourceIngestResult(ContractModel):
+    """Lean durable receipt; raw chunk content remains only in source storage."""
+
     source: EvidenceSource
-    chunks: tuple[SourceChunk, ...]
     work_id: UUIDString
+    chunk_count: int = Field(ge=1, le=4096)
     replayed: bool = False
 
-    @model_validator(mode="after")
-    def validate_chunks(self) -> Self:
-        if any(chunk.source_id != self.source.source_id for chunk in self.chunks):
-            raise ValueError("ingest result chunks must belong to the source")
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def upgrade_legacy_chunk_receipt(cls, value: object) -> object:
+        """Read pre-v6 idempotency responses without re-emitting raw chunks."""
+
+        if not isinstance(value, Mapping) or "chunk_count" in value or "chunks" not in value:
+            return value
+        upgraded = dict(value)
+        chunks = upgraded.pop("chunks")
+        if not isinstance(chunks, (list, tuple)):
+            return value
+        upgraded["chunk_count"] = len(chunks)
+        return upgraded
 
 
 class ExtractionCandidate(ContractModel):

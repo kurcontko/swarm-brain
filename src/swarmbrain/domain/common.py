@@ -57,13 +57,7 @@ SemanticLabel = Annotated[
 # Nested JSON may contain null; the outer memory content deliberately may not.
 NestedJsonValue = TypeAliasType(
     "NestedJsonValue",
-    str
-    | int
-    | FiniteFloat
-    | bool
-    | None
-    | list["NestedJsonValue"]
-    | dict[str, "NestedJsonValue"],
+    str | int | FiniteFloat | bool | None | list["NestedJsonValue"] | dict[str, "NestedJsonValue"],
 )
 MemoryContent = TypeAliasType(
     "MemoryContent",

@@ -26,6 +26,7 @@ from swarmbrain.domain.extraction import (
     SourceChunk,
     SourceIngestResult,
 )
+from swarmbrain.domain.work import SourceExtractionStatus
 from swarmbrain.ports.extraction import (
     DeterministicExtractor,
     ExtractionProvider,
@@ -58,10 +59,14 @@ class ExtractionService:
         deterministic: DeterministicExtractor,
         *,
         provider: ExtractionProvider | None = None,
+        embedding_model: str | None = None,
     ) -> None:
+        if embedding_model is not None and not 1 <= len(embedding_model) <= 255:
+            raise ValueError("embedding_model must be a non-empty string")
         self.ingest_store = ingest_store
         self.deterministic = deterministic
         self.provider = provider
+        self.embedding_model = embedding_model
 
     async def ingest(
         self,
@@ -71,6 +76,14 @@ class ExtractionService:
         require_capability(actor, Capability.SOURCE_INGEST)
         prepared = self.prepare_ingest(actor, command)
         return await self.ingest_store.ingest_source(actor, prepared)
+
+    async def status(
+        self,
+        actor: ActorContext,
+        source_id: str,
+    ) -> SourceExtractionStatus:
+        require_capability(actor, Capability.SOURCE_INGEST)
+        return await self.ingest_store.get_extraction_status(actor, source_id)
 
     def prepare_ingest(
         self,
@@ -102,6 +115,7 @@ class ExtractionService:
             chunks=chunks,
             extractor_name=self.deterministic.name,
             extractor_revision=self.deterministic.revision,
+            embedding_model=self.embedding_model,
             work_dedupe_key=(
                 f"extract_source:{source_id}:{self.deterministic.name}:"
                 f"{self.deterministic.revision}"
@@ -137,12 +151,9 @@ class ExtractionService:
             )
 
         deterministic_started = utc_now()
-        deterministic = (
-            tuple(await self.deterministic.extract(request))
-            if route is ExtractionRoute.CODING
-            else ()
-        )
+        deterministic = tuple(await self.deterministic.extract(request))
         deterministic = tuple(self._validated_candidates(deterministic, request))
+        deterministic = self._dedupe(deterministic)
         deterministic_finished = utc_now()
         provenance: list[ExtractionProvenance] = [
             ExtractionProvenance(

@@ -11,9 +11,12 @@ from conftest import make_actor, new_id
 from swarmbrain.adapters.extraction import InMemoryWorkStore
 from swarmbrain.application.errors import IdempotencyConflict
 from swarmbrain.application.work import DurableWorkService
+from swarmbrain.domain.memory import EmbeddingVector
 from swarmbrain.domain.work import (
+    ApplyEmbeddingWorkCommand,
     ClaimWorkCommand,
     CompleteWorkCommand,
+    EmbeddingWorkHandlerResult,
     EnqueueWorkCommand,
     FailWorkCommand,
     WorkCompletionConflict,
@@ -23,6 +26,7 @@ from swarmbrain.domain.work import (
     WorkLease,
     WorkLeaseLost,
     WorkStatus,
+    embedding_vector_sha256,
 )
 from swarmbrain.workers import LeasedWorkWorker
 
@@ -77,6 +81,32 @@ def _artifact_command(
     )
 
 
+def _embedding_apply_command(
+    lease: WorkLease,
+    values: tuple[float, ...],
+) -> ApplyEmbeddingWorkCommand:
+    vector = EmbeddingVector(
+        memory_id=lease.item.subject_id,
+        model=str(lease.item.payload["model"]),
+        dimensions=len(values),
+        values=values,
+    )
+    return ApplyEmbeddingWorkCommand(
+        work_id=lease.item.work_id,
+        worker_id=lease.worker_id,
+        lease_token=lease.lease_token,
+        lease_version=lease.lease_version,
+        expected_work_version=lease.work_version,
+        attempt=lease.attempt,
+        vector=vector,
+        result={
+            "model": vector.model,
+            "dimensions": vector.dimensions,
+            "vector_sha256": embedding_vector_sha256(vector),
+        },
+    )
+
+
 class CountingHandler:
     def __init__(
         self,
@@ -90,19 +120,36 @@ class CountingHandler:
         self.failures = failures
         self.calls = 0
 
-    async def handle(self, lease: WorkLease) -> WorkHandlerResult:
+    async def handle(
+        self,
+        lease: WorkLease,
+    ) -> WorkHandlerResult | EmbeddingWorkHandlerResult:
         assert lease.item.kind is self.kind
         if self.transaction_probe is not None:
             assert self.transaction_probe.in_transaction is False
         self.calls += 1
         if self.calls <= self.failures:
             raise RuntimeError("local handler failure")
-        return WorkHandlerResult(
+        result = {
+            "kind": self.kind.value,
+            "subject_id": lease.item.subject_id,
+            "handler_calls": self.calls,
+        }
+        if self.kind is not WorkKind.EMBED_MEMORY:
+            return WorkHandlerResult(result=result)
+        vector = EmbeddingVector(
+            memory_id=lease.item.subject_id,
+            model=str(lease.item.payload["model"]),
+            dimensions=3,
+            values=(1.0, 0.0, 0.0),
+        )
+        return EmbeddingWorkHandlerResult(
+            vector=vector,
             result={
-                "kind": self.kind.value,
-                "subject_id": lease.item.subject_id,
-                "handler_calls": self.calls,
-            }
+                "model": vector.model,
+                "dimensions": vector.dimensions,
+                "vector_sha256": embedding_vector_sha256(vector),
+            },
         )
 
 
@@ -132,6 +179,19 @@ class RetryingCompletionQueue:
         self.in_transaction = True
         try:
             return await self.delegate.apply_extraction(command)
+        finally:
+            self.in_transaction = False
+
+    async def apply_embedding(self, command: Any) -> Any:
+        self.in_transaction = True
+        try:
+            self.completion_transaction_attempts += 1
+            try:
+                raise SerializationFailure()
+            except SerializationFailure as exc:
+                assert exc.sqlstate == "40001"
+            self.completion_transaction_attempts += 1
+            return await self.delegate.apply_embedding(command)
         finally:
             self.in_transaction = False
 
@@ -283,6 +343,48 @@ async def test_failed_handler_is_fenced_then_retried(
 
 
 @pytest.mark.asyncio
+async def test_expired_final_attempt_is_terminalized_instead_of_staying_leased(
+    scope_ids: dict[str, str],
+) -> None:
+    clock = MutableClock()
+    store = InMemoryWorkStore(clock=clock)
+    service = DurableWorkService(store)
+    actor = make_actor(scope_ids)
+    queued = await service.enqueue(
+        actor,
+        _artifact_command(clock).model_copy(update={"max_attempts": 1}),
+    )
+    lease = (
+        await store.claim_work(
+            ClaimWorkCommand(
+                worker_id="doomed-worker",
+                kinds=frozenset({WorkKind.PERSIST_ARTIFACT}),
+                lease_seconds=5,
+            )
+        )
+    ).leases[0]
+    assert lease.attempt == 1
+    clock.now += timedelta(seconds=6)
+
+    reclaimed = await store.claim_work(
+        ClaimWorkCommand(
+            worker_id="replacement-worker",
+            kinds=frozenset({WorkKind.PERSIST_ARTIFACT}),
+        )
+    )
+
+    assert reclaimed.leases == ()
+    terminal = store.items[queued.item.work_id]
+    assert terminal.status is WorkStatus.FAILED
+    assert terminal.outcome == "failed"
+    assert terminal.last_error == "lease_expired"
+    assert terminal.locked_by is None
+    assert terminal.lease_token is None
+    assert terminal.locked_until is None
+    assert terminal.completed_at == clock.now
+
+
+@pytest.mark.asyncio
 async def test_generic_completion_rejects_stale_fence_and_replays_once(
     scope_ids: dict[str, str],
 ) -> None:
@@ -290,12 +392,12 @@ async def test_generic_completion_rejects_stale_fence_and_replays_once(
     store = InMemoryWorkStore(clock=clock)
     service = DurableWorkService(store)
     actor = make_actor(scope_ids)
-    await service.enqueue(actor, _embedding_command(clock))
+    await service.enqueue(actor, _artifact_command(clock))
     stale = (
         await store.claim_work(
             ClaimWorkCommand(
                 worker_id="stale-handler",
-                kinds=frozenset({WorkKind.EMBED_MEMORY}),
+                kinds=frozenset({WorkKind.PERSIST_ARTIFACT}),
                 lease_seconds=5,
             )
         )
@@ -305,7 +407,7 @@ async def test_generic_completion_rejects_stale_fence_and_replays_once(
         await store.claim_work(
             ClaimWorkCommand(
                 worker_id="current-handler",
-                kinds=frozenset({WorkKind.EMBED_MEMORY}),
+                kinds=frozenset({WorkKind.PERSIST_ARTIFACT}),
                 lease_seconds=30,
             )
         )
@@ -341,6 +443,55 @@ async def test_generic_completion_rejects_stale_fence_and_replays_once(
 
     with pytest.raises(WorkCompletionConflict):
         await store.complete_work(completion.model_copy(update={"result": {"dimensions": 4}}))
+
+
+@pytest.mark.asyncio
+async def test_embedding_apply_is_atomic_and_rejects_a_stale_vector(
+    scope_ids: dict[str, str],
+) -> None:
+    clock = MutableClock()
+    store = InMemoryWorkStore(clock=clock)
+    service = DurableWorkService(store)
+    actor = make_actor(scope_ids)
+    await service.enqueue(actor, _embedding_command(clock))
+    stale = (
+        await store.claim_work(
+            ClaimWorkCommand(
+                worker_id="stale-embedding",
+                kinds=frozenset({WorkKind.EMBED_MEMORY}),
+                lease_seconds=5,
+            )
+        )
+    ).leases[0]
+    clock.now += timedelta(seconds=6)
+    current = (
+        await store.claim_work(
+            ClaimWorkCommand(
+                worker_id="current-embedding",
+                kinds=frozenset({WorkKind.EMBED_MEMORY}),
+                lease_seconds=30,
+            )
+        )
+    ).leases[0]
+
+    with pytest.raises(WorkLeaseLost):
+        await store.apply_embedding(_embedding_apply_command(stale, (1.0, 0.0, 0.0)))
+    assert store.memory_embeddings == {}
+
+    command = _embedding_apply_command(current, (0.0, 1.0, 0.0))
+    first = await store.apply_embedding(command)
+    replay = await store.apply_embedding(command)
+
+    assert first.replayed is False
+    assert replay.replayed is True
+    assert store.memory_embeddings[(current.item.subject_id, "model-a")].vector.values == (
+        0.0,
+        1.0,
+        0.0,
+    )
+
+    with pytest.raises(WorkCompletionConflict):
+        await store.apply_embedding(_embedding_apply_command(current, (0.0, 0.0, 1.0)))
 
 
 @pytest.mark.asyncio

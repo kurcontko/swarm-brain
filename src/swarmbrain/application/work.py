@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from uuid import NAMESPACE_URL, uuid5
-
 from swarmbrain.domain.agents import ActorContext, Capability
 from swarmbrain.domain.work import (
     EnqueueWorkCommand,
     EnqueueWorkResult,
     PreparedWorkEnqueue,
     WorkKind,
+    durable_work_id,
 )
 from swarmbrain.ports.work_queue import WorkQueueStore
 
@@ -40,19 +39,13 @@ class DurableWorkService:
         actor: ActorContext,
         command: EnqueueWorkCommand,
     ) -> PreparedWorkEnqueue:
-        work_id = uuid5(
-            NAMESPACE_URL,
-            ":".join(
-                (
-                    "swarmbrain-work",
-                    actor.tenant_id,
-                    actor.run_id,
-                    command.kind.value,
-                    command.dedupe_key,
-                )
-            ),
+        work_id = durable_work_id(
+            actor.tenant_id,
+            actor.run_id,
+            command.kind,
+            command.dedupe_key,
         )
-        return PreparedWorkEnqueue(work_id=str(work_id), command=command)
+        return PreparedWorkEnqueue(work_id=work_id, command=command)
 
 
 __all__ = ["DurableWorkService"]

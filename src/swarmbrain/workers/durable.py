@@ -10,9 +10,11 @@ from typing import Protocol, runtime_checkable
 from swarmbrain.domain.common import utc_now
 from swarmbrain.domain.work import (
     HANDLER_WORK_KINDS,
+    ApplyEmbeddingWorkCommand,
     ClaimWorkCommand,
     CompleteWorkCommand,
     CompleteWorkResult,
+    EmbeddingWorkHandlerResult,
     FailWorkCommand,
     WorkHandlerResult,
     WorkKind,
@@ -29,7 +31,10 @@ class WorkHandler(Protocol):
 
     kind: WorkKind
 
-    async def handle(self, lease: WorkLease) -> WorkHandlerResult: ...
+    async def handle(
+        self,
+        lease: WorkLease,
+    ) -> WorkHandlerResult | EmbeddingWorkHandlerResult: ...
 
 
 class LeasedWorkWorker:
@@ -56,6 +61,13 @@ class LeasedWorkWorker:
             raise ValueError("at least one work handler is required")
         self.queue = queue
         self.handlers = mapped
+        embedding_handler = mapped.get(WorkKind.EMBED_MEMORY)
+        embedding_model = getattr(embedding_handler, "claim_model", None)
+        if embedding_model is not None and (
+            not isinstance(embedding_model, str) or not 1 <= len(embedding_model) <= 255
+        ):
+            raise ValueError("embedding handler claim_model must be a non-empty string")
+        self.embedding_model = embedding_model
         self.retry_delay_seconds = retry_delay_seconds
         self.clock = clock
 
@@ -72,6 +84,7 @@ class LeasedWorkWorker:
                 kinds=frozenset(self.handlers),
                 limit=limit,
                 lease_seconds=lease_seconds,
+                embedding_model=self.embedding_model,
             )
         )
         completed: list[CompleteWorkResult] = []
@@ -87,7 +100,23 @@ class LeasedWorkWorker:
             validate_work_payload(lease.item.kind, lease.item.payload)
             # Handler/provider work deliberately occurs after claim COMMIT and
             # before the short fenced completion transaction.
-            handled = WorkHandlerResult.model_validate(await handler.handle(lease))
+            raw_result = await handler.handle(lease)
+            if lease.item.kind is WorkKind.EMBED_MEMORY:
+                handled_embedding = EmbeddingWorkHandlerResult.model_validate(raw_result)
+                return await self.queue.apply_embedding(
+                    ApplyEmbeddingWorkCommand(
+                        work_id=lease.item.work_id,
+                        worker_id=lease.worker_id,
+                        lease_token=lease.lease_token,
+                        lease_version=lease.lease_version,
+                        expected_work_version=lease.work_version,
+                        attempt=lease.attempt,
+                        vector=handled_embedding.vector,
+                        outcome=handled_embedding.outcome,
+                        result=handled_embedding.result,
+                    )
+                )
+            handled = WorkHandlerResult.model_validate(raw_result)
             return await self.queue.complete_work(
                 CompleteWorkCommand(
                     work_id=lease.item.work_id,

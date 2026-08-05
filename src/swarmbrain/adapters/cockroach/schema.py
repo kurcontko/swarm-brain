@@ -149,7 +149,7 @@ async def install_schema(database_url: str) -> int:
             """,
             (
                 SCHEMA_VERSION,
-                "Swarm Brain flexible memory documents and open semantic vocabularies",
+                "Swarm Brain flexible memory with scoped VECTOR(1024) semantic recall",
                 digest,
             ),
         )

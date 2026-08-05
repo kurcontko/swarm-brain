@@ -1,4 +1,4 @@
-"""Exactly six model-visible tools; all behavior remains in the API."""
+"""Seven model-visible tools; all behavior remains in the authenticated API."""
 
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ def create_server(
         confidence: float = 0.5,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Append a flexible, source-preserving temporal memory proposal."""
+        """Append a flexible temporal memory; inline evidence is preserved first."""
 
         return await client().publish_memory(
             content=content,
@@ -136,6 +136,30 @@ def create_server(
             valid_from=valid_from,
             valid_to=valid_to,
             confidence=confidence,
+            metadata=metadata,
+            idempotency_key=idempotency_key,
+        )
+
+    @server.tool()
+    async def ingest_memory_source(
+        idempotency_key: str,
+        content: str,
+        kind: str = "application/vnd.swarmbrain.memory+json",
+        observed_at: str | None = None,
+        task_id: str | None = None,
+        uri: str | None = None,
+        occurrence_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Durably queue a raw source; structured envelopes yield tentative memories."""
+
+        return await client().ingest_memory_source(
+            content=content,
+            kind=kind,
+            observed_at=observed_at,
+            task_id=task_id,
+            uri=uri,
+            occurrence_key=occurrence_key,
             metadata=metadata,
             idempotency_key=idempotency_key,
         )
