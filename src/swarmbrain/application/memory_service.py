@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
+from contextlib import suppress
 
 from swarmbrain.domain.agents import ActorContext, Capability
 from swarmbrain.domain.common import MemoryId
@@ -17,12 +19,15 @@ from swarmbrain.domain.memory import (
     ReviewMemoryCommand,
     ReviewMemoryResult,
 )
+from swarmbrain.domain.retrieval import RetrievalPurpose
 from swarmbrain.domain.work import EnqueueWorkCommand, WorkKind
 from swarmbrain.ports.embeddings import EmbeddingIndex, EmbeddingProvider
 from swarmbrain.ports.memory_store import MemoryOperationPolicy, MemoryReviewStore, MemoryStore
+from swarmbrain.ports.retrieval import CanonicalMemoryReader
 
 from .capabilities import require_capability
 from .memory_policy import memory_content_text
+from .retrieval_service import RetrievalService
 from .work import DurableWorkService
 
 SEMANTIC_MATCH_REASON = "semantic_match"
@@ -38,6 +43,8 @@ class MemoryService:
         embeddings: EmbeddingProvider | None = None,
         embedding_index: EmbeddingIndex | None = None,
         work: DurableWorkService | None = None,
+        retrieval: RetrievalService | None = None,
+        canonical_reader: CanonicalMemoryReader | None = None,
     ) -> None:
         self.store = store
         self.policy = policy
@@ -45,6 +52,10 @@ class MemoryService:
         self.embeddings = embeddings
         self.embedding_index = embedding_index
         self.work = work
+        self.retrieval = retrieval
+        self.canonical_reader = canonical_reader or (
+            store if isinstance(store, CanonicalMemoryReader) else None
+        )
 
     async def publish(self, actor: ActorContext, command: RememberCommand) -> RememberResult:
         require_capability(actor, Capability.MEMORY_PUBLISH)
@@ -79,28 +90,93 @@ class MemoryService:
             )
         return result
 
-    async def recall(self, actor: ActorContext, query: RecallQuery) -> RecallBundle:
+    async def recall(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        *,
+        purpose: RetrievalPurpose = RetrievalPurpose.INTERACTIVE_RECALL,
+        seed_memory_ids: tuple[MemoryId, ...] = (),
+    ) -> RecallBundle:
         require_capability(actor, Capability.MEMORY_RECALL)
-        bundle = await self.store.recall(actor, query)
-        if self.embeddings is None or self.embedding_index is None:
-            return bundle
-        try:
-            return await self._merge_semantic(actor, query, bundle)
-        except Exception:
-            # Dense recall is an optional ranking lane. Provider or index
-            # outages must not discard an already valid lexical result.
-            return bundle
+        used_retrieval = self.retrieval is not None
+        if self.retrieval is None:
+            bundle = await self.store.recall(actor, query)
+            bundle = await self._merge_semantic_if_eligible(actor, query, bundle)
+        else:
+            query_vector: Sequence[float] | None = None
+            if (
+                self._semantic_eligible(query)
+                and self.embeddings is not None
+                and self.embedding_index is not None
+            ):
+                # Provider calls stay outside the CockroachDB read transaction;
+                # only ANN lookup and canonical hydration join the snapshot.
+                with suppress(Exception):
+                    query_vector = await self.embeddings.embed_query(query.text)
+            async with self.retrieval.snapshot():
+                execution = await self.retrieval.execute(
+                    actor,
+                    query,
+                    purpose=purpose,
+                    seed_memory_ids=seed_memory_ids,
+                )
+                bundle = execution.bundle
+                if query_vector is not None:
+                    with suppress(Exception):
+                        bundle = await self._merge_semantic(
+                            actor,
+                            query,
+                            bundle,
+                            query_vector=query_vector,
+                        )
+        if used_retrieval:
+            recorder = getattr(self.store, "record_retrieval_reuse", None)
+            if recorder is not None:
+                await recorder(
+                    actor,
+                    tuple(hit.memory.memory_id for hit in bundle.hits),
+                )
+        return bundle
+
+    async def _merge_semantic_if_eligible(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        bundle: RecallBundle,
+    ) -> RecallBundle:
+        semantic_eligible = self._semantic_eligible(query)
+        # The v6 ANN plane is current-only and has no bitemporal projection
+        # identity. Historical semantic retrieval belongs to phase 3.
+        if semantic_eligible and self.embeddings is not None and self.embedding_index is not None:
+            # Dense recall is optional; provider/index outages preserve the
+            # already-authoritative lexical bundle.
+            with suppress(Exception):
+                bundle = await self._merge_semantic(actor, query, bundle)
+        return bundle
+
+    @staticmethod
+    def _semantic_eligible(query: RecallQuery) -> bool:
+        return not (
+            query.recorded_at is not None
+            or query.world_at is not None
+            or query.include_refuted
+            or query.include_superseded
+        )
 
     async def _merge_semantic(
         self,
         actor: ActorContext,
         query: RecallQuery,
         bundle: RecallBundle,
+        *,
+        query_vector: Sequence[float] | None = None,
     ) -> RecallBundle:
         """Blend ANN scores without bypassing authoritative recall filters."""
 
         assert self.embeddings is not None and self.embedding_index is not None
-        query_vector = await self.embeddings.embed_query(query.text)
+        if query_vector is None:
+            query_vector = await self.embeddings.embed_query(query.text)
         candidate_limit = min(100, max(query.limit, query.limit * 5))
         matches = await self.embedding_index.search_embeddings(
             actor,
@@ -115,34 +191,41 @@ class MemoryService:
             return bundle
 
         semantic = {match.memory_id: match.score for match in matches}
+        stable_order = {hit.memory.memory_id: rank for rank, hit in enumerate(bundle.hits)}
+        next_rank = len(stable_order)
+        for match in matches:
+            if match.memory_id not in stable_order:
+                stable_order[match.memory_id] = next_rank
+                next_rank += 1
         merged: dict[str, RecallHit] = {}
         for hit in bundle.hits:
             memory_id = hit.memory.memory_id
-            score = semantic.get(memory_id, 0.0)
-            merged[memory_id] = hit if score <= hit.score else self._boost(hit, score)
+            score = semantic.get(memory_id)
+            merged[memory_id] = hit if score is None else self._boost(hit, score)
 
         missing = frozenset(memory_id for memory_id in semantic if memory_id not in merged)
-        if missing:
-            supplement = await self.store.recall(
+        if missing and self.canonical_reader is not None:
+            memories = await self.canonical_reader.hydrate_recallable(
                 actor,
-                query.model_copy(
-                    update={
-                        "memory_ids": missing,
-                        "min_score": 0.0,
-                        "limit": min(100, len(missing)),
-                    }
-                ),
+                query,
+                tuple(sorted(missing)),
             )
-            for hit in supplement.hits:
-                merged[hit.memory.memory_id] = self._boost(
-                    hit,
-                    max(hit.score, semantic[hit.memory.memory_id]),
+            for memory in memories:
+                merged[memory.memory_id] = RecallHit(
+                    memory=memory,
+                    score=semantic[memory.memory_id],
+                    reasons=(SEMANTIC_MATCH_REASON,),
+                    evidence=memory.evidence if query.include_evidence else (),
                 )
 
         ranked = sorted(
             merged.values(),
-            key=lambda hit: (hit.score, hit.memory.recorded_from, hit.memory.memory_id),
-            reverse=True,
+            key=lambda hit: (
+                -hit.score,
+                stable_order[hit.memory.memory_id],
+                -hit.memory.recorded_from.timestamp(),
+                hit.memory.memory_id,
+            ),
         )
         return RecallBundle(
             query=query,
@@ -156,7 +239,7 @@ class MemoryService:
     def _boost(hit: RecallHit, score: float) -> RecallHit:
         return hit.model_copy(
             update={
-                "score": score,
+                "score": max(hit.score, score),
                 "reasons": tuple(dict.fromkeys((*hit.reasons, SEMANTIC_MATCH_REASON))),
             }
         )

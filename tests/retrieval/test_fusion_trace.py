@@ -1,0 +1,305 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+
+import pytest
+
+from conftest import make_actor, new_id
+from swarmbrain.application.retrieval_service import RetrievalService
+from swarmbrain.domain.memory import Memory, MemoryState, RecallQuery, Visibility
+from swarmbrain.domain.retrieval import (
+    Candidate,
+    CandidateBatch,
+    RetrievalSignal,
+    RetrievalTrace,
+)
+
+
+class _Gateway:
+    def __init__(self, signal: RetrievalSignal, batch: CandidateBatch) -> None:
+        self._signal = signal
+        self.batch = batch
+
+    @property
+    def signal(self) -> RetrievalSignal:
+        return self._signal
+
+    async def retrieve(self, *_args: object) -> CandidateBatch:
+        return self.batch
+
+
+class _RaisingGateway:
+    def __init__(self, signal: RetrievalSignal, error: BaseException) -> None:
+        self._signal = signal
+        self.error = error
+
+    @property
+    def signal(self) -> RetrievalSignal:
+        return self._signal
+
+    async def retrieve(self, *_args: object) -> CandidateBatch:
+        raise self.error
+
+
+class _Reader:
+    def __init__(self, memory: Memory) -> None:
+        self.memory = memory
+
+    async def hydrate_recallable(
+        self, _actor: object, _query: object, candidate_ids: tuple[str, ...]
+    ) -> tuple[Memory, ...]:
+        return (self.memory,) if self.memory.memory_id in candidate_ids else ()
+
+
+class _TraceSink:
+    def __init__(self) -> None:
+        self.traces: list[RetrievalTrace] = []
+
+    async def record(self, trace: RetrievalTrace) -> None:
+        self.traces.append(trace)
+
+
+@pytest.mark.asyncio
+async def test_weighted_rrf_collapses_lanes_and_preserves_trace(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    memory_id = new_id()
+    now = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    memory = Memory(
+        memory_id=memory_id,
+        **scope_ids,
+        author_agent_id=actor.agent_id,
+        kind="procedure",
+        state=MemoryState.CONFIRMED,
+        visibility=Visibility.REPOSITORY,
+        content="retry serialization failures",
+        valid_from=now,
+        recorded_from=now,
+    )
+
+    def candidate(signal: RetrievalSignal, rank: int, score: float) -> Candidate:
+        return Candidate(
+            resource_type="memory",
+            resource_id=memory_id,
+            resource_version=1,
+            canonical_id=memory_id,
+            domain_lane="playbook",
+            signal=signal,
+            rank=rank,
+            raw_score=score,
+        )
+
+    exact = CandidateBatch(
+        lane=RetrievalSignal.EXACT,
+        candidates=(candidate(RetrievalSignal.EXACT, 1, 1.0),),
+        examined_count=1,
+        latency_ms=1.0,
+    )
+    lexical = CandidateBatch(
+        lane=RetrievalSignal.LEXICAL,
+        candidates=(candidate(RetrievalSignal.LEXICAL, 2, 0.17),),
+        examined_count=5,
+        latency_ms=2.0,
+    )
+    fuzzy = CandidateBatch(
+        lane=RetrievalSignal.FUZZY,
+        examined_count=0,
+        latency_ms=0.0,
+        degraded=True,
+        degradation_reason="synthetic outage",
+    )
+    sink = _TraceSink()
+    service = RetrievalService(
+        (
+            _Gateway(RetrievalSignal.EXACT, exact),
+            _Gateway(RetrievalSignal.LEXICAL, lexical),
+            _Gateway(RetrievalSignal.FUZZY, fuzzy),
+        ),
+        _Reader(memory),
+        trace_sink=sink,
+    )
+    execution = await service.execute(actor, RecallQuery(text=memory_id))
+
+    assert [hit.memory.memory_id for hit in execution.bundle.hits] == [memory_id]
+    assert len(execution.trace.fused_candidates) == 1
+    fused = execution.trace.fused_candidates[0]
+    assert {item.lane for item in fused.contributions} == {
+        RetrievalSignal.EXACT,
+        RetrievalSignal.LEXICAL,
+    }
+    assert fused.raw_rrf == pytest.approx(5 / 61 + 3 / 62)
+    assert execution.bundle.hits[0].score == pytest.approx(fused.normalized_score)
+    assert execution.trace.degraded_lanes == frozenset({RetrievalSignal.FUZZY})
+    assert sink.traces == [execution.trace]
+
+
+@pytest.mark.asyncio
+async def test_exact_rank_one_survives_min_score_with_empty_and_failed_lanes(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    memory_id = new_id()
+    seed_id = new_id()
+    now = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    memory = Memory(
+        memory_id=memory_id,
+        **scope_ids,
+        author_agent_id=actor.agent_id,
+        kind="invariant",
+        state=MemoryState.CONFIRMED,
+        visibility=Visibility.REPOSITORY,
+        content="canonical identifier target",
+        valid_from=now,
+        recorded_from=now,
+    )
+    exact_candidate = Candidate(
+        resource_type="memory",
+        resource_id=memory_id,
+        resource_version=1,
+        canonical_id=memory_id,
+        domain_lane="knowledge",
+        signal=RetrievalSignal.EXACT,
+        rank=1,
+        raw_score=1.0,
+        reasons=("exact_memory_id",),
+    )
+    service = RetrievalService(
+        (
+            _Gateway(
+                RetrievalSignal.EXACT,
+                CandidateBatch(
+                    lane=RetrievalSignal.EXACT,
+                    candidates=(exact_candidate,),
+                    examined_count=1,
+                    latency_ms=0.1,
+                ),
+            ),
+            _Gateway(
+                RetrievalSignal.LEXICAL,
+                CandidateBatch(
+                    lane=RetrievalSignal.LEXICAL,
+                    examined_count=0,
+                    latency_ms=0.1,
+                ),
+            ),
+            _RaisingGateway(RetrievalSignal.FUZZY, RuntimeError("fuzzy unavailable")),
+        ),
+        _Reader(memory),
+    )
+
+    execution = await service.execute(
+        actor,
+        RecallQuery(text=memory_id, min_score=0.6),
+        seed_memory_ids=(seed_id,),
+    )
+
+    assert [hit.memory.memory_id for hit in execution.bundle.hits] == [memory_id]
+    assert execution.bundle.hits[0].score == pytest.approx(1.0)
+    assert execution.trace.fused_candidates[0].raw_rrf == pytest.approx(5 / 61)
+    assert execution.trace.degraded_lanes == frozenset({RetrievalSignal.FUZZY})
+    failed_batch = next(
+        batch for batch in execution.trace.batches if batch.lane is RetrievalSignal.FUZZY
+    )
+    assert failed_batch.degradation_reason == "RuntimeError"
+    assert execution.trace.parsed_identifiers == (memory_id, seed_id)
+
+
+@pytest.mark.asyncio
+async def test_lane_cancellation_propagates(scope_ids: dict[str, str]) -> None:
+    actor = make_actor(scope_ids)
+    now = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    memory = Memory(
+        memory_id=new_id(),
+        **scope_ids,
+        author_agent_id=actor.agent_id,
+        kind="invariant",
+        state=MemoryState.CONFIRMED,
+        visibility=Visibility.REPOSITORY,
+        content="unused",
+        valid_from=now,
+        recorded_from=now,
+    )
+    service = RetrievalService(
+        (_RaisingGateway(RetrievalSignal.EXACT, asyncio.CancelledError()),),
+        _Reader(memory),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.execute(actor, RecallQuery(text=memory.memory_id))
+
+
+@pytest.mark.asyncio
+async def test_optional_reader_snapshot_and_clock_cover_lanes_and_hydration(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    now = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    memory = Memory(
+        memory_id=new_id(),
+        **scope_ids,
+        author_agent_id=actor.agent_id,
+        kind="invariant",
+        state=MemoryState.CONFIRMED,
+        visibility=Visibility.REPOSITORY,
+        content="snapshot probe",
+        valid_from=now,
+        recorded_from=now,
+    )
+    events: list[str] = []
+
+    class SnapshotReader(_Reader):
+        active = False
+
+        @asynccontextmanager
+        async def retrieval_snapshot(self):  # type: ignore[no-untyped-def]
+            events.append("enter")
+            self.active = True
+            try:
+                yield
+            finally:
+                self.active = False
+                events.append("exit")
+
+        def retrieval_now(self) -> datetime:
+            assert self.active
+            events.append("now")
+            return now
+
+        async def hydrate_recallable(
+            self, _actor: object, _query: object, candidate_ids: tuple[str, ...]
+        ) -> tuple[Memory, ...]:
+            assert self.active
+            events.append("hydrate")
+            return await super().hydrate_recallable(_actor, _query, candidate_ids)
+
+    reader = SnapshotReader(memory)
+
+    class SnapshotGateway(_Gateway):
+        async def retrieve(self, *_args: object) -> CandidateBatch:
+            assert reader.active
+            events.append("lane")
+            return await super().retrieve(*_args)
+
+    service = RetrievalService(
+        (
+            SnapshotGateway(
+                RetrievalSignal.EXACT,
+                CandidateBatch(
+                    lane=RetrievalSignal.EXACT,
+                    examined_count=0,
+                    latency_ms=0.0,
+                ),
+            ),
+        ),
+        reader,
+    )
+
+    execution = await service.execute(actor, RecallQuery(text="snapshot probe"))
+
+    assert events == ["enter", "now", "lane", "hydrate", "now", "exit"]
+    assert execution.bundle.generated_at == now
+    assert execution.trace.started_at == now
+    assert execution.trace.completed_at == now

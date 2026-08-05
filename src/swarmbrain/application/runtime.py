@@ -8,7 +8,7 @@ from typing import Protocol
 from swarmbrain.adapters.auth import RunTokenCodec
 from swarmbrain.adapters.embeddings import DeterministicEmbeddingProvider
 from swarmbrain.adapters.extraction import DefaultRuleExtractor, InMemoryWorkStore
-from swarmbrain.adapters.memory import InMemoryKernel
+from swarmbrain.adapters.memory import InMemoryKernel, in_memory_retrieval_gateways
 from swarmbrain.config import ApiSettings, BackendKind, EmbeddingsKind
 from swarmbrain.domain.evidence import SourceTrust
 from swarmbrain.ports.embeddings import EmbeddingIndex, EmbeddingProvider
@@ -23,6 +23,7 @@ from .evidence_service import EvidenceService
 from .extraction import ExtractionService
 from .memory_policy import ConservativeMemoryPolicy
 from .memory_service import MemoryService
+from .retrieval_service import RetrievalService
 from .work import DurableWorkService
 
 
@@ -140,6 +141,7 @@ def build_in_memory_runtime(
     work_queue = InMemoryWorkStore()
     work = DurableWorkService(work_queue)
     embedding_index = work_queue if embeddings is not None else None
+    retrieval = RetrievalService(in_memory_retrieval_gateways(kernel), kernel)
     memory = MemoryService(
         kernel,
         policy,
@@ -147,6 +149,8 @@ def build_in_memory_runtime(
         embeddings=embeddings,
         embedding_index=embedding_index,
         work=work if embeddings is not None else None,
+        retrieval=retrieval,
+        canonical_reader=kernel,
     )
     coordination = CoordinationService(kernel, memory_service=memory)
     return SwarmBrainRuntime(
@@ -197,6 +201,7 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     from swarmbrain.adapters.cockroach.coordination import CockroachCoordinationStore
     from swarmbrain.adapters.cockroach.database import CockroachDatabase
     from swarmbrain.adapters.cockroach.memory import CockroachMemoryStore
+    from swarmbrain.adapters.cockroach.retrieval import cockroach_retrieval_gateways
     from swarmbrain.adapters.cockroach.work_store import CockroachWorkStore
 
     assert settings.database_url is not None
@@ -211,6 +216,7 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     work_queue = CockroachWorkStore(database)
     work = DurableWorkService(work_queue)
     embedding_index = memory_store if embeddings is not None else None
+    retrieval = RetrievalService(cockroach_retrieval_gateways(database), memory_store)
     policy = ConservativeMemoryPolicy()
     memory = MemoryService(
         memory_store,
@@ -219,6 +225,8 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
         embeddings=embeddings,
         embedding_index=embedding_index,
         work=work if embeddings is not None else None,
+        retrieval=retrieval,
+        canonical_reader=memory_store,
     )
     extraction = ExtractionService(
         work_queue,

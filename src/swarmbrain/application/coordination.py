@@ -6,6 +6,7 @@ from swarmbrain.domain.agents import ActorContext, Agent, Capability
 from swarmbrain.domain.events import EventPage, RunMetrics
 from swarmbrain.domain.leases import RenewLeaseCommand, RenewLeaseResult
 from swarmbrain.domain.memory import RecallQuery, Visibility
+from swarmbrain.domain.retrieval import RetrievalPurpose
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
     CheckpointResult,
@@ -56,8 +57,19 @@ class CoordinationService:
         if self.memory_service is None or not actor.has_capability(Capability.MEMORY_RECALL):
             return result
 
+        checkpoint = result.checkpoint
         query_text = " ".join(
-            part for part in (result.task.title, result.task.description, *result.task.tags) if part
+            part
+            for part in (
+                result.task.title,
+                result.task.description,
+                *result.task.tags,
+                *sorted(result.task.required_capabilities),
+                checkpoint.summary if checkpoint is not None else "",
+                *(checkpoint.discoveries if checkpoint is not None else ()),
+                *(checkpoint.remaining_work if checkpoint is not None else ()),
+            )
+            if part
         )
         try:
             memory = await self.memory_service.recall(
@@ -68,6 +80,8 @@ class CoordinationService:
                     visibilities=frozenset(Visibility),
                     limit=self.initial_memory_limit,
                 ),
+                purpose=RetrievalPurpose.TASK_BOOTSTRAP,
+                seed_memory_ids=checkpoint.memory_ids if checkpoint is not None else (),
             )
         except Exception:
             # Claim is already committed. Initial memory is optional context,

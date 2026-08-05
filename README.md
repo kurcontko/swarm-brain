@@ -10,6 +10,10 @@ The project was extracted from the Sen monorepo with its Swarm Brain commit
 history intact. See the [extraction map](docs/history/sen-extraction-map.md) for
 the original and rewritten commit IDs.
 
+See the [current retrieval status](docs/retrieval-status.md), the
+[standalone architecture](docs/retrieval-architecture.md), and the full
+[PostgreSQL/CockroachDB SOTA research dump](docs/research/sota-retrieval-postgresql-cockroachdb-2026-08-02.md).
+
 ## What it includes
 
 - authenticated tenant/project/repository/swarm/run/agent context;
@@ -18,6 +22,8 @@ the original and rewritten commit IDs.
 - task/run/repository-scoped temporal memories with evidence and lineage;
 - append-by-default memory observations, explicit supersession, and poisoning guards;
 - lossless JSON memory documents with open application-defined semantic labels;
+- purpose-aware exact, FTS `simple`, trigram, and weighted-RRF retrieval;
+- private canonical hydration with scope/state/trust/bitemporal revalidation;
 - evidence-backed conflict reporting and resolution;
 - an in-memory adapter for deterministic local development and tests;
 - an explicit CockroachDB schema command and a pooled async composition seam;
@@ -86,6 +92,13 @@ Copy [`.env.example`](.env.example) for the complete environment-variable map.
 ## CockroachDB backend
 
 Install or verify schema as an explicit operator action:
+
+> Upgrading from a pre-v7 deployment requires a writer barrier: stop every old
+> API and worker that can publish memory, run `schema install` and `schema
+> verify`, then start only v7 processes. Do not run the v7 rebuild concurrently
+> with pre-v7 writers, because those writers do not maintain retrieval
+> projections. A large existing memory set also makes `install` an `O(N)`
+> maintenance operation; rehearse and budget its transaction time first.
 
 ```bash
 export SWARMBRAIN_BACKEND=cockroach

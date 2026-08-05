@@ -152,7 +152,8 @@ async def test_initial_memory_failure_does_not_hide_committed_claim(
     async def fail_recall(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("recall unavailable")
 
-    monkeypatch.setattr(runtime.kernel, "recall", fail_recall)
+    assert runtime.memory.retrieval is not None
+    monkeypatch.setattr(runtime.memory.retrieval, "execute", fail_recall)
     transport = httpx.ASGITransport(app=create_app(runtime))
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

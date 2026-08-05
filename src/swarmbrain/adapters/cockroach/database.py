@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from datetime import datetime, timedelta
 from typing import Any, TypeVar
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -23,7 +25,7 @@ from .retry import AmbiguousTransactionResult, RetryPolicy, run_serializable
 ModelT = TypeVar("ModelT", bound=BaseModel)
 TransactionBody = Callable[[Any], Awaitable[ModelT]]
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 REQUIRED_TABLES = frozenset(
     {
         "runs",
@@ -38,6 +40,8 @@ REQUIRED_TABLES = frozenset(
         "source_chunks",
         "source_extractions",
         "memories",
+        "retrieval_documents",
+        "retrieval_exact_terms",
         "memory_embeddings",
         "memory_vector_embeddings",
         "evidence",
@@ -87,6 +91,36 @@ REQUIRED_COLUMNS = {
         "previous_state",
         "recorded_to",
         "version",
+    },
+    "retrieval_documents": {
+        "tenant_id",
+        "project_id",
+        "repository_id",
+        "projection_id",
+        "scope_key",
+        "resource_type",
+        "resource_id",
+        "resource_version",
+        "canonical_id",
+        "domain_lane",
+        "search_text",
+        "lookup_text",
+        "search_tsv",
+        "content_sha256",
+        "indexed_at",
+    },
+    "retrieval_exact_terms": {
+        "tenant_id",
+        "project_id",
+        "repository_id",
+        "projection_id",
+        "scope_key",
+        "normalized_term",
+        "term_kind",
+        "resource_type",
+        "resource_id",
+        "resource_version",
+        "indexed_at",
     },
     "evidence": {"id", "source_id", "tenant_id"},
     "memory_embeddings": {"memory_id", "model", "dimensions", "embedding"},
@@ -190,6 +224,9 @@ REQUIRED_INDEXES = frozenset(
         "memories_source",
         "memories_one_successor",
         "memories_current_fingerprint",
+        "retrieval_documents_fts",
+        "retrieval_documents_lookup_trgm",
+        "retrieval_exact_terms_by_resource",
         "memory_vector_embeddings_ann",
         "evidence_source_lookup",
         "memory_evidence_by_evidence",
@@ -206,6 +243,122 @@ REQUIRED_INDEXES = frozenset(
         "swarm_events_run_timeline",
     }
 )
+
+# These retrieval indexes are correctness-critical: a same-named B-tree or a
+# different column order can pass a name-only check while turning every recall
+# into a broad scan. pg_indexes renders Cockroach inverted indexes as USING gin.
+REQUIRED_RETRIEVAL_INDEX_SHAPES: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
+    "retrieval_documents_fts": (
+        "using gin",
+        (
+            "tenant_id",
+            "project_id",
+            "repository_id",
+            "projection_id",
+            "scope_key",
+            "search_tsv",
+        ),
+        (),
+    ),
+    "retrieval_documents_lookup_trgm": (
+        "using gin",
+        (
+            "tenant_id",
+            "project_id",
+            "repository_id",
+            "projection_id",
+            "scope_key",
+            "lookup_text",
+        ),
+        ("gin_trgm_ops",),
+    ),
+    "retrieval_exact_terms_pkey": (
+        "using btree",
+        (
+            "tenant_id",
+            "project_id",
+            "repository_id",
+            "projection_id",
+            "scope_key",
+            "normalized_term",
+            "term_kind",
+            "resource_type",
+            "resource_id",
+        ),
+        ("create unique index",),
+    ),
+    "retrieval_exact_terms_by_resource": (
+        "using btree",
+        (
+            "tenant_id",
+            "project_id",
+            "repository_id",
+            "projection_id",
+            "scope_key",
+            "resource_type",
+            "resource_id",
+        ),
+        (),
+    ),
+}
+
+
+def incompatible_retrieval_schema_objects(
+    index_rows: Sequence[dict[str, Any]],
+    retrieval_documents_ddl: str,
+) -> tuple[str, ...]:
+    """Return critical retrieval objects whose definitions are not v7-compatible."""
+
+    definitions = {
+        str(row["indexname"]): " ".join(str(row.get("indexdef") or "").lower().split())
+        for row in index_rows
+    }
+    incompatible: list[str] = []
+    for name, (method, columns, fragments) in REQUIRED_RETRIEVAL_INDEX_SHAPES.items():
+        definition = definitions.get(name, "")
+        position = definition.find(method)
+        if position < 0 or any(fragment not in definition for fragment in fragments):
+            incompatible.append(name)
+            continue
+        for column in columns:
+            position = definition.find(column, position + 1)
+            if position < 0:
+                incompatible.append(name)
+                break
+
+    ddl = " ".join(retrieval_documents_ddl.lower().split())
+    required_ddl_fragments = (
+        "search_text string not null",
+        "lookup_text string not null",
+        "search_tsv tsvector",
+        "to_tsvector('simple'",
+        "search_text)) stored",
+    )
+    if any(fragment not in ddl for fragment in required_ddl_fragments):
+        incompatible.append("retrieval_documents")
+    else:
+        primary_position = ddl.find("primary key (")
+        if primary_position < 0:
+            incompatible.append("retrieval_documents")
+        primary_columns = (
+            ()
+            if primary_position < 0
+            else (
+                "tenant_id",
+                "project_id",
+                "repository_id",
+                "projection_id",
+                "scope_key",
+                "resource_type",
+                "resource_id",
+            )
+        )
+        for column in primary_columns:
+            primary_position = ddl.find(column, primary_position + 1)
+            if primary_position < 0:
+                incompatible.append("retrieval_documents")
+                break
+    return tuple(dict.fromkeys(incompatible))
 
 
 class SchemaNotInstalled(RuntimeError):
@@ -260,6 +413,12 @@ class CockroachDatabase:
         )
         self._manage_pool = pool is None
         self._opened = False
+        self._retrieval_snapshot: ContextVar[tuple[Any, datetime, asyncio.Lock] | None] = (
+            ContextVar(
+                f"swarmbrain_cockroach_retrieval_snapshot_{id(self)}",
+                default=None,
+            )
+        )
 
     async def start(self, *, verify_schema: bool = True) -> None:
         opened_here = self._manage_pool and not self._opened
@@ -286,6 +445,54 @@ class CockroachDatabase:
             row = await cursor.fetchone()
         if row is None or int(row["healthy"]) != 1:
             raise RuntimeError("CockroachDB health query returned an invalid result")
+
+    @asynccontextmanager
+    async def retrieval_snapshot(self) -> AsyncIterator[None]:
+        """Share one SERIALIZABLE read snapshot across all retrieval lanes."""
+
+        if self._retrieval_snapshot.get() is not None:
+            yield
+            return
+        async with self.pool.connection() as connection, connection.transaction():
+            cursor = await connection.execute("SELECT now() AS database_now")
+            row = await cursor.fetchone()
+            if row is None:
+                raise RuntimeError("database clock query returned no row")
+            token = self._retrieval_snapshot.set((connection, row["database_now"], asyncio.Lock()))
+            try:
+                yield
+            finally:
+                self._retrieval_snapshot.reset(token)
+
+    @asynccontextmanager
+    async def retrieval_connection(self) -> AsyncIterator[Any]:
+        """Reuse the active retrieval transaction, or lease a standalone connection."""
+
+        snapshot = self._retrieval_snapshot.get()
+        if snapshot is not None:
+            # One connection supplies the common MVCC snapshot. Serialize lane
+            # work and isolate each unit behind a savepoint so a degraded SQL
+            # lane cannot leave the outer read transaction in 25P02.
+            async with snapshot[2], snapshot[0].transaction():
+                yield snapshot[0]
+            return
+        async with self.pool.connection() as connection:
+            yield connection
+
+    async def retrieval_now(self, connection: Any | None = None) -> datetime:
+        """Return the transaction-stable database clock for retrieval."""
+
+        snapshot = self._retrieval_snapshot.get()
+        if snapshot is not None:
+            return snapshot[1]
+        if connection is None:
+            async with self.pool.connection() as leased:
+                return await self.retrieval_now(leased)
+        cursor = await connection.execute("SELECT now() AS database_now")
+        row = await cursor.fetchone()
+        if row is None:
+            raise RuntimeError("database clock query returned no row")
+        return row["database_now"]
 
     async def verify_schema(self) -> None:
         from .schema import read_schema
@@ -314,14 +521,16 @@ class CockroachDatabase:
                 column_rows = await columns_cursor.fetchall()
                 indexes_cursor = await connection.execute(
                     """
-                    SELECT indexname
+                    SELECT indexname, indexdef
                     FROM pg_catalog.pg_indexes
                     WHERE schemaname = current_schema()
                       AND indexname = ANY(%s::STRING[])
                     """,
-                    (sorted(REQUIRED_INDEXES),),
+                    (sorted(REQUIRED_INDEXES | REQUIRED_RETRIEVAL_INDEX_SHAPES.keys()),),
                 )
                 index_rows = await indexes_cursor.fetchall()
+                create_cursor = await connection.execute("SHOW CREATE TABLE retrieval_documents")
+                create_row = await create_cursor.fetchone()
         except Exception as exc:
             if getattr(exc, "sqlstate", None) == "42P01":
                 raise SchemaNotInstalled(
@@ -339,13 +548,26 @@ class CockroachDatabase:
         }
         present_indexes = {str(row["indexname"]) for row in index_rows}
         missing_indexes = sorted(REQUIRED_INDEXES - present_indexes)
+        retrieval_ddl = "" if create_row is None else str(create_row["create_statement"])
+        incompatible_objects = incompatible_retrieval_schema_objects(
+            index_rows,
+            retrieval_ddl,
+        )
         checksum_matches = (
             version_row is not None and bytes(version_row["schema_sha256"]) == expected_digest
         )
-        if version_row is None or missing or missing_indexes or not checksum_matches:
+        if (
+            version_row is None
+            or missing
+            or missing_indexes
+            or incompatible_objects
+            or not checksum_matches
+        ):
             suffix = f"; incompatible columns: {missing}" if missing else ""
             if missing_indexes:
                 suffix += f"; missing indexes: {', '.join(missing_indexes)}"
+            if incompatible_objects:
+                suffix += "; incompatible retrieval objects: " + ", ".join(incompatible_objects)
             if version_row is not None and not checksum_matches:
                 suffix += "; schema checksum differs"
             raise SchemaNotInstalled(

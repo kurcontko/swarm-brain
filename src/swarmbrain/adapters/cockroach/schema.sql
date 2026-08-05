@@ -323,6 +323,151 @@ CREATE INDEX IF NOT EXISTS memories_current_fingerprint
     ON memories (tenant_id, repository_id, dedup_scope, kind, normalized_sha256)
     WHERE recorded_to IS NULL AND state != 'refuted';
 
+-- v7 keeps lexical and identifier indexes in a rebuildable projection.  The
+-- canonical memories table remains the authorization/lifecycle source of
+-- truth and every retrieval query joins back to it before applying LIMIT.
+CREATE TABLE IF NOT EXISTS retrieval_documents (
+    tenant_id STRING NOT NULL,
+    project_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
+    projection_id STRING NOT NULL,
+    scope_key STRING NOT NULL,
+    resource_type STRING NOT NULL,
+    resource_id UUID NOT NULL,
+    resource_version INT8 NOT NULL,
+    canonical_id UUID NOT NULL,
+    domain_lane STRING NOT NULL,
+    search_text STRING NOT NULL,
+    lookup_text STRING NOT NULL,
+    search_tsv TSVECTOR AS (to_tsvector('simple', search_text)) STORED,
+    content_sha256 BYTES NOT NULL,
+    indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT retrieval_documents_version_check CHECK (resource_version > 0),
+    PRIMARY KEY (
+        tenant_id, project_id, repository_id, projection_id, scope_key,
+        resource_type, resource_id
+    )
+);
+
+CREATE INVERTED INDEX IF NOT EXISTS retrieval_documents_fts
+    ON retrieval_documents (
+        tenant_id, project_id, repository_id, projection_id, scope_key, search_tsv
+    );
+
+CREATE INVERTED INDEX IF NOT EXISTS retrieval_documents_lookup_trgm
+    ON retrieval_documents (
+        tenant_id, project_id, repository_id, projection_id, scope_key,
+        lookup_text gin_trgm_ops
+    );
+
+CREATE TABLE IF NOT EXISTS retrieval_exact_terms (
+    tenant_id STRING NOT NULL,
+    project_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
+    projection_id STRING NOT NULL,
+    scope_key STRING NOT NULL,
+    normalized_term STRING NOT NULL,
+    term_kind STRING NOT NULL,
+    resource_type STRING NOT NULL,
+    resource_id UUID NOT NULL,
+    resource_version INT8 NOT NULL,
+    indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT retrieval_exact_terms_version_check CHECK (resource_version > 0),
+    PRIMARY KEY (
+        tenant_id, project_id, repository_id, projection_id, scope_key,
+        normalized_term, term_kind, resource_type, resource_id
+    )
+);
+
+CREATE INDEX IF NOT EXISTS retrieval_exact_terms_by_resource
+    ON retrieval_exact_terms (
+        tenant_id, project_id, repository_id, projection_id, scope_key,
+        resource_type, resource_id
+    ) STORING (normalized_term, term_kind, resource_version);
+
+-- Migration overlay for canonical rows written before v7.  New writes use the
+-- richer application projection below; repeated installs preserve it.
+INSERT INTO retrieval_documents (
+    tenant_id, project_id, repository_id, projection_id, scope_key,
+    resource_type, resource_id, resource_version, canonical_id, domain_lane,
+    search_text, lookup_text, content_sha256, indexed_at
+)
+SELECT
+    tenant_id,
+    project_id,
+    repository_id,
+    'memory-simple-v1',
+    CASE visibility
+        WHEN 'repository' THEN concat('repository:', repository_id)
+        WHEN 'run' THEN concat('run:', run_id)
+        ELSE concat('task:', task_id::STRING)
+    END,
+    'memory',
+    id,
+    version,
+    id,
+    CASE kind
+        WHEN 'procedure' THEN 'playbook'
+        WHEN 'warning' THEN 'playbook'
+        WHEN 'attempt' THEN 'execution_history'
+        WHEN 'outcome' THEN 'execution_history'
+        WHEN 'handoff' THEN 'handoff'
+        ELSE 'knowledge'
+    END,
+    left(concat(coalesce(title, ''), E'\n', content, E'\n', array_to_string(tags, ' ')), 262144),
+    left(concat(coalesce(title, ''), E'\n', array_to_string(tags, E'\n')), 8192),
+    normalized_sha256,
+    recorded_from
+FROM memories
+ON CONFLICT DO NOTHING;
+
+INSERT INTO retrieval_exact_terms (
+    tenant_id, project_id, repository_id, projection_id, scope_key,
+    normalized_term, term_kind, resource_type, resource_id, resource_version,
+    indexed_at
+)
+SELECT
+    tenant_id, project_id, repository_id, projection_id, scope_key,
+    lower(resource_id::STRING), 'memory_id', resource_type, resource_id,
+    resource_version, indexed_at
+FROM retrieval_documents
+WHERE resource_type = 'memory'
+  AND projection_id = 'memory-simple-v1'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO retrieval_exact_terms (
+    tenant_id, project_id, repository_id, projection_id, scope_key,
+    normalized_term, term_kind, resource_type, resource_id, resource_version,
+    indexed_at
+)
+SELECT
+    d.tenant_id, d.project_id, d.repository_id, d.projection_id, d.scope_key,
+    lower(trim(m.title)), 'title', d.resource_type, d.resource_id,
+    d.resource_version, d.indexed_at
+FROM retrieval_documents AS d
+JOIN memories AS m ON m.id = d.resource_id
+WHERE d.resource_type = 'memory'
+  AND d.projection_id = 'memory-simple-v1'
+  AND m.title IS NOT NULL
+  AND length(trim(m.title)) > 0
+ON CONFLICT DO NOTHING;
+
+INSERT INTO retrieval_exact_terms (
+    tenant_id, project_id, repository_id, projection_id, scope_key,
+    normalized_term, term_kind, resource_type, resource_id, resource_version,
+    indexed_at
+)
+SELECT
+    d.tenant_id, d.project_id, d.repository_id, d.projection_id, d.scope_key,
+    lower(trim(m.content)), 'content', d.resource_type, d.resource_id,
+    d.resource_version, d.indexed_at
+FROM retrieval_documents AS d
+JOIN memories AS m ON m.id = d.resource_id
+WHERE d.resource_type = 'memory'
+  AND d.projection_id = 'memory-simple-v1'
+  AND length(trim(m.content)) BETWEEN 1 AND 4096
+ON CONFLICT DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS memory_embeddings (
     memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
     model STRING NOT NULL,
