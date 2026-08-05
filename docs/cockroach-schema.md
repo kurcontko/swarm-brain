@@ -3,13 +3,13 @@
 > **Historical pre-v6 inventory.** The detailed table notes below preserve the
 > original P0 design and are not a current schema reference. The authoritative
 > DDL is
-> [schema.sql](../../swarm-brain/src/swarmbrain/adapters/cockroach/schema.sql),
+> [schema.sql](../src/swarmbrain/adapters/cockroach/schema.sql),
 > while current ingestion, open semantic labels, structured memory content,
 > durable work, and fixed-width `VECTOR(1024)` behavior are documented in
 > [API contracts](api.md).
 
 The canonical v0 DDL is
-`swarm-brain/src/swarmbrain/adapters/cockroach/schema.sql`. Applying it is an
+`src/swarmbrain/adapters/cockroach/schema.sql`. Applying it is an
 explicit operator action; API startup never runs schema changes. This document
 describes every current table and index, then separates DDL-enforced invariants
 from repository/application invariants that still require code and tests.

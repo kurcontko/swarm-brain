@@ -47,6 +47,7 @@ class _ClaimContention(RuntimeError):
 
     sqlstate = "40001"
 
+
 TASK_COLUMNS = """
     id, tenant_id, project_id, repository_id, swarm_id, run_id,
     title, description, state, priority, version, required_capabilities,

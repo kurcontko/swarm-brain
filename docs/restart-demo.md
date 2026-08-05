@@ -13,7 +13,7 @@ are suitable only for local development.
 
 ## 1. Start a persistent local database
 
-Run these commands from `swarm-brain/`. Keep the data directory for the whole
+Run these commands from the repository root. Keep the data directory for the whole
 gate; choosing a different directory on restart invalidates the test.
 
 ```bash

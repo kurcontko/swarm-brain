@@ -2,8 +2,8 @@
 
 This document defines one canonical contract surface for application services,
 HTTP, stdio MCP, AgentCore, and the dashboard. The current Pydantic source is
-under `swarm-brain/src/swarmbrain/domain/`; current storage/capability protocols
-are under `swarm-brain/src/swarmbrain/ports/`. HTTP and MCP are implemented only
+under `src/swarmbrain/domain/`; current storage/capability protocols are under
+`src/swarmbrain/ports/`. HTTP and MCP are implemented only
 when their transport modules and tests exist; the route/tool sections below are
 the required contract, not a claim that a declaration is already runnable.
 

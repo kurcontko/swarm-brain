@@ -52,8 +52,8 @@ and forward recall filters respectively.
 | `transports/mcp/` | New six-tool stdio bridge over HTTP | Only lazy optional import, centralized registration, and JSON-safe facade patterns are adapted. |
 | extraction workers | New coding-memory router and validated candidates | Mnemotree's lazy router/extractor pipeline is the structural donor; Sen's source provenance and policy remain authoritative after extraction. |
 
-Thus the repository/package base is the new self-contained `swarm-brain/`
-subproject, not either donor tree. Every row below names the narrow donor and
+Thus the repository/package base is this self-contained repository,
+not either donor tree. Every row below names the narrow donor and
 the replacement boundary.
 
 ## Accepted `sen` donors

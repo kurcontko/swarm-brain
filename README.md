@@ -1,10 +1,14 @@
 # Swarm Brain
 
 Swarm Brain is a vendor-neutral coordination and temporal-memory kernel for a
-swarm of heterogeneous coding agents. This directory is a self-contained Python
-project; it does not import either parent `sen` or sibling `mnemotree` at runtime.
+swarm of heterogeneous coding agents. This repository is a self-contained Python
+project; it does not import either donor project, `sen` or `mnemotree`, at runtime.
 Instead, it adapts their narrow, audited contracts and semantics behind new
 ports and CockroachDB-oriented transaction boundaries.
+
+The project was extracted from the Sen monorepo with its Swarm Brain commit
+history intact. See the [extraction map](docs/history/sen-extraction-map.md) for
+the original and rewritten commit IDs.
 
 ## What it includes
 
@@ -100,7 +104,7 @@ coordination and memory repositories. Pool bounds are controlled with
 `SWARMBRAIN_DATABASE_POOL_MIN_SIZE` and
 `SWARMBRAIN_DATABASE_POOL_MAX_SIZE`.
 
-Use the [local restart demo](../docs/swarm-brain/restart-demo.md) to test API and
+Use the [local restart demo](docs/restart-demo.md) to test API and
 database process restarts against a persistent local store. The guide defines a
 manual acceptance gate; its presence is not a claim that the gate has passed.
 
