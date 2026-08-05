@@ -4,8 +4,8 @@
 > #1 boundary and intentionally contains implementation statements that are no
 > longer current. Use [API contracts](api.md), the
 > [runtime README](../README.md), and the executable
-> [schema.sql](../src/swarmbrain/adapters/cockroach/schema.sql)
-> for the current v6 implementation.
+> [schema.sql](../src/swarmbrain/adapters/cockroach/schema.sql) and
+> [retrieval status](retrieval-status.md) for the current v7 implementation.
 
 This document turns the design in [issue #1](issue-1.md) into a bounded,
 self-contained repository. Swarm Brain does not import `sen`

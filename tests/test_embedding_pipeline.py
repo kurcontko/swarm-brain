@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -19,7 +20,13 @@ from swarmbrain.adapters.memory import InMemoryKernel
 from swarmbrain.application.memory_policy import ConservativeMemoryPolicy, memory_content_text
 from swarmbrain.application.memory_service import SEMANTIC_MATCH_REASON, MemoryService
 from swarmbrain.application.work import DurableWorkService
-from swarmbrain.domain.memory import RecallQuery, RememberCommand
+from swarmbrain.domain.memory import (
+    EmbeddingMatch,
+    RecallBundle,
+    RecallHit,
+    RecallQuery,
+    RememberCommand,
+)
 from swarmbrain.domain.work import WorkStatus
 from swarmbrain.workers.durable import LeasedWorkWorker
 from swarmbrain.workers.embedding import EmbedMemoryHandler
@@ -51,6 +58,16 @@ class FailingQueryProvider:
 
     async def embed_documents(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
         return tuple((1.0, 0.0, 0.0, 0.0) for _ in texts)
+
+
+class FixedEmbeddingIndex:
+    def __init__(self, matches: tuple[EmbeddingMatch, ...]) -> None:
+        self.matches = matches
+
+    async def search_embeddings(
+        self, *_args: object, **_kwargs: object
+    ) -> tuple[EmbeddingMatch, ...]:
+        return self.matches
 
 
 def test_memory_content_text_is_stable_json_projection_and_preserves_strings() -> None:
@@ -237,6 +254,59 @@ async def test_hybrid_recall_preserves_explicit_memory_id_filter(
     )
 
     assert [hit.memory.memory_id for hit in recalled.hits] == [allowed.memory.memory_id]
+
+
+@pytest.mark.asyncio
+async def test_semantic_merge_preserves_rrf_order_for_equal_public_scores(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    kernel = InMemoryKernel()
+    first = await kernel.remember(
+        actor,
+        RememberCommand(idempotency_key="rrf-first", kind="fact", content="first"),
+        ConservativeMemoryPolicy(),
+    )
+    second = await kernel.remember(
+        actor,
+        RememberCommand(idempotency_key="rrf-second", kind="fact", content="second"),
+        ConservativeMemoryPolicy(),
+    )
+    assert first.memory is not None and second.memory is not None
+    base = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    older_first = first.memory.model_copy(update={"recorded_from": base})
+    newer_second = second.memory.model_copy(update={"recorded_from": base + timedelta(seconds=1)})
+    query = RecallQuery(text="stable tie query")
+    bundle = RecallBundle(
+        query=query,
+        hits=(
+            RecallHit(memory=older_first, score=1.0, reasons=("rrf:first",)),
+            RecallHit(memory=newer_second, score=1.0, reasons=("rrf:second",)),
+        ),
+        generated_at=base,
+        total_candidates=2,
+    )
+    provider = MappedProvider({query.text: (1.0, 0.0, 0.0, 0.0)})
+    index = FixedEmbeddingIndex(
+        (
+            EmbeddingMatch(memory_id=newer_second.memory_id, score=1.0),
+            EmbeddingMatch(memory_id=older_first.memory_id, score=1.0),
+        )
+    )
+    service = MemoryService(
+        kernel,
+        ConservativeMemoryPolicy(),
+        embeddings=provider,
+        embedding_index=index,
+        canonical_reader=kernel,
+    )
+
+    merged = await service._merge_semantic(actor, query, bundle)
+
+    assert [hit.memory.memory_id for hit in merged.hits] == [
+        older_first.memory_id,
+        newer_second.memory_id,
+    ]
 
 
 @pytest.mark.asyncio

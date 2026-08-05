@@ -1,0 +1,37 @@
+{
+  "clock": "2026-08-05T12:00:00Z",
+  "memories": [
+    {
+      "key": "old_exact",
+      "memory_id": "10000000-0000-4000-8000-000000000001",
+      "title": "Ancient retry invariant",
+      "content": "ancient serialization sentinel requires CockroachDB retry",
+      "kind": "invariant",
+      "tags": ["cockroachdb", "retry"],
+      "recorded_offset_seconds": -10000
+    },
+    {
+      "key": "symbol",
+      "memory_id": "10000000-0000-4000-8000-000000000002",
+      "title": "RetryCoordinator",
+      "content": "Use src/db/retry_coordinator.py for SQLSTATE 40001",
+      "kind": "procedure",
+      "tags": ["retry"],
+      "recorded_offset_seconds": -50
+    },
+    {
+      "key": "unrelated",
+      "memory_id": "10000000-0000-4000-8000-000000000003",
+      "title": "CSS palette",
+      "content": "The dashboard accent is cobalt blue",
+      "kind": "observation",
+      "tags": ["frontend"],
+      "recorded_offset_seconds": -10
+    }
+  ],
+  "generated_decoys": {
+    "count": 2005,
+    "namespace": "00000000-0000-4000-8000-000000000005",
+    "content_prefix": "irrelevant generated decoy"
+  }
+}

@@ -1,4 +1,44 @@
-# Swarm Brain v0 CockroachDB schema
+# Swarm Brain CockroachDB schema
+
+## Current v7 retrieval addendum
+
+Schema v7 adds two rebuildable search projections while `memories` remains the
+canonical source of truth:
+
+- `retrieval_documents`: deterministic `search_text`, bounded `lookup_text`, a
+  stored `to_tsvector('simple', search_text)`, a fully scope-prefixed inverted
+  FTS index, and a fully scope-prefixed trigram index;
+- `retrieval_exact_terms`: normalized IDs, digests, titles, tags, paths,
+  symbols, tests, commands, commits, and error identifiers under a B-tree key.
+
+Projected exact-term lookups start at the scope-prefixed exact B-tree; FTS and
+trigram lookups start at their scope-prefixed inverted indexes. Each uses a
+candidate-driven lookup join to canonical `memories`, then applies
+visibility/state/trust/world/system-time predicates before its lane `LIMIT`.
+Direct UUID/private-seed lookups use the canonical primary key. Final hydration
+repeats the canonical predicates without a recency limit. Projection writes for
+publish/merge are in the same transaction as canonical memory; the installer
+rebuilds pre-v7 rows through the same application projector used by new writes.
+That rebuild is one retryable SERIALIZABLE transaction with a stale scope/version
+sweep.
+
+An upgrade from pre-v7 requires an explicit writer barrier: stop all old API
+and worker processes that can publish memory, run `schema install` and `schema
+verify`, and only then start v7 writers. A pre-v7 writer does not dual-write the
+new projection and can otherwise commit a memory after the rebuild snapshot.
+Concurrent v7 writers are protected by the shared schema/projection contract,
+but mixed-version online writes are unsupported. The rebuild is `O(N)` and a
+single transaction, so production operators must rehearse duration and
+contention on a representative copy before scheduling the maintenance window.
+
+Startup verification checks the critical index methods, ordered prefixes,
+`gin_trgm_ops`, exact-term key, and stored `to_tsvector('simple', ...)`
+definition in addition to names, columns, schema version, and checksum.
+
+The authoritative implementation is
+[schema.sql](../src/swarmbrain/adapters/cockroach/schema.sql); the operational
+status and remaining vector limitations are in
+[retrieval-status.md](retrieval-status.md).
 
 > **Historical pre-v6 inventory.** The detailed table notes below preserve the
 > original P0 design and are not a current schema reference. The authoritative
@@ -8,17 +48,13 @@
 > durable work, and fixed-width `VECTOR(1024)` behavior are documented in
 > [API contracts](api.md).
 
-The canonical v0 DDL is
-`src/swarmbrain/adapters/cockroach/schema.sql`. Applying it is an
-explicit operator action; API startup never runs schema changes. This document
-describes every current table and index, then separates DDL-enforced invariants
-from repository/application invariants that still require code and tests.
-
-The executable P0 API uses `InMemoryKernel`. Current Cockroach code consists of
-this versioned, operator-applied DDL resource, a non-applying resource reader,
-and the central retry helper. Durable Cockroach repositories and API composition
-are P1 work; neither this document nor successful static schema tests claim
-current durability.
+The paragraphs and inventory below describe the historical v0/P0 starting
+point, not the current runtime. At that point the executable API used only
+`InMemoryKernel`, and Cockroach repositories were future P1 work. Today the
+authoritative v7 DDL remains an explicit operator action (API startup never
+runs migrations), while durable Cockroach repositories, runtime composition,
+projection maintenance, schema verification, and live retrieval gates are
+implemented. Use the addendum above and `schema.sql` for current facts.
 
 ## Conventions
 
@@ -437,8 +473,9 @@ of sequential-key anti-patterns. Retry tests prove whole-closure `40001`
 replay, single-attempt `40003`, no replay of unrelated SQLSTATEs, and retry
 policy validation.
 
-When a CockroachDB connection is available, every repository query must also be
-parsed/planned with `EXPLAIN` against this DDL, then exercised by integration
-tests with concurrent transactions. No connection was supplied for this design
-pass, so DDL/schema tests are evidence of static design only, not live cluster
-compatibility or query-plan quality.
+This was originally a static-only design pass. The current v7 retrieval gate
+now records the SQL emitted by exact, FTS, and trigram gateways, runs `EXPLAIN`
+on that exact JOIN/filter/ranking SQL against CockroachDB 26.2, and asserts the
+exact B-tree/FTS/trigram indexes plus candidate-driven canonical lookup joins.
+Broader production-scale load and contention measurements remain operational
+work, not something the focused live gate claims to prove.

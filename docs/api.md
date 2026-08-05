@@ -315,6 +315,7 @@ delete.
 ```text
 text: non-empty string
 task_id?: UUID
+memory_ids: UUID[] = []        # deprecated HTTP v1 compatibility selector
 kinds: semantic-label[] = []   # built-in or custom; empty means all
 visibilities: Visibility[] = [task,run,repository]
 states?: MemoryState[]         # default effective states: tentative,confirmed
@@ -330,6 +331,16 @@ include_lineage: boolean = false
 `RecallHit(memory, score, reasons=[], evidence=[])` and
 `RecallBundle(query, hits=[], generated_at, total_candidates>=0,
 truncated=false)` are the canonical recall result.
+
+Retrieval purpose, intent, enabled lanes, lane budgets, fusion weights, and the
+full trace are server-owned and are not fields of `RecallQuery` or
+`RecallBundle`. Ordinary HTTP/MCP recall uses `interactive_recall`; task claim
+uses `task_bootstrap` and may privately seed checkpoint memory IDs. Exact,
+FTS `simple`, and trigram candidates are fused with weighted RRF, then every ID
+is revalidated through canonical scope/state/trust/world/system-time predicates.
+The deprecated `memory_ids` field remains accepted by HTTP v1 for compatibility
+but is no longer used as an internal hydration transport. No zero-score
+`scope_match` is emitted.
 
 `MemoryLink` has a server ID, source/target IDs, kind, evidence, optional
 reason, and creation time; self-links are invalid. `MemoryLineage` contains the

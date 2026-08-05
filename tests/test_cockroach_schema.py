@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from swarmbrain.adapters.cockroach import read_schema
+from swarmbrain.adapters.cockroach.database import incompatible_retrieval_schema_objects
 
 REQUIRED_TABLES = {
     "agents",
@@ -91,6 +92,69 @@ def test_vector_schema_is_additive_fixed_width_and_fully_scope_prefixed() -> Non
     assert "CREATE VECTOR INDEX IF NOT EXISTS memory_vector_embeddings_ann" in schema
     assert "tenant_id, project_id, repository_id, model, embedding vector_cosine_ops" in " ".join(
         schema.split()
+    )
+
+
+def test_retrieval_v7_has_scoped_simple_fts_trigram_and_exact_projections() -> None:
+    schema = read_schema()
+    blocks = _create_table_blocks(schema)
+
+    documents = blocks["retrieval_documents"]
+    assert "search_text STRING NOT NULL" in documents
+    assert "lookup_text STRING NOT NULL" in documents
+    assert "to_tsvector('simple', search_text)" in documents
+    assert "resource_version INT8 NOT NULL" in documents
+    assert "retrieval_documents_fts" in schema
+    assert "tenant_id, project_id, repository_id, projection_id, scope_key, search_tsv" in " ".join(
+        schema.split()
+    )
+    assert "retrieval_documents_lookup_trgm" in schema
+    assert "lookup_text gin_trgm_ops" in schema
+    assert "retrieval_exact_terms_by_resource" in schema
+    assert "websearch_to_tsquery" not in schema
+
+
+def test_retrieval_verifier_rejects_same_named_wrong_index_definition() -> None:
+    index_rows = [
+        {
+            "indexname": "retrieval_documents_fts",
+            "indexdef": "CREATE INDEX retrieval_documents_fts ON retrieval_documents "
+            "USING gin (tenant_id, project_id, repository_id, projection_id, scope_key, "
+            "search_tsv)",
+        },
+        {
+            "indexname": "retrieval_documents_lookup_trgm",
+            "indexdef": "CREATE INDEX retrieval_documents_lookup_trgm ON retrieval_documents "
+            "USING btree (tenant_id)",
+        },
+        {
+            "indexname": "retrieval_exact_terms_pkey",
+            "indexdef": "CREATE UNIQUE INDEX retrieval_exact_terms_pkey ON "
+            "retrieval_exact_terms USING btree (tenant_id, project_id, repository_id, "
+            "projection_id, scope_key, normalized_term, term_kind, resource_type, resource_id)",
+        },
+        {
+            "indexname": "retrieval_exact_terms_by_resource",
+            "indexdef": "CREATE INDEX retrieval_exact_terms_by_resource ON "
+            "retrieval_exact_terms USING btree (tenant_id, project_id, repository_id, "
+            "projection_id, scope_key, resource_type, resource_id)",
+        },
+    ]
+    ddl = """
+        CREATE TABLE retrieval_documents (
+            tenant_id STRING NOT NULL, project_id STRING NOT NULL,
+            repository_id STRING NOT NULL, projection_id STRING NOT NULL,
+            scope_key STRING NOT NULL, resource_type STRING NOT NULL,
+            resource_id UUID NOT NULL, search_text STRING NOT NULL,
+            lookup_text STRING NOT NULL,
+            search_tsv TSVECTOR AS (to_tsvector('simple', search_text)) STORED,
+            PRIMARY KEY (tenant_id, project_id, repository_id, projection_id,
+                         scope_key, resource_type, resource_id)
+        )
+    """
+
+    assert incompatible_retrieval_schema_objects(index_rows, ddl) == (
+        "retrieval_documents_lookup_trgm",
     )
 
 

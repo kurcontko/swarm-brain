@@ -4,6 +4,10 @@ This map records what was actually inspected, what is adapted, and what is
 explicitly rejected. It is not a copy list: all accepted entries are semantic
 or small-pattern donors for new focused Swarm Brain code.
 
+> This is a donor-provenance snapshot. Six-tool and early-P0 inventory below is
+> historical; the current seven-tool runtime and retrieval v1 state are in
+> [API contracts](api.md) and [retrieval status](retrieval-status.md).
+
 ## Inspected refs
 
 ### `sen`

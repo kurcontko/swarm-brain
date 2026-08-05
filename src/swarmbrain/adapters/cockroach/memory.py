@@ -54,19 +54,27 @@ from swarmbrain.domain.memory import (
     RememberResult,
     ReviewMemoryCommand,
     ReviewMemoryResult,
-    Visibility,
 )
+from swarmbrain.domain.retrieval import RetrievalPurpose
 from swarmbrain.ports.memory_store import MemoryOperationPolicy
+from swarmbrain.retrieval import RetrievalPlanner, weighted_rrf
 
 from .database import CockroachDatabase
 from .memory_mappers import (
     conflict_from_parts,
     dedup_scope,
     evidence_from_row,
-    lexical_score,
     link_from_row,
     memory_from_row,
     source_from_row,
+)
+from .retrieval import (
+    build_recall_predicates,
+    cockroach_retrieval_connection,
+    cockroach_retrieval_gateways,
+    cockroach_retrieval_now,
+    cockroach_retrieval_snapshot,
+    upsert_memory_retrieval_projection,
 )
 from .vector import COCKROACH_VECTOR_DIMENSIONS, vector_literal
 
@@ -472,7 +480,7 @@ class CockroachMemoryStore:
         if not 0.0 <= min_score <= 1.0:
             raise ValueError("min_score must be between 0 and 1")
         literal = vector_literal(query_vector)
-        async with self.database.pool.connection() as connection:
+        async with cockroach_retrieval_connection(self.database) as connection:
             cursor = await connection.execute(
                 """
                 SELECT memory_id, embedding <=> %s::VECTOR AS distance
@@ -723,6 +731,8 @@ class CockroachMemoryStore:
                     "unsupported memory operation", operation=decision.operation.value
                 )
 
+            await upsert_memory_retrieval_projection(connection, memory)
+
             for related_id in command.related_memory_ids:
                 await self._require_memory(
                     connection,
@@ -784,139 +794,99 @@ class CockroachMemoryStore:
         )
 
     async def recall(self, actor: ActorContext, query: RecallQuery) -> RecallBundle:
-        async with self.database.pool.connection() as connection:
+        async with cockroach_retrieval_snapshot(self.database):
+            gateways = cockroach_retrieval_gateways(self.database)
+            plan = RetrievalPlanner().plan(
+                actor,
+                query,
+                purpose=RetrievalPurpose.INTERACTIVE_RECALL,
+                available_signals=(gateway.signal for gateway in gateways),
+            )
+            batches = tuple([await gateway.retrieve(actor, plan, query) for gateway in gateways])
+            fused = weighted_rrf(batches, plan)
+            hydrated = await self.hydrate_recallable(
+                actor,
+                query,
+                tuple(candidate.canonical_id for candidate in fused),
+            )
+            by_id = {memory.memory_id: memory for memory in hydrated}
+            scored = tuple(
+                RecallHit(
+                    memory=by_id[candidate.canonical_id],
+                    score=candidate.normalized_score,
+                    reasons=candidate.reasons,
+                    evidence=(
+                        by_id[candidate.canonical_id].evidence if query.include_evidence else ()
+                    ),
+                )
+                for candidate in fused
+                if candidate.canonical_id in by_id and candidate.normalized_score >= query.min_score
+            )
+            generated_at = await cockroach_retrieval_now(self.database)
+            return RecallBundle(
+                query=query,
+                hits=scored[: query.limit],
+                generated_at=generated_at,
+                total_candidates=len(fused),
+                truncated=len(scored) > query.limit or any(batch.truncated for batch in batches),
+            )
+
+    def retrieval_snapshot(self) -> Any:
+        """Expose the database snapshot to application retrieval orchestration."""
+
+        return cockroach_retrieval_snapshot(self.database)
+
+    async def retrieval_now(self) -> Any:
+        """Expose the stable database clock associated with the active snapshot."""
+
+        return await cockroach_retrieval_now(self.database)
+
+    async def hydrate_recallable(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        candidate_ids: Sequence[str],
+    ) -> tuple[Memory, ...]:
+        """Hydrate candidate IDs with every canonical recall predicate reapplied."""
+
+        ordered_ids = tuple(dict.fromkeys(candidate_ids))
+        async with cockroach_retrieval_connection(self.database) as connection:
             if query.task_id is not None:
                 await self._require_task(connection, actor, query.task_id, for_update=False)
-            now = await self._database_now(connection)
-
-            clauses = [
-                "m.tenant_id = %s",
-                "m.project_id = %s",
-                "m.repository_id = %s",
-            ]
-            parameters: list[Any] = [
-                actor.tenant_id,
-                actor.project_id,
-                actor.repository_id,
-            ]
-            visibility_clauses: list[str] = []
-            if Visibility.REPOSITORY in query.visibilities:
-                visibility_clauses.append("m.visibility = 'repository'")
-            if Visibility.RUN in query.visibilities:
-                visibility_clauses.append(
-                    "(m.visibility = 'run' AND m.swarm_id = %s AND m.run_id = %s)"
-                )
-                parameters.extend((actor.swarm_id, actor.run_id))
-            if Visibility.TASK in query.visibilities and query.task_id is not None:
-                visibility_clauses.append(
-                    "(m.visibility = 'task' AND m.swarm_id = %s AND m.run_id = %s "
-                    "AND m.task_id = %s)"
-                )
-                parameters.extend((actor.swarm_id, actor.run_id, _uuid(query.task_id)))
-            if not visibility_clauses:
-                return RecallBundle(query=query, generated_at=now)
-            clauses.append("(" + " OR ".join(visibility_clauses) + ")")
-
-            clauses.append("m.state = ANY(%s::STRING[])")
-            parameters.append(sorted(state.value for state in query.effective_states))
-            if query.memory_ids:
-                clauses.append("m.id = ANY(%s::UUID[])")
-                parameters.append(sorted(_uuid(item) for item in query.memory_ids))
-            if query.kinds:
-                clauses.append("m.kind = ANY(%s::STRING[])")
-                parameters.append(sorted(str(kind) for kind in query.kinds))
-
-            if query.recorded_at is not None:
-                clauses.extend(
-                    (
-                        "m.recorded_from <= %s",
-                        "(m.recorded_to IS NULL OR %s < m.recorded_to)",
-                    )
-                )
-                parameters.extend((query.recorded_at, query.recorded_at))
-            elif not query.include_superseded:
-                clauses.append("m.recorded_to IS NULL")
-
-            world_at = query.world_at or now
-            clauses.extend(
-                (
-                    "m.valid_from <= %s",
-                    "(m.valid_to IS NULL OR %s < m.valid_to)",
-                )
+            if not ordered_ids:
+                return ()
+            now = await cockroach_retrieval_now(self.database, connection)
+            predicates = build_recall_predicates(
+                actor,
+                query,
+                now=now,
+                candidate_ids=ordered_ids,
             )
-            parameters.extend((world_at, world_at))
-
-            if not query.include_refuted:
-                # Evidence-less memory remains recallable. Evidence-backed memory
-                # must retain at least one non-rejected/non-untrusted source. The
-                # association rows themselves remain append-only for audit.
-                clauses.append(
-                    """
-                    (
-                        NOT EXISTS (
-                            SELECT 1
-                            FROM memory_evidence AS me0
-                            WHERE me0.memory_id = m.id
-                        )
-                        OR EXISTS (
-                            SELECT 1
-                            FROM memory_evidence AS me1
-                            JOIN evidence AS e1 ON e1.id = me1.evidence_id
-                            JOIN sources AS s1 ON s1.id = e1.source_id
-                            WHERE me1.memory_id = m.id
-                              AND s1.review_state != 'rejected'
-                              AND s1.trust_label != 'untrusted'
-                        )
-                    )
-                    """
-                )
-
-            candidate_limit = min(2000, max(100, query.limit * 20))
-            sql = f"""
-                SELECT {MEMORY_COLUMNS}, count(*) OVER () AS total_count
+            cursor = await connection.execute(
+                f"""
+                SELECT {MEMORY_COLUMNS}
                 FROM memories AS m
-                WHERE {" AND ".join(clauses)}
-                ORDER BY m.recorded_from DESC, m.id DESC
-                LIMIT %s
-            """
-            parameters.append(candidate_limit)
-            cursor = await connection.execute(sql, tuple(parameters))
+                WHERE {" AND ".join(predicates.clauses)}
+                """,
+                predicates.parameters,
+            )
             rows = await cursor.fetchall()
             if not rows:
-                return RecallBundle(query=query, generated_at=now)
-
+                return ()
             ids = tuple(str(row["id"]) for row in rows)
             evidence = await self._load_memory_evidence(
                 connection,
                 ids,
-                include_rejected=query.include_refuted,
+                actor=actor,
+                # include_refuted controls memory lifecycle visibility, never
+                # whether rejected/untrusted citations cross the recall boundary.
+                include_rejected=False,
             )
-            memories = [memory_from_row(row, evidence.get(str(row["id"]), ())) for row in rows]
-            scored: list[RecallHit] = []
-            for memory in memories:
-                score, reasons = lexical_score(query.text, memory)
-                if score < query.min_score:
-                    continue
-                scored.append(
-                    RecallHit(
-                        memory=memory,
-                        score=score,
-                        reasons=reasons,
-                        evidence=memory.evidence if query.include_evidence else (),
-                    )
-                )
-            scored.sort(
-                key=lambda hit: (hit.score, hit.memory.recorded_from, hit.memory.memory_id),
-                reverse=True,
-            )
-            total_candidates = int(rows[0]["total_count"])
-            return RecallBundle(
-                query=query,
-                hits=tuple(scored[: query.limit]),
-                generated_at=now,
-                total_candidates=total_candidates,
-                truncated=len(scored) > query.limit or total_candidates > candidate_limit,
-            )
+            memories = {
+                str(row["id"]): memory_from_row(row, evidence.get(str(row["id"]), ()))
+                for row in rows
+            }
+            return tuple(memories[item] for item in ordered_ids if item in memories)
 
     async def get_lineage(self, actor: ActorContext, memory_id: str) -> MemoryLineage:
         async with self.database.pool.connection() as connection:
@@ -987,7 +957,12 @@ class CockroachMemoryStore:
             )
             rows = await cursor.fetchall()
             ids = tuple(str(row["id"]) for row in rows)
-            evidence = await self._load_memory_evidence(connection, ids, include_rejected=True)
+            evidence = await self._load_memory_evidence(
+                connection,
+                ids,
+                actor=actor,
+                include_rejected=True,
+            )
             memories = tuple(memory_from_row(row, evidence.get(str(row["id"]), ())) for row in rows)
             cursor = await connection.execute(
                 """
@@ -1725,6 +1700,7 @@ class CockroachMemoryStore:
         connection: Any,
         memory_ids: Sequence[str],
         *,
+        actor: ActorContext,
         include_rejected: bool,
     ) -> dict[str, tuple[EvidenceRef, ...]]:
         if not memory_ids:
@@ -1741,10 +1717,18 @@ class CockroachMemoryStore:
             JOIN evidence AS e ON e.id = me.evidence_id
             JOIN sources AS s ON s.id = e.source_id
             WHERE me.memory_id = ANY(%s::UUID[])
+              AND s.tenant_id = %s
+              AND s.project_id = %s
+              AND s.repository_id = %s
             """
             + trust_clause
             + " ORDER BY me.memory_id, e.recorded_at, e.id",
-            (_uuid_array(memory_ids),),
+            (
+                _uuid_array(memory_ids),
+                actor.tenant_id,
+                actor.project_id,
+                actor.repository_id,
+            ),
         )
         grouped: dict[str, dict[str, EvidenceRef]] = defaultdict(dict)
         for row in await cursor.fetchall():
@@ -1793,6 +1777,7 @@ class CockroachMemoryStore:
         evidence = await self._load_memory_evidence(
             connection,
             tuple(str(row["id"]) for row in rows),
+            actor=actor,
             include_rejected=include_rejected_evidence,
         )
         return {
@@ -1844,6 +1829,7 @@ class CockroachMemoryStore:
         evidence = await self._load_memory_evidence(
             connection,
             (memory_id,),
+            actor=actor,
             include_rejected=True,
         )
         return memory_from_row(row, evidence.get(memory_id, ()))
@@ -1905,6 +1891,7 @@ class CockroachMemoryStore:
             evidence = await self._load_memory_evidence(
                 connection,
                 ids,
+                actor=actor,
                 include_rejected=False,
             )
             return tuple(memory_from_row(row, evidence.get(str(row["id"]), ())) for row in rows)

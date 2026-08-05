@@ -12,7 +12,9 @@ import hashlib
 import json
 import re
 from collections import defaultdict, deque
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
@@ -141,6 +143,10 @@ class InMemoryKernel:
     def __init__(self, *, clock: Callable[[], datetime] = utc_now) -> None:
         self._clock = clock
         self._lock = asyncio.Lock()
+        self._retrieval_snapshot_now: ContextVar[datetime | None] = ContextVar(
+            f"swarmbrain_retrieval_snapshot_{id(self)}",
+            default=None,
+        )
 
         self.agents: dict[tuple[str, str, str], Agent] = {}
         self.tasks: dict[str, Task] = {}
@@ -746,46 +752,8 @@ class InMemoryKernel:
 
     async def recall(self, actor: ActorContext, query: RecallQuery) -> RecallBundle:
         async with self._lock:
-            if query.task_id is not None:
-                self._task_target(actor, query.task_id)
             now = self._now()
-            system_at = query.recorded_at
-            world_at = query.world_at or now
-            candidates: list[Memory] = []
-            for memory in self.memories.values():
-                if query.memory_ids and memory.memory_id not in query.memory_ids:
-                    continue
-                if not self._memory_accessible(actor, memory, query.task_id):
-                    continue
-                if memory.visibility not in query.visibilities:
-                    continue
-                if query.kinds and memory.kind not in query.kinds:
-                    continue
-                if memory.state not in query.effective_states:
-                    continue
-                if not query.include_refuted and any(
-                    (source := self.sources.get(reference.source_id)) is not None
-                    and (
-                        source.trust is SourceTrust.UNTRUSTED
-                        or source.review_state is SourceReviewState.REJECTED
-                    )
-                    for reference in memory.evidence
-                ):
-                    continue
-                if system_at is None:
-                    if memory.recorded_to is not None and not query.include_superseded:
-                        continue
-                elif not (
-                    memory.recorded_from <= system_at
-                    and (memory.recorded_to is None or system_at < memory.recorded_to)
-                ):
-                    continue
-                if not (
-                    memory.valid_from <= world_at
-                    and (memory.valid_to is None or world_at < memory.valid_to)
-                ):
-                    continue
-                candidates.append(memory)
+            candidates = self._recallable_memories_locked(actor, query, now)
 
             query_tokens = _tokens(query.text)
             scored: list[RecallHit] = []
@@ -797,9 +765,9 @@ class InMemoryKernel:
                 overlap = len(query_tokens & memory_tokens) / max(1, len(query_tokens))
                 substring = query.text.casefold() in haystack.casefold()
                 score = min(1.0, overlap + (0.2 if substring else 0.0))
-                if score < query.min_score:
+                if score <= 0.0 or score < query.min_score:
                     continue
-                reasons = ("lexical_overlap",) if overlap else ("scope_match",)
+                reasons = ("lexical_overlap",)
                 scored.append(
                     RecallHit(
                         memory=memory,
@@ -822,6 +790,78 @@ class InMemoryKernel:
                 total_candidates=len(candidates),
                 truncated=len(scored) > query.limit,
             )
+
+    async def recallable_memories(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+    ) -> tuple[Memory, ...]:
+        """Adapter seam for candidate lanes; results contain canonical filters."""
+
+        snapshot_now = self._retrieval_snapshot_now.get()
+        if snapshot_now is not None:
+            return tuple(self._recallable_memories_locked(actor, query, snapshot_now))
+        async with self._lock:
+            return tuple(self._recallable_memories_locked(actor, query, self._now()))
+
+    async def hydrate_recallable(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        candidate_ids: Sequence[str],
+    ) -> tuple[Memory, ...]:
+        """Hydrate internal IDs without exposing an existence or scope oracle."""
+
+        ordered_ids = tuple(dict.fromkeys(candidate_ids))
+        snapshot_now = self._retrieval_snapshot_now.get()
+        if snapshot_now is not None:
+            recallable = {
+                memory.memory_id: memory
+                for memory in self._recallable_memories_locked(actor, query, snapshot_now)
+            }
+            return tuple(
+                recallable[memory_id] for memory_id in ordered_ids if memory_id in recallable
+            )
+        async with self._lock:
+            recallable = {
+                memory.memory_id: memory
+                for memory in self._recallable_memories_locked(actor, query, self._now())
+            }
+            return tuple(
+                recallable[memory_id] for memory_id in ordered_ids if memory_id in recallable
+            )
+
+    @asynccontextmanager
+    async def retrieval_snapshot(self) -> AsyncIterator[None]:
+        """Fence candidate generation and hydration to one local atomic snapshot."""
+
+        if self._retrieval_snapshot_now.get() is not None:
+            yield
+            return
+        async with self._lock:
+            token = self._retrieval_snapshot_now.set(self._now())
+            try:
+                yield
+            finally:
+                self._retrieval_snapshot_now.reset(token)
+
+    def retrieval_now(self) -> datetime:
+        """Return the snapshot clock used by deterministic local retrieval."""
+
+        return self._retrieval_snapshot_now.get() or self._now()
+
+    async def record_retrieval_reuse(
+        self,
+        actor: ActorContext,
+        memory_ids: Sequence[MemoryId],
+    ) -> None:
+        """Account final public hits once when RetrievalService owns recall."""
+
+        count = len(tuple(dict.fromkeys(memory_ids)))
+        if count == 0:
+            return
+        async with self._lock:
+            self._memory_reuses[actor.run_id] += count
 
     async def get_lineage(self, actor: ActorContext, memory_id: MemoryId) -> MemoryLineage:
         async with self._lock:
@@ -951,30 +991,55 @@ class InMemoryKernel:
         limit: int = 10,
         min_score: float = 0.0,
     ) -> tuple[EmbeddingMatch, ...]:
+        if self._retrieval_snapshot_now.get() is not None:
+            return self._search_embeddings_locked(
+                actor,
+                query_vector,
+                model=model,
+                limit=limit,
+                min_score=min_score,
+            )
         async with self._lock:
-            matches: list[EmbeddingMatch] = []
-            for (memory_id, vector_model), vector in self.memory_embeddings.items():
-                if vector_model != model:
-                    continue
-                memory = self.memories.get(memory_id)
-                if memory is None or (
-                    memory.tenant_id,
-                    memory.project_id,
-                    memory.repository_id,
-                ) != (
-                    actor.tenant_id,
-                    actor.project_id,
-                    actor.repository_id,
-                ):
-                    continue
-                if len(vector.values) != len(query_vector):
-                    continue
-                score = max(0.0, min(1.0, _cosine_similarity(vector.values, query_vector)))
-                if score < min_score:
-                    continue
-                matches.append(EmbeddingMatch(memory_id=memory_id, score=score))
-            matches.sort(key=lambda match: (match.score, match.memory_id), reverse=True)
-            return tuple(matches[: max(1, min(100, limit))])
+            return self._search_embeddings_locked(
+                actor,
+                query_vector,
+                model=model,
+                limit=limit,
+                min_score=min_score,
+            )
+
+    def _search_embeddings_locked(
+        self,
+        actor: ActorContext,
+        query_vector: Sequence[float],
+        *,
+        model: str,
+        limit: int,
+        min_score: float,
+    ) -> tuple[EmbeddingMatch, ...]:
+        matches: list[EmbeddingMatch] = []
+        for (memory_id, vector_model), vector in self.memory_embeddings.items():
+            if vector_model != model:
+                continue
+            memory = self.memories.get(memory_id)
+            if memory is None or (
+                memory.tenant_id,
+                memory.project_id,
+                memory.repository_id,
+            ) != (
+                actor.tenant_id,
+                actor.project_id,
+                actor.repository_id,
+            ):
+                continue
+            if len(vector.values) != len(query_vector):
+                continue
+            score = max(0.0, min(1.0, _cosine_similarity(vector.values, query_vector)))
+            if score < min_score:
+                continue
+            matches.append(EmbeddingMatch(memory_id=memory_id, score=score))
+        matches.sort(key=lambda match: (match.score, match.memory_id), reverse=True)
+        return tuple(matches[: max(1, min(100, limit))])
 
     # ------------------------------------------------------------------
     # Sources and evidence
@@ -1473,6 +1538,59 @@ class InMemoryKernel:
             return True
         return requested_task_id is not None and memory.task_id == requested_task_id
 
+    def _recallable_memories_locked(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        now: datetime,
+    ) -> list[Memory]:
+        if query.task_id is not None:
+            self._task_target(actor, query.task_id)
+        system_at = query.recorded_at
+        world_at = query.world_at or now
+        candidates: list[Memory] = []
+        for memory in self.memories.values():
+            if query.memory_ids and memory.memory_id not in query.memory_ids:
+                continue
+            if not self._memory_accessible(actor, memory, query.task_id):
+                continue
+            if memory.visibility not in query.visibilities:
+                continue
+            if query.kinds and memory.kind not in query.kinds:
+                continue
+            if memory.state not in query.effective_states:
+                continue
+            if system_at is None:
+                if memory.recorded_to is not None and not query.include_superseded:
+                    continue
+            elif not (
+                memory.recorded_from <= system_at
+                and (memory.recorded_to is None or system_at < memory.recorded_to)
+            ):
+                continue
+            if not (
+                memory.valid_from <= world_at
+                and (memory.valid_to is None or world_at < memory.valid_to)
+            ):
+                continue
+
+            if not memory.evidence:
+                candidates.append(memory)
+                continue
+            accepted_evidence = tuple(
+                reference
+                for reference in memory.evidence
+                if (source := self.sources.get(reference.source_id)) is not None
+                and self._source_repository_accessible(actor, reference.source_id)
+                and source.trust is not SourceTrust.UNTRUSTED
+                and source.review_state is not SourceReviewState.REJECTED
+            )
+            if accepted_evidence:
+                candidates.append(memory.model_copy(update={"evidence": accepted_evidence}))
+            elif query.include_refuted:
+                candidates.append(memory.model_copy(update={"evidence": ()}))
+        return candidates
+
     def _memory_target(
         self,
         actor: ActorContext,
@@ -1495,6 +1613,16 @@ class InMemoryKernel:
             actor.repository_id,
             actor.swarm_id,
             actor.run_id,
+        )
+
+    def _source_repository_accessible(self, actor: ActorContext, source_id: str) -> bool:
+        """Allow citations to follow repository-visible memory across runs."""
+
+        scope = self._source_scope.get(source_id)
+        return scope is not None and scope[:3] == (
+            actor.tenant_id,
+            actor.project_id,
+            actor.repository_id,
         )
 
     def _source_target(self, actor: ActorContext, source_id: str) -> EvidenceSource:

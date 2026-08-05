@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "name": "abstain_scope_only",
+      "query": "quasar neutrino observatory",
+      "expected": []
+    },
+    {
+      "name": "old_exact_uuid_2005",
+      "query": "10000000-0000-4000-8000-000000000001",
+      "expected": ["old_exact"]
+    },
+    {
+      "name": "old_lexical_beyond_recency_pool",
+      "query": "ancient serialization sentinel",
+      "expected": ["old_exact"]
+    },
+    {
+      "name": "trigram_symbol_typo",
+      "query": "RetryCoordintor",
+      "expected": ["symbol"]
+    }
+  ]
+}

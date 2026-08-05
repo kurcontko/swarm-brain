@@ -268,7 +268,12 @@ async def test_recall_applies_scope_trust_and_time_in_sql_before_ranking() -> No
     result = await store.recall(actor, RecallQuery(text="serialization retry"))
 
     assert result.hits == ()
-    query_sql = next(sql for sql, _ in connection.calls if "FROM memories AS m" in sql)
+    query_sql = next(
+        sql
+        for sql, _ in connection.calls
+        if "FROM retrieval_documents@retrieval_documents_fts" in sql
+    )
+    assert "INNER LOOKUP JOIN memories@primary AS m" in query_sql
     assert "m.tenant_id = %s" in query_sql
     assert "m.project_id = %s" in query_sql
     assert "m.repository_id = %s" in query_sql

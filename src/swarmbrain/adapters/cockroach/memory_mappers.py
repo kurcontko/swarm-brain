@@ -181,7 +181,12 @@ def lexical_score(query: str, memory: Memory) -> tuple[float, tuple[str, ...]]:
     overlap = len(query_tokens & memory_tokens) / max(1, len(query_tokens))
     substring = query.casefold() in haystack.casefold()
     score = min(1.0, overlap + (0.2 if substring else 0.0))
-    reasons = ("lexical_overlap",) if overlap else ("scope_match",)
+    if overlap:
+        reasons = ("lexical_overlap",)
+    elif substring:
+        reasons = ("substring_match",)
+    else:
+        reasons = ()
     return score, reasons
 
 
