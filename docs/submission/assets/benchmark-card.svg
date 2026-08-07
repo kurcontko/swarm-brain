@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-label="LongMemEval-S retrieval subtask over all 500 questions: Recall at 10 is 0.885 and MRR at 10 is 0.792. Swarm-native corpus fused Recall at 10 is 0.882 on live CockroachDB. Retrieval subtask only, not comparable to published QA accuracy.">
+  <title>Swarm Brain — measured retrieval, LongMemEval-S</title>
+  <style>
+    .bg    { fill: #0d1117; }
+    .stat  { fill: #161b22; stroke: #30363d; stroke-width: 2; }
+    .side  { fill: #12181f; stroke: #2f5d8f; stroke-width: 2; }
+    .warn  { fill: #1d1a12; stroke: #d29922; stroke-width: 3; }
+    text   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono  { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+    .h1    { fill: #e6edf3; font-size: 54px; font-weight: 700; }
+    .h1s   { fill: #8b949e; font-size: 30px; }
+    .big   { fill: #e6edf3; font-size: 168px; font-weight: 700; letter-spacing: -3px; }
+    .biglb { fill: #58a6ff; font-size: 34px; font-weight: 600; letter-spacing: 2px; }
+    .bignt { fill: #7d8590; font-size: 26px; }
+    .sh    { fill: #e6edf3; font-size: 34px; font-weight: 600; }
+    .sb    { fill: #a9b4c0; font-size: 27px; }
+    .num   { fill: #58a6ff; font-size: 34px; font-weight: 700; }
+    .caveat{ fill: #e3b341; font-size: 36px; font-weight: 700; }
+    .caveats{ fill: #a9b4c0; font-size: 27px; }
+    .foot  { fill: #6e7681; font-size: 24px; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1920" height="1080"/>
+
+  <text class="h1" x="50" y="76">Measured retrieval — LongMemEval-S</text>
+  <text class="h1s" x="50" y="120">Retrieval subtask, official public dataset, all 500 questions, no sampling. Measured 2026-08-07.</text>
+
+  <!-- two headline stats -->
+  <rect class="stat" x="50" y="164" width="880" height="380" rx="16"/>
+  <text class="biglb" x="90" y="216">RECALL@10</text>
+  <text class="big" x="90" y="392">0.885</text>
+  <text class="bignt" x="90" y="452">the labelled evidence sessions are inside the top ten of</text>
+  <text class="bignt" x="90" y="486">roughly fifty candidate sessions 88.5% of the time</text>
+  <text class="bignt" x="90" y="520">best measured configuration: fused ranking, dense lane off</text>
+
+  <rect class="stat" x="990" y="164" width="880" height="380" rx="16"/>
+  <text class="biglb" x="1030" y="216">MRR@10</text>
+  <text class="big" x="1030" y="392">0.792</text>
+  <text class="bignt" x="1030" y="452">same run, same configuration</text>
+  <text class="bignt" x="1030" y="486">Recall@5 0.799 · nDCG@10 0.779</text>
+  <text class="bignt" x="1030" y="520">in-memory kernel; hash embedder is not a semantic model</text>
+
+  <!-- swarm-native line -->
+  <rect class="side" x="50" y="574" width="1820" height="112" rx="14"/>
+  <text class="sh" x="90" y="622">swarm-native corpus, fused <tspan class="num">Recall@10 0.882</tspan> <tspan class="sh">(live CockroachDB)</tspan></text>
+  <text class="sb" x="90" y="662">40 queries over 90 memories, shipped config: exact + FTS + trigram + dense ANN + graph, weighted RRF k = 60</text>
+
+  <!-- mandatory caveat -->
+  <rect class="warn" x="50" y="716" width="1820" height="160" rx="14"/>
+  <text class="caveat" x="90" y="778">Retrieval subtask — not comparable to published QA accuracy.</text>
+  <text class="caveats" x="90" y="820">LongMemEval's published numbers are end-to-end QA accuracy with a reader model and an LLM judge.</text>
+  <text class="caveats" x="90" y="854">This evaluation runs no reader. No comparison is made in either direction, and no state-of-the-art claim is made.</text>
+
+  <!-- footer: corpus and judgment versions -->
+  <text class="foot" x="50" y="932">LongMemEval-S · SHA-256 08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894 · 500 of 500 questions · in-memory kernel</text>
+  <text class="foot" x="50" y="966">Swarm-native corpus version swarm-coding-2026-08-07 · judgments revision r1 · single annotator · 90 memories, 40 queries (34 answerable)</text>
+  <text class="foot" x="50" y="1000">Embedder DeterministicEmbeddingProvider, model deterministic-eval-1024-v0, 1024 dims, cosine · CockroachDB CCL v26.2.1 · repo commit 3f5df4c</text>
+  <text class="foot" x="50" y="1034">Full report, per-lane and per-intent tables, latency and every caveat: docs/retrieval-benchmark.md</text>
+</svg>

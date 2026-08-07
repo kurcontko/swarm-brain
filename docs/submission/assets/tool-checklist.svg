@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-label="Tool checklist: CockroachDB Distributed Vector Indexing is used in the recall path; Managed MCP Server, ccloud CLI and Agent Skills are planned. AWS Bedrock adapter is present but not yet called live; ECS Fargate and S3 are planned.">
+  <title>Swarm Brain — tools used vs. planned</title>
+  <style>
+    .bg     { fill: #0d1117; }
+    .card   { fill: #161b22; stroke: #30363d; stroke-width: 2; }
+    .used   { fill: #10201a; stroke: #3fb950; stroke-width: 3; }
+    .plan   { fill: #14181f; stroke: #4a5058; stroke-width: 2; stroke-dasharray: 10 8; }
+    text    { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono   { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+    .h1     { fill: #e6edf3; font-size: 50px; font-weight: 700; }
+    .h1s    { fill: #8b949e; font-size: 28px; }
+    .colh   { fill: #c9d1d9; font-size: 34px; font-weight: 700; letter-spacing: 2px; }
+    .name   { fill: #e6edf3; font-size: 32px; font-weight: 600; }
+    .nameP  { fill: #9aa4b0; font-size: 32px; font-weight: 600; }
+    .stU    { fill: #3fb950; font-size: 26px; font-weight: 700; letter-spacing: 1px; }
+    .stP    { fill: #8b949e; font-size: 26px; font-weight: 700; letter-spacing: 1px; }
+    .det    { fill: #a9b4c0; font-size: 26px; }
+    .detP   { fill: #7d8590; font-size: 26px; }
+    .rule   { fill: #d29922; font-size: 28px; font-weight: 600; }
+    .foot   { fill: #6e7681; font-size: 24px; }
+    .tick   { stroke: #0d1117; stroke-width: 5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1920" height="1080"/>
+
+  <text class="h1" x="50" y="72">Tools — what actually landed</text>
+  <text class="h1s" x="50" y="114">A tick mark appears only where the repository can prove it. Everything else stays outlined and says so.</text>
+
+  <!-- legend -->
+  <circle cx="1418" cy="60" r="20" fill="#3fb950"/>
+  <path class="tick" d="M1409,60 L1415,67 L1428,52"/>
+  <text class="stU" x="1448" y="70">USED</text>
+  <circle cx="1584" cy="60" r="20" fill="none" stroke="#4a5058" stroke-width="3" stroke-dasharray="6 5"/>
+  <text class="stP" x="1614" y="70">NOT YET PROVEN</text>
+
+  <!-- ============ CockroachDB column ============ -->
+  <text class="colh" x="50" y="182">COCKROACHDB</text>
+  <line x1="50" y1="200" x2="930" y2="200" stroke="#30363d" stroke-width="2"/>
+
+  <rect class="used" x="50" y="220" width="880" height="212" rx="14"/>
+  <circle cx="102" cy="272" r="22" fill="#3fb950"/>
+  <path class="tick" d="M92,272 L99,280 L113,263"/>
+  <text class="name" x="142" y="272">Distributed Vector Indexing</text>
+  <text class="stU" x="142" y="312">USED — IN THE REAL RECALL PATH</text>
+  <text class="det" x="142" y="352">VECTOR(1024) · CREATE VECTOR INDEX · C-SPANN ANN</text>
+  <text class="det" x="142" y="386">full seven-column equality prefix, one ANN tree per scope</text>
+  <text class="det" x="142" y="420">ranks fuse into the weighted RRF every recall goes through</text>
+
+  <rect class="plan" x="50" y="450" width="880" height="152" rx="14"/>
+  <circle cx="102" cy="502" r="22" fill="none" stroke="#4a5058" stroke-width="3" stroke-dasharray="6 5"/>
+  <text class="nameP" x="142" y="502">Cloud Managed MCP Server</text>
+  <text class="stP" x="142" y="542">PLANNED — NOT YET CAPTURED</text>
+  <text class="detP" x="142" y="582">read-only, audit-logged inspection session — no artifact yet</text>
+
+  <rect class="plan" x="50" y="620" width="880" height="152" rx="14"/>
+  <circle cx="102" cy="672" r="22" fill="none" stroke="#4a5058" stroke-width="3" stroke-dasharray="6 5"/>
+  <text class="nameP" x="142" y="672">ccloud CLI</text>
+  <text class="stP" x="142" y="712">PLANNED — NOT WRITTEN</text>
+  <text class="detP" x="142" y="752">cluster and service-account provisioning from a script</text>
+
+  <rect class="plan" x="50" y="790" width="880" height="152" rx="14"/>
+  <circle cx="102" cy="842" r="22" fill="none" stroke="#4a5058" stroke-width="3" stroke-dasharray="6 5"/>
+  <text class="nameP" x="142" y="842">Agent Skills Repo</text>
+  <text class="stP" x="142" y="882">PLANNED — NOT EXERCISED</text>
+  <text class="detP" x="142" y="922">CockroachDB agent skills loaded into one harness</text>
+
+  <!-- ============ AWS column ============ -->
+  <text class="colh" x="990" y="182">AWS</text>
+  <line x1="990" y1="200" x2="1870" y2="200" stroke="#30363d" stroke-width="2"/>
+
+  <rect class="plan" x="990" y="220" width="880" height="212" rx="14"/>
+  <circle cx="1042" cy="272" r="22" fill="none" stroke="#4a5058" stroke-width="3" stroke-dasharray="6 5"/>
+  <text class="nameP" x="1082" y="272">Amazon Bedrock — Titan Text V2</text>
+  <text class="stP" x="1082" y="312">ADAPTER PRESENT — LIVE CALL NOT EXERCISED</text>
+  <text class="detP" x="1082" y="352">BedrockEmbeddingProvider invokes</text>
+  <text class="detP" x="1082" y="386">amazon.titan-embed-text-v2:0 at 1024 dimensions,</text>
+  <text class="detP" x="1082" y="420">unit-tested with an injected client only</text>
+
+  <rect class="plan" x="990" y="450" width="880" height="152" rx="14"/>
+  <circle cx="1042" cy="502" r="22" fill="none" stroke="#4a5058" stroke-width="3" stroke-dasharray="6 5"/>
+  <text class="nameP" x="1082" y="502">Amazon ECS on Fargate</text>
+  <text class="stP" x="1082" y="542">PLANNED — NO RESOURCES CREATED</text>
+  <text class="detP" x="1082" y="582">swarmbrain-api and swarmbrain-worker task definitions</text>
+
+  <rect class="plan" x="990" y="620" width="880" height="152" rx="14"/>
+  <circle cx="1042" cy="672" r="22" fill="none" stroke="#4a5058" stroke-width="3" stroke-dasharray="6 5"/>
+  <text class="nameP" x="1082" y="672">Amazon S3</text>
+  <text class="stP" x="1082" y="712">PLANNED — NO RESOURCES CREATED</text>
+  <text class="detP" x="1082" y="752">durable export of run evidence artifacts</text>
+
+  <rect class="card" x="990" y="790" width="880" height="152" rx="14"/>
+  <text class="rule" x="1022" y="842">A template is not a deployment.</text>
+  <text class="detP" x="1022" y="882">No AWS resource has been created for this project yet, so no</text>
+  <text class="detP" x="1022" y="916">AWS service other than the adapter above may be listed as used.</text>
+
+  <text class="foot" x="50" y="1010">Source of every line: docs/submission/devpost-draft.md — "CockroachDB tools used" and "AWS services used", governed by its integrity guard.</text>
+  <text class="foot" x="50" y="1048">Status re-verified 2026-08-07. Re-check before the final take: a tick mark is deleted, not softened, if the item has not landed.</text>
+</svg>

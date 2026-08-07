@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-label="A/B result: 104 steps without the swarm brain versus 25 with it, 76 percent saved; duplicate task executions 15 to 0; crash-lost work 4 steps to 0, with 4 steps preserved by handoff.">
+  <title>Swarm Brain — A/B, same task set with and without the shared brain</title>
+  <style>
+    .bg    { fill: #0d1117; }
+    .card  { fill: #161b22; stroke: #30363d; stroke-width: 2; }
+    .hero  { fill: #12181f; stroke: #2f5d8f; stroke-width: 3; }
+    .honest{ fill: #14181f; stroke: #4a5058; stroke-width: 2; }
+    text   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .h1    { fill: #e6edf3; font-size: 54px; font-weight: 700; }
+    .h1s   { fill: #8b949e; font-size: 30px; }
+    .armA  { fill: #f0883e; font-size: 30px; font-weight: 700; letter-spacing: 2px; }
+    .armB  { fill: #3fb950; font-size: 30px; font-weight: 700; letter-spacing: 2px; }
+    .heroA { fill: #d0743a; font-size: 150px; font-weight: 700; letter-spacing: -3px; }
+    .heroB { fill: #56d364; font-size: 150px; font-weight: 700; letter-spacing: -3px; }
+    .heroU { fill: #8b949e; font-size: 34px; }
+    .save  { fill: #e6edf3; font-size: 116px; font-weight: 700; letter-spacing: -2px; }
+    .saveS { fill: #8b949e; font-size: 30px; }
+    .rowh  { fill: #e6edf3; font-size: 32px; font-weight: 600; }
+    .rowb  { fill: #8b949e; font-size: 25px; }
+    .numA  { fill: #f0883e; font-size: 56px; font-weight: 700; }
+    .numB  { fill: #3fb950; font-size: 56px; font-weight: 700; }
+    .arrow { fill: #6e7681; font-size: 40px; }
+    .hn    { fill: #d29922; font-size: 29px; font-weight: 700; }
+    .hb    { fill: #a9b4c0; font-size: 26px; }
+    .foot  { fill: #6e7681; font-size: 24px; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1920" height="1080"/>
+
+  <text class="h1" x="50" y="76">Same five tasks. Same twelve workers. Four vendors.</text>
+  <text class="h1s" x="50" y="120">Arm A: no shared brain. Arm B: the swarm brain. The only difference is coordination and memory.</text>
+
+  <!-- hero: total steps -->
+  <rect class="hero" x="50" y="164" width="1820" height="300" rx="16"/>
+
+  <text class="armA" x="110" y="222">ARM A — WITHOUT SWARM BRAIN</text>
+  <text class="heroA" x="110" y="372">104</text>
+  <text class="heroU" x="110" y="422">total steps for the task set</text>
+
+  <text class="arrow" x="640" y="352">→</text>
+
+  <text class="armB" x="740" y="222">ARM B — WITH SWARM BRAIN</text>
+  <text class="heroB" x="740" y="372">25</text>
+  <text class="heroU" x="740" y="422">the theoretical minimum</text>
+
+  <line x1="1300" y1="200" x2="1300" y2="428" stroke="#30363d" stroke-width="2"/>
+  <text class="save" x="1360" y="340">76%</text>
+  <text class="saveS" x="1360" y="384">of all steps saved</text>
+  <text class="saveS" x="1360" y="420">79 of 104 · 4.16x less work</text>
+
+  <!-- three supporting rows -->
+  <rect class="card" x="50" y="496" width="588" height="290" rx="14"/>
+  <text class="rowh" x="86" y="552">Duplicate task executions</text>
+  <text class="numA" x="86" y="648">15</text>
+  <text class="arrow" x="200" y="640">→</text>
+  <text class="numB" x="280" y="648">0</text>
+  <text class="rowb" x="86" y="700">20 executions of 5 tasks become 5.</text>
+  <text class="rowb" x="86" y="732">8 duplicate claims refused outright by</text>
+  <text class="rowb" x="86" y="764">the SERIALIZABLE claim transaction.</text>
+
+  <rect class="card" x="666" y="496" width="588" height="290" rx="14"/>
+  <text class="rowh" x="702" y="552">Work lost to a crash</text>
+  <text class="numA" x="702" y="648">4</text>
+  <text class="arrow" x="790" y="640">→</text>
+  <text class="numB" x="870" y="648">0</text>
+  <text class="rowb" x="702" y="700">4 steps lost with the dead process</text>
+  <text class="rowb" x="702" y="732">become 4 steps preserved by the</text>
+  <text class="rowb" x="702" y="764">cross-vendor checkpoint handoff.</text>
+
+  <rect class="card" x="1282" y="496" width="588" height="290" rx="14"/>
+  <text class="rowh" x="1318" y="552">Re-derived discoveries</text>
+  <text class="numA" x="1318" y="648">3</text>
+  <text class="arrow" x="1406" y="640">→</text>
+  <text class="numB" x="1486" y="648">0</text>
+  <text class="rowb" x="1318" y="700">One vendor derives the root cause</text>
+  <text class="rowb" x="1318" y="732">once; 3 later reuses come out of</text>
+  <text class="rowb" x="1318" y="764">shared memory instead of redoing it.</text>
+
+  <!-- honesty line -->
+  <rect class="honest" x="50" y="818" width="1820" height="160" rx="14"/>
+  <text class="hn" x="86" y="866">Baseline: a simulated uncoordinated fleet — every swarm number is measured from the live run.</text>
+  <text class="hb" x="86" y="906">Arm A is a deterministic bookkeeping model of the same roster with no claim arbitration, no cross-agent recall and no durable</text>
+  <text class="hb" x="86" y="938">checkpoint. No HTTP call is made in Arm A and no failure is injected. It is generous to the baseline: agents inside one vendor</text>
+  <text class="hb" x="86" y="970">harness share that harness's own context, so only work crossing harness boundaries is counted as duplicated.</text>
+
+  <text class="foot" x="50" y="1032">Arm B counts are read back from the run's own events, metrics and beat checks. Reproduce: uv run --extra serve swarmbrain-demo --ab</text>
+  <text class="foot" x="50" y="1066">Every count and its provenance is in the run's evidence artifact, evidence/&lt;timestamp&gt;-swarm-ab.json</text>
+</svg>

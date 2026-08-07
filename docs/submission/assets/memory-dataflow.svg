@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-label="Swarm Brain memory data flow: publish path through the conservative policy into canonical rows, projections and the outbox-driven vector plane; recall path through the lanes, weighted RRF, graph expansion, canonical hydration and a RecallBundle">
+  <title>Swarm Brain — memory data flow</title>
+  <style>
+    .bg    { fill: #0d1117; }
+    .panel { fill: #161b22; stroke: #30363d; stroke-width: 2; }
+    .accW  { fill: #161b22; stroke: #7a5a24; stroke-width: 2; }
+    .accR  { fill: #161b22; stroke: #2f5d8f; stroke-width: 2; }
+    .lane  { fill: #1c2128; stroke: #3d444d; stroke-width: 2; }
+    .vec   { fill: #191527; stroke: #6b4fa0; stroke-width: 2; }
+    .out   { fill: #12211a; stroke: #2f6f45; stroke-width: 3; }
+    .zone  { fill: #10151c; stroke: #262c36; stroke-width: 2; stroke-dasharray: 8 8; }
+    text   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono  { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+    .h1    { fill: #e6edf3; font-size: 46px; font-weight: 700; }
+    .h1s   { fill: #8b949e; font-size: 27px; }
+    .zh    { fill: #c9d1d9; font-size: 30px; font-weight: 700; letter-spacing: 2px; }
+    .zhs   { fill: #7d8590; font-size: 25px; }
+    .bh    { fill: #e6edf3; font-size: 30px; font-weight: 600; }
+    .bb    { fill: #a9b4c0; font-size: 25px; }
+    .lh    { fill: #e6edf3; font-size: 27px; font-weight: 600; }
+    .lb    { fill: #8b949e; font-size: 23px; }
+    .edge  { fill: #8b6fc0; font-size: 23px; }
+    .foot  { fill: #6e7681; font-size: 24px; }
+    .aW    { stroke: #d29922; stroke-width: 3; fill: none; }
+    .aR    { stroke: #58a6ff; stroke-width: 3; fill: none; }
+    .aD    { stroke: #6b4fa0; stroke-width: 3; fill: none; stroke-dasharray: 9 7; }
+  </style>
+
+  <defs>
+    <marker id="mW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d29922"/>
+    </marker>
+    <marker id="mR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#58a6ff"/>
+    </marker>
+    <marker id="mD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b6fc0"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1920" height="1080"/>
+
+  <text class="h1" x="50" y="62">Swarm Brain — memory data flow</text>
+  <text class="h1s" x="50" y="102">Publish is one SERIALIZABLE transaction. Recall is one MVCC snapshot. Projections are never an authorization boundary.</text>
+
+  <!-- ================= PUBLISH ZONE ================= -->
+  <rect class="zone" x="40" y="140" width="820" height="898" rx="16"/>
+  <text class="zh" x="66" y="184">PUBLISH</text>
+  <text class="zhs" x="66" y="216">one SERIALIZABLE transaction, then the outbox-driven vector plane</text>
+
+  <rect class="accW" x="66" y="240" width="768" height="80" rx="12"/>
+  <text class="bh mono" x="92" y="282">POST /v1/memories</text>
+  <text class="bb" x="92" y="310">RememberCommand + Idempotency-Key</text>
+  <path class="aW" d="M450,320 L450,338" marker-end="url(#mW)"/>
+
+  <rect class="accW" x="66" y="342" width="768" height="110" rx="12"/>
+  <text class="bh" x="92" y="384">ConservativeMemoryPolicy</text>
+  <text class="bb" x="92" y="416">add · update · merge · delete · noop</text>
+  <text class="bb" x="92" y="444">tentative cannot supersede confirmed</text>
+  <path class="aW" d="M450,452 L450,470" marker-end="url(#mW)"/>
+
+  <rect class="panel" x="66" y="474" width="768" height="110" rx="12"/>
+  <text class="bh mono" x="92" y="516">memories</text>
+  <text class="bb" x="92" y="548">bitemporal: valid_from/to and recorded_from/to</text>
+  <text class="bb" x="92" y="576">state · trust · supersedes / superseded_by links</text>
+  <path class="aW" d="M450,584 L450,602" marker-end="url(#mW)"/>
+
+  <rect class="lane" x="66" y="606" width="374" height="110" rx="10"/>
+  <text class="lh mono" x="88" y="646">retrieval_documents</text>
+  <text class="lb" x="88" y="678">search_text + STORED TSVECTOR</text>
+  <text class="lb" x="88" y="704">gin_trgm_ops lookup_text</text>
+  <rect class="lane" x="460" y="606" width="374" height="110" rx="10"/>
+  <text class="lh mono" x="482" y="646">retrieval_exact_terms</text>
+  <text class="lb" x="482" y="678">normalized ids, titles, tags,</text>
+  <text class="lb" x="482" y="704">paths, symbols, tests, commits</text>
+  <path class="aW" d="M450,716 L450,734" marker-end="url(#mW)"/>
+
+  <rect class="panel" x="66" y="738" width="768" height="80" rx="12"/>
+  <text class="bh mono" x="92" y="780">outbox_events + work_items</text>
+  <text class="bb" x="92" y="808">swarm_events · idempotency_records</text>
+  <path class="aW" d="M450,818 L450,836" marker-end="url(#mW)"/>
+
+  <rect class="vec" x="66" y="840" width="768" height="202" rx="12"/>
+  <text class="bh" x="92" y="884">Outbox-driven vector plane</text>
+  <text class="bb" x="92" y="918">LeasedWorkWorker + EmbedMemoryHandler — fenced lease</text>
+  <text class="bb" x="92" y="948">EmbeddingProvider: deterministic (local) / Titan V2</text>
+  <text class="bb" x="92" y="982">retrieval_vectors_1024 — VECTOR(1024) + signature</text>
+  <text class="bb" x="92" y="1012">CREATE VECTOR INDEX — vector_cosine_ops, C-SPANN</text>
+
+  <!-- ================= RECALL ZONE ================= -->
+  <rect class="zone" x="1060" y="140" width="820" height="898" rx="16"/>
+  <text class="zh" x="1086" y="184">RECALL</text>
+  <text class="zhs" x="1086" y="216">one MVCC snapshot · every lane joins back to canonical rows</text>
+
+  <rect class="accR" x="1086" y="240" width="768" height="76" rx="12"/>
+  <text class="bh mono" x="1112" y="278">POST /v1/memories:recall</text>
+  <text class="bb" x="1112" y="306">RecallQuery + ActorContext</text>
+  <path class="aR" d="M1470,316 L1470,332" marker-end="url(#mR)"/>
+
+  <rect class="accR" x="1086" y="334" width="768" height="72" rx="12"/>
+  <text class="bh" x="1112" y="372">RetrievalPlanner</text>
+  <text class="bb" x="1112" y="398">server-owned purpose picks lanes, weights, budgets</text>
+  <path class="aR" d="M1470,406 L1470,422" marker-end="url(#mR)"/>
+
+  <rect class="accR" x="1086" y="424" width="768" height="232" rx="12"/>
+  <text class="bb" x="1112" y="464">four candidate lanes, all inside one snapshot</text>
+  <rect x="1112" y="494" width="12" height="12" fill="#58a6ff"/>
+  <text class="lh" x="1140" y="506">exact</text>
+  <text class="lb" x="1330" y="505">whole-query match, exact_terms</text>
+  <rect x="1112" y="536" width="12" height="12" fill="#58a6ff"/>
+  <text class="lh" x="1140" y="548">FTS</text>
+  <text class="lb" x="1330" y="547">safe OR-TSQUERY over search_tsv</text>
+  <rect x="1112" y="578" width="12" height="12" fill="#58a6ff"/>
+  <text class="lh" x="1140" y="590">trigram</text>
+  <text class="lb" x="1330" y="589">% operator, pinned threshold</text>
+  <rect x="1112" y="620" width="12" height="12" fill="#bc8cff"/>
+  <text class="lh" x="1140" y="632">dense ANN</text>
+  <text class="lb" x="1330" y="631">one prefix-bound branch per scope</text>
+  <path class="aR" d="M1470,656 L1470,672" marker-end="url(#mR)"/>
+
+  <rect class="accR" x="1086" y="674" width="768" height="60" rx="12"/>
+  <text class="bh" x="1112" y="712">direct weighted RRF (k = 60)</text>
+  <path class="aR" d="M1470,734 L1470,750" marker-end="url(#mR)"/>
+
+  <rect class="accR" x="1086" y="752" width="768" height="90" rx="12"/>
+  <text class="bh" x="1112" y="790">graph lane, then final weighted RRF</text>
+  <text class="bb" x="1112" y="820">bounded 1–2 hop memory_links expansion, k = 60</text>
+  <path class="aR" d="M1470,842 L1470,858" marker-end="url(#mR)"/>
+
+  <rect class="accR" x="1086" y="860" width="768" height="102" rx="12"/>
+  <text class="bh" x="1112" y="898">private canonical hydration</text>
+  <text class="bb" x="1112" y="928">re-checks scope, visibility, state, kind,</text>
+  <text class="bb" x="1112" y="954">valid + recorded time, source trust</text>
+  <path class="aR" d="M1470,962 L1470,976" marker-end="url(#mR)"/>
+
+  <rect class="out" x="1086" y="978" width="768" height="50" rx="12"/>
+  <text class="bh" x="1112" y="1012">RecallBundle — or abstention</text>
+
+  <!-- cross-plane connectors -->
+  <path class="aD" d="M834,946 C900,946 906,700 1080,628" marker-end="url(#mD)"/>
+  <text class="edge" x="866" y="1006">ANN candidates</text>
+
+  <path class="aD" d="M834,540 C1000,540 1012,800 1080,906" marker-end="url(#mD)"/>
+  <text class="edge" x="866" y="426">same-snapshot</text>
+  <text class="edge" x="866" y="452">revalidation</text>
+
+  <text class="foot" x="50" y="1066">Diagram 2 of 2 · source: docs/submission/architecture.md §2 — supersession is append-only; a correction closes the predecessor's recorded_to</text>
+</svg>

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-label="Pre-existing code disclosure: Swarm Brain adapts memory semantics and API patterns from the pre-existing open-source projects Sen and mnemotree; neither is a runtime dependency, neither is imported, and neither co-owns the schema. All Swarm Brain code was written during the submission period, June 30 to August 18, 2026.">
+  <title>Swarm Brain — pre-existing code disclosure</title>
+  <style>
+    .bg    { fill: #0d1117; }
+    .card  { fill: #161b22; stroke: #30363d; stroke-width: 2; }
+    .quote { stroke: #d29922; stroke-width: 8; }
+    text   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono  { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+    .kick  { fill: #d29922; font-size: 28px; font-weight: 700; letter-spacing: 4px; }
+    .h1    { fill: #e6edf3; font-size: 50px; font-weight: 700; }
+    .body  { fill: #e6edf3; font-size: 38px; }
+    .em    { fill: #ffffff; font-weight: 700; }
+    .note  { fill: #8b949e; font-size: 27px; }
+    .lic   { fill: #e6edf3; font-size: 34px; font-weight: 600; }
+    .licv  { fill: #a9b4c0; font-size: 32px; }
+    .foot  { fill: #6e7681; font-size: 24px; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1920" height="1080"/>
+
+  <text class="kick" x="50" y="68">PRE-EXISTING CODE DISCLOSURE</text>
+  <text class="h1" x="50" y="128">Stated once, verbatim, in full.</text>
+
+  <rect class="card" x="50" y="176" width="1820" height="516" rx="16"/>
+  <line class="quote" x1="86" y1="212" x2="86" y2="656"/>
+
+  <text class="body" x="130" y="248">Swarm Brain adapts memory semantics and API patterns from our</text>
+  <text class="body" x="130" y="298">pre-existing open-source projects <tspan class="em">Sen</tspan> and <tspan class="em">mnemotree</tspan> (disclosed; neither</text>
+  <text class="body" x="130" y="348">is a runtime dependency, neither is imported, and neither co-owns</text>
+  <text class="body" x="130" y="398">the schema). All Swarm Brain code — the domain and application</text>
+  <text class="body" x="130" y="448">layers, the CockroachDB backend and schema, the retrieval engine,</text>
+  <text class="body" x="130" y="498">the HTTP API, the MCP bridge, the demo application, and the AWS</text>
+  <text class="body" x="130" y="548">integration — was written during the submission period,</text>
+  <text class="body" x="130" y="598"><tspan class="em">June 30 – August 18, 2026.</tspan></text>
+  <text class="note" x="130" y="654">Verbatim from docs/submission/devpost-draft.md — also carried in the Devpost description and the repository README.</text>
+
+  <!-- license + repo -->
+  <rect class="card" x="50" y="724" width="898" height="200" rx="16"/>
+  <text class="lic" x="90" y="782">License</text>
+  <text class="licv mono" x="90" y="836">MIT</text>
+  <text class="note" x="90" y="890">One license for the whole repository.</text>
+
+  <rect class="card" x="972" y="724" width="898" height="200" rx="16"/>
+  <text class="lic" x="1012" y="782">Repository</text>
+  <text class="licv mono" x="1012" y="836">&lt;PUBLIC_REPO_URL&gt;</text>
+  <text class="note" x="1012" y="890">Placeholder — replace before the final take.</text>
+
+  <text class="foot" x="50" y="980">Commit-history note: Swarm Brain began inside the Sen monorepo and was extracted into a standalone repository on 2026-08-05. History was</text>
+  <text class="foot" x="50" y="1014">rewritten only because paths moved; authors, timestamps, messages, contents and topology were preserved, and the original-to-rewritten commit</text>
+  <text class="foot" x="50" y="1048">IDs are published in docs/history/sen-extraction-map.md. Every commit is dated 2026-08-02 to 2026-08-07 — inside the submission period.</text>
+</svg>
