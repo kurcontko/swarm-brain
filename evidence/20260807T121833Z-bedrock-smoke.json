@@ -1,0 +1,23 @@
+{
+  "artifact": "bedrock-smoke",
+  "generated_at": "2026-08-07T12:18:33.969504+00:00",
+  "mode": "stubbed-provider",
+  "provider": {
+    "dimensions": 1024,
+    "elapsed_ms": 2,
+    "max_unrelated_cosine": 0.9,
+    "model": "amazon.titan-embed-text-v2:0",
+    "sentence_a_sha256": "628be2390301848714b3ec9fcd90800799405e254ccd4d23bf9b59e2073b4c60",
+    "sentence_b_sha256": "402fc8db43ce7a1d6013e1f950547aeed3eda29318fa4a642b94f6149984d5f4",
+    "unrelated_cosine": 0.326599,
+    "vector_a_norm": 1.0,
+    "vector_a_sha256": "fe12c04b7bcec4300c286920ca891ea75552a922246e219f2583840ff74db8d4",
+    "vector_b_norm": 1.0,
+    "vector_b_sha256": "f4f7346d6ff17d435bcca9d8cc599940cf6cd80145c3c14767c5ab462792e951"
+  },
+  "region": "unset",
+  "round_trip": {
+    "skipped": "SWARMBRAIN_DATABASE_URL is not set"
+  },
+  "stub_invocations": 2
+}

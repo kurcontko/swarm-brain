@@ -1,0 +1,67 @@
+# Keep the build context small, reproducible, and free of anything secret.
+#
+# The image needs exactly four things from this repository: pyproject.toml,
+# uv.lock, README.md (the packaging readme), and src/. Everything else is
+# either a credential risk, a local artifact, or dead weight in a layer.
+
+# --- Secrets: never, under any circumstance --------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+**/credentials
+.aws/
+
+# --- VCS, agents, CI -------------------------------------------------------
+.git
+.gitignore
+.github
+.dockerignore
+.claude
+AGENTS.md
+CLAUDE.md
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- CockroachDB local node state ------------------------------------------
+# A local single-node cluster writes these next to the repository. They are
+# database files: large, and the exact opposite of what belongs in an image
+# whose whole claim is that it holds no durable state.
+cockroach-data/
+cockroach-logs/
+
+# --- Not needed to build or run the image ----------------------------------
+tests/
+docs/
+deploy/
+evidence/
+scripts/
+Dockerfile
+tmp/
+scratch/
+*.local.json
+*.log
+
+# --- OS / editor -----------------------------------------------------------
+.DS_Store
+._*
+.idea/
+.vscode/

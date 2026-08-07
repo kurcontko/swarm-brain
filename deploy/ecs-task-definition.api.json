@@ -1,0 +1,94 @@
+{
+  "family": "swarm-brain-api",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "ARM64"
+  },
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/swarmBrainExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/swarmBrainTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "swarm-brain-api",
+      "image": "<ECR_IMAGE_URI>",
+      "essential": true,
+      "portMappings": [
+        {
+          "name": "http",
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "environment": [
+        { "name": "SWARMBRAIN_BACKEND", "value": "cockroach" },
+        { "name": "SWARMBRAIN_HOST", "value": "0.0.0.0" },
+        { "name": "SWARMBRAIN_PORT", "value": "8080" },
+        { "name": "SWARMBRAIN_EMBEDDINGS", "value": "bedrock" },
+        {
+          "name": "SWARMBRAIN_EMBEDDINGS_MODEL",
+          "value": "amazon.titan-embed-text-v2:0"
+        },
+        { "name": "SWARMBRAIN_EMBEDDINGS_DIMENSIONS", "value": "1024" },
+        { "name": "SWARMBRAIN_AWS_REGION", "value": "<REGION>" },
+        { "name": "SWARMBRAIN_CONSOLE_DEMO", "value": "enabled" },
+        { "name": "SWARMBRAIN_DATABASE_POOL_MIN_SIZE", "value": "1" },
+        { "name": "SWARMBRAIN_DATABASE_POOL_MAX_SIZE", "value": "8" },
+        { "name": "SWARMBRAIN_INGEST_TRUST", "value": "unknown" },
+        { "name": "SWARMBRAIN_INGEST_USE_PROVIDER", "value": "false" },
+        { "name": "SWARMBRAIN_RETRIEVAL_DENSE_MIN_SIMILARITY", "value": "0.0" },
+        { "name": "SWARMBRAIN_RETRIEVAL_DENSE_ANN_BEAM_SIZE", "value": "32" }
+      ],
+      "secrets": [
+        {
+          "name": "SWARMBRAIN_DATABASE_URL",
+          "valueFrom": "<DATABASE_URL_SECRET_ARN>"
+        },
+        {
+          "name": "SWARMBRAIN_TOKEN_SECRET",
+          "valueFrom": "<TOKEN_SECRET_ARN>"
+        }
+      ],
+      "readonlyRootFilesystem": false,
+      "linuxParameters": {
+        "initProcessEnabled": true
+      },
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "python",
+          "-c",
+          "import sys,urllib.request;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=4).status==200 else 1)"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+      "stopTimeout": 20,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/swarm-brain/api",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "api",
+          "awslogs-create-group": "true",
+          "mode": "non-blocking",
+          "max-buffer-size": "1m"
+        }
+      }
+    }
+  ],
+  "tags": [
+    { "key": "project", "value": "swarm-brain" },
+    { "key": "component", "value": "api" },
+    { "key": "event", "value": "crdb-aws-hackathon-2026" },
+    { "key": "owner", "value": "<OWNER>" },
+    { "key": "teardown-after", "value": "2026-09-15" },
+    { "key": "managed-by", "value": "manual" }
+  ]
+}

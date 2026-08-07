@@ -18,6 +18,8 @@ Start here:
   mapped to standalone repository history.
 - [Submission package](submission/architecture.md) — hackathon architecture
   overview, Devpost draft, video script, and CockroachDB tool feedback.
+- [Deployment](deploy.md) — container image, AWS templates, and the key-gated
+  activation scripts; nothing applied without operator approval.
 
 Implementation context:
 

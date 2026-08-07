@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockTitanEmbedInvokeOnly",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": "arn:aws:bedrock:<REGION>::foundation-model/amazon.titan-embed-text-v2:0"
+    },
+    {
+      "Sid": "EvidenceBucketObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::<EVIDENCE_BUCKET>/<EVIDENCE_PREFIX>/*"
+    },
+    {
+      "Sid": "EvidenceBucketList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<EVIDENCE_BUCKET>",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "<EVIDENCE_PREFIX>/*"
+        }
+      }
+    }
+  ]
+}

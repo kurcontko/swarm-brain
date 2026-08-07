@@ -1,0 +1,71 @@
+{
+  "family": "swarm-brain-worker",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "ARM64"
+  },
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/swarmBrainExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/swarmBrainTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "swarm-brain-worker",
+      "image": "<ECR_IMAGE_URI>",
+      "essential": true,
+      "command": ["swarmbrain-worker"],
+      "environment": [
+        { "name": "SWARMBRAIN_BACKEND", "value": "cockroach" },
+        { "name": "SWARMBRAIN_EMBEDDINGS", "value": "bedrock" },
+        {
+          "name": "SWARMBRAIN_EMBEDDINGS_MODEL",
+          "value": "amazon.titan-embed-text-v2:0"
+        },
+        { "name": "SWARMBRAIN_EMBEDDINGS_DIMENSIONS", "value": "1024" },
+        { "name": "SWARMBRAIN_AWS_REGION", "value": "<REGION>" },
+        { "name": "SWARMBRAIN_DATABASE_POOL_MIN_SIZE", "value": "1" },
+        { "name": "SWARMBRAIN_DATABASE_POOL_MAX_SIZE", "value": "4" },
+        { "name": "SWARMBRAIN_WORKER_POLL_INTERVAL_SECONDS", "value": "0.5" },
+        { "name": "SWARMBRAIN_WORKER_LEASE_SECONDS", "value": "60" },
+        { "name": "SWARMBRAIN_WORKER_RETRY_DELAY_SECONDS", "value": "30" },
+        { "name": "SWARMBRAIN_WORKER_LIMIT", "value": "1" }
+      ],
+      "secrets": [
+        {
+          "name": "SWARMBRAIN_DATABASE_URL",
+          "valueFrom": "<DATABASE_URL_SECRET_ARN>"
+        },
+        {
+          "name": "SWARMBRAIN_TOKEN_SECRET",
+          "valueFrom": "<TOKEN_SECRET_ARN>"
+        }
+      ],
+      "readonlyRootFilesystem": false,
+      "linuxParameters": {
+        "initProcessEnabled": true
+      },
+      "stopTimeout": 30,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/swarm-brain/worker",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "worker",
+          "awslogs-create-group": "true",
+          "mode": "non-blocking",
+          "max-buffer-size": "1m"
+        }
+      }
+    }
+  ],
+  "tags": [
+    { "key": "project", "value": "swarm-brain" },
+    { "key": "component", "value": "worker" },
+    { "key": "event", "value": "crdb-aws-hackathon-2026" },
+    { "key": "owner", "value": "<OWNER>" },
+    { "key": "teardown-after", "value": "2026-09-15" },
+    { "key": "managed-by", "value": "manual" }
+  ]
+}
