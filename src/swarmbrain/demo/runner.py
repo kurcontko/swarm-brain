@@ -29,7 +29,7 @@ from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.tasks import Task, TaskDependency, TaskStatus
 from swarmbrain.ports.coordination_store import CoordinationStore
 
-from .scenario import DemoAgent, DemoScenario
+from .scenario import DemoAgent, DemoScenario, actor_context
 
 TOKEN_TTL = timedelta(minutes=30)
 DEFAULT_LEASE_SECONDS = 120
@@ -132,14 +132,7 @@ class DemoRunner:
     # -- operator plane -----------------------------------------------------
 
     def _actor(self, agent: DemoAgent) -> ActorContext:
-        return ActorContext(
-            **self._scenario.scope(),
-            agent_id=agent.agent_id,
-            harness=agent.harness,
-            provider=agent.provider,
-            model=agent.model,
-            capabilities=agent.capabilities,
-        )
+        return actor_context(self._scenario, agent)
 
     def _token(self, agent: DemoAgent) -> str:
         token = self._agent_tokens.get(agent.agent_id)

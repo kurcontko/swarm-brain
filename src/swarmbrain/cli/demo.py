@@ -4,6 +4,10 @@ Zero-configuration default: an in-process in-memory backend with a controllable
 clock, so crash handoff is demonstrated without waiting out a real lease.
 With ``SWARMBRAIN_BACKEND=cockroach`` the same beats run against the durable
 backend over the same HTTP application, and lease expiry elapses in real time.
+
+``--ab`` swaps the single run for the A/B comparison: the same demo run becomes
+the measured arm, and a labelled simulation of an uncoordinated fleet over the
+same fixture becomes the baseline.
 """
 
 from __future__ import annotations
@@ -11,6 +15,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -19,7 +26,7 @@ import httpx
 
 from swarmbrain.application.runtime import SwarmBrainRuntime, build_in_memory_runtime
 from swarmbrain.config import ApiSettings, BackendKind
-from swarmbrain.demo import DemoReport, DemoRunner, build_scenario
+from swarmbrain.demo import ABReport, DemoReport, DemoRunner, build_scenario, run_comparison
 
 
 class ControllableClock:
@@ -61,6 +68,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--quiet", action="store_true", help="suppress narration lines")
+    parser.add_argument(
+        "--ab",
+        action="store_true",
+        help=(
+            "run the A/B comparison: the measured swarm-brain run against a "
+            "simulated uncoordinated fleet over the same task set"
+        ),
+    )
     return parser
 
 
@@ -80,7 +95,20 @@ def _compose() -> tuple[SwarmBrainRuntime, ControllableClock | None]:
     return build_runtime(settings), None
 
 
-async def _run(args: argparse.Namespace) -> DemoReport:
+@dataclass(slots=True)
+class _Harness:
+    """Everything a demo arm needs to speak the agent and operator planes."""
+
+    client: httpx.AsyncClient
+    runtime: SwarmBrainRuntime
+    expire: Callable[[datetime], Awaitable[None]]
+    lease_seconds: int
+    clock: ControllableClock | None
+    narrate: Callable[[str], None]
+
+
+@asynccontextmanager
+async def _harness(args: argparse.Namespace) -> AsyncIterator[_Harness]:
     from swarmbrain.transports.http import create_app
 
     runtime, clock = _compose()
@@ -109,29 +137,71 @@ async def _run(args: argparse.Namespace) -> DemoReport:
     try:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://swarm-demo") as client:
-            runner = DemoRunner(
+            yield _Harness(
                 client=client,
-                tokens=runtime.tokens,
-                store=runtime.coordination_store,
-                scenario=build_scenario(),
-                expire_leases=expire,
-                narrate=narrate,
+                runtime=runtime,
+                expire=expire,
                 lease_seconds=lease_seconds,
-                now=clock if clock is not None else None,
+                clock=clock,
+                narrate=narrate,
             )
-            return await runner.run()
     finally:
         await runtime.close()
 
 
+async def _run(args: argparse.Namespace) -> DemoReport:
+    async with _harness(args) as harness:
+        assert harness.runtime.coordination_store is not None
+        runner = DemoRunner(
+            client=harness.client,
+            tokens=harness.runtime.tokens,
+            store=harness.runtime.coordination_store,
+            scenario=build_scenario(),
+            expire_leases=harness.expire,
+            narrate=harness.narrate,
+            lease_seconds=harness.lease_seconds,
+            now=harness.clock if harness.clock is not None else None,
+        )
+        return await runner.run()
+
+
+async def _run_ab(args: argparse.Namespace) -> ABReport:
+    async with _harness(args) as harness:
+        assert harness.runtime.coordination_store is not None
+        return await run_comparison(
+            client=harness.client,
+            tokens=harness.runtime.tokens,
+            store=harness.runtime.coordination_store,
+            scenario=build_scenario(),
+            expire_leases=harness.expire,
+            narrate=harness.narrate,
+            lease_seconds=harness.lease_seconds,
+            now=harness.clock if harness.clock is not None else None,
+        )
+
+
+def _write(evidence_dir: str, suffix: str, payload: str) -> Path:
+    directory = Path(evidence_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    artifact = directory / f"{stamp}-{suffix}.json"
+    artifact.write_text(payload + "\n", encoding="utf-8")
+    return artifact
+
+
 def main() -> None:
     args = _parser().parse_args()
+    if args.ab:
+        comparison = asyncio.run(_run_ab(args))
+        artifact = _write(args.evidence_dir, "swarm-ab", comparison.to_json())
+        print("\n" + comparison.table())
+        verdict = "PASSED" if comparison.ok else "FAILED"
+        print(f"\nA/B {verdict}; evidence written to {artifact}")
+        if not comparison.ok:
+            sys.exit(1)
+        return
     report = asyncio.run(_run(args))
-    evidence_dir = Path(args.evidence_dir)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    artifact = evidence_dir / f"{stamp}-swarm-demo.json"
-    artifact.write_text(report.to_json() + "\n", encoding="utf-8")
+    artifact = _write(args.evidence_dir, "swarm-demo", report.to_json())
     verdict = "PASSED" if report.ok else "FAILED"
     print(f"\ndemo {verdict}; evidence written to {artifact}")
     if not report.ok:

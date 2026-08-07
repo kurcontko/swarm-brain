@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from uuid import uuid4
 
-from swarmbrain.domain.agents import Capability
+from swarmbrain.domain.agents import ActorContext, Capability
 
 WORKER_CAPABILITIES = frozenset(
     {
@@ -205,6 +205,19 @@ def build_scenario() -> DemoScenario:
     )
 
 
+def actor_context(scenario: DemoScenario, agent: DemoAgent) -> ActorContext:
+    """The scoped identity a demo agent presents on the agent plane."""
+
+    return ActorContext(
+        **scenario.scope(),
+        agent_id=agent.agent_id,
+        harness=agent.harness,
+        provider=agent.provider,
+        model=agent.model,
+        capabilities=agent.capabilities,
+    )
+
+
 __all__ = [
     "LEAD_CAPABILITIES",
     "SCOUT_CAPABILITIES",
@@ -212,5 +225,6 @@ __all__ = [
     "DemoAgent",
     "DemoScenario",
     "DemoTask",
+    "actor_context",
     "build_scenario",
 ]
