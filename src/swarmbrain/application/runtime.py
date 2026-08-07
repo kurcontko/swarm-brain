@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 
 from swarmbrain.adapters.auth import RunTokenCodec
 from swarmbrain.adapters.embeddings import DeterministicEmbeddingProvider
 from swarmbrain.adapters.extraction import DefaultRuleExtractor, InMemoryWorkStore
-from swarmbrain.adapters.memory import InMemoryKernel, in_memory_retrieval_gateways
+from swarmbrain.adapters.memory import (
+    InMemoryKernel,
+    in_memory_hybrid_retrieval_gateways,
+    in_memory_retrieval_gateways,
+)
 from swarmbrain.config import ApiSettings, BackendKind, EmbeddingsKind
 from swarmbrain.domain.evidence import SourceTrust
+from swarmbrain.ports.coordination_store import CoordinationStore
 from swarmbrain.ports.embeddings import EmbeddingIndex, EmbeddingProvider
 from swarmbrain.ports.extraction import SourceIngestStore
 from swarmbrain.ports.work_queue import WorkQueueStore
@@ -86,6 +93,7 @@ class SwarmBrainRuntime:
     conflicts: ConflictService
     evidence: EvidenceService
     tokens: RunTokenCodec
+    coordination_store: CoordinationStore | None = None
     kernel: InMemoryKernel | None = None
     extraction: ExtractionService | None = None
     ingestion_profile: IngestionProfile = field(default_factory=IngestionProfile)
@@ -135,13 +143,24 @@ def build_in_memory_runtime(
     token_secret: str,
     *,
     embeddings: EmbeddingProvider | None = None,
+    dense_min_similarity: float = 0.0,
+    clock: Callable[[], datetime] | None = None,
 ) -> SwarmBrainRuntime:
-    kernel = InMemoryKernel()
+    kernel = InMemoryKernel() if clock is None else InMemoryKernel(clock=clock)
     policy = ConservativeMemoryPolicy()
     work_queue = InMemoryWorkStore()
     work = DurableWorkService(work_queue)
     embedding_index = work_queue if embeddings is not None else None
-    retrieval = RetrievalService(in_memory_retrieval_gateways(kernel), kernel)
+    gateways = (
+        in_memory_retrieval_gateways(kernel)
+        if embedding_index is None
+        else in_memory_hybrid_retrieval_gateways(
+            kernel,
+            embedding_index,
+            dense_min_similarity=dense_min_similarity,
+        )
+    )
+    retrieval = RetrievalService(gateways, kernel)
     memory = MemoryService(
         kernel,
         policy,
@@ -160,6 +179,7 @@ def build_in_memory_runtime(
         conflicts=ConflictService(kernel),
         evidence=EvidenceService(kernel),
         tokens=RunTokenCodec(token_secret),
+        coordination_store=kernel,
         kernel=kernel,
         work=work,
         work_queue=work_queue,
@@ -175,6 +195,7 @@ def build_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
         return build_in_memory_runtime(
             settings.token_secret,
             embeddings=_build_embedding_provider(settings),
+            dense_min_similarity=settings.retrieval_dense_min_similarity,
         )
     return _build_cockroach_runtime(settings)
 
@@ -201,7 +222,10 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     from swarmbrain.adapters.cockroach.coordination import CockroachCoordinationStore
     from swarmbrain.adapters.cockroach.database import CockroachDatabase
     from swarmbrain.adapters.cockroach.memory import CockroachMemoryStore
-    from swarmbrain.adapters.cockroach.retrieval import cockroach_retrieval_gateways
+    from swarmbrain.adapters.cockroach.retrieval import (
+        cockroach_hybrid_retrieval_gateways,
+        cockroach_retrieval_gateways,
+    )
     from swarmbrain.adapters.cockroach.work_store import CockroachWorkStore
 
     assert settings.database_url is not None
@@ -216,7 +240,16 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     work_queue = CockroachWorkStore(database)
     work = DurableWorkService(work_queue)
     embedding_index = memory_store if embeddings is not None else None
-    retrieval = RetrievalService(cockroach_retrieval_gateways(database), memory_store)
+    gateways = (
+        cockroach_retrieval_gateways(database)
+        if embeddings is None
+        else cockroach_hybrid_retrieval_gateways(
+            database,
+            dense_min_similarity=settings.retrieval_dense_min_similarity,
+            dense_beam_size=settings.retrieval_dense_ann_beam_size,
+        )
+    )
+    retrieval = RetrievalService(gateways, memory_store)
     policy = ConservativeMemoryPolicy()
     memory = MemoryService(
         memory_store,
@@ -241,6 +274,7 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
         conflicts=ConflictService(memory_store),
         evidence=EvidenceService(memory_store),
         tokens=RunTokenCodec(settings.token_secret),
+        coordination_store=coordination_store,
         extraction=extraction,
         ingestion_profile=IngestionProfile(
             trust=settings.ingest_trust,

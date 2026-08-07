@@ -22,7 +22,8 @@ See the [current retrieval status](docs/retrieval-status.md), the
 - task/run/repository-scoped temporal memories with evidence and lineage;
 - append-by-default memory observations, explicit supersession, and poisoning guards;
 - lossless JSON memory documents with open application-defined semantic labels;
-- purpose-aware exact, FTS `simple`, trigram, and weighted-RRF retrieval;
+- purpose-aware exact, FTS `simple`, trigram, versioned dense, bounded graph
+  expansion, and weighted-RRF retrieval;
 - private canonical hydration with scope/state/trust/bitemporal revalidation;
 - evidence-backed conflict reporting and resolution;
 - an in-memory adapter for deterministic local development and tests;
@@ -59,6 +60,33 @@ zero spans means a source-derived synthesis, not a fabricated quotation. Scope,
 visibility, lifecycle states, trust/review state, auth, lease fencing, and
 idempotency remain strict.
 
+## Scripted swarm demo
+
+One command drives the full swarm story over the canonical HTTP API — twelve
+simulated heterogeneous workers (Claude Code / Codex / Gemini / Qwen roster
+labels) racing four ready tasks, cross-vendor evidence-backed recall, an
+evidence-backed supersession with a rejected poisoning attempt, an idempotent
+duplicate completion, a crash handoff across vendors with stale-lease fencing,
+a dependency-blocked task unblocking, and the run's durable events and metrics:
+
+```bash
+uv run --extra serve swarmbrain-demo
+```
+
+The default run composes an in-process in-memory backend with a controllable
+clock, so lease expiry is demonstrated without waiting. With the CockroachDB
+environment set (see below), the same beats run against the durable backend
+and lease expiry elapses in real time:
+
+```bash
+uv run --extra serve --extra crdb swarmbrain-demo
+```
+
+Every beat appends named checks to a JSON evidence artifact under
+`evidence/`. The simulated workers speak exactly the protocol a real harness
+speaks through the MCP bridge; the roster labels record the vendor mix the
+scenario stands in for.
+
 ## Development
 
 Run the test and lint suites from this directory:
@@ -93,10 +121,10 @@ Copy [`.env.example`](.env.example) for the complete environment-variable map.
 
 Install or verify schema as an explicit operator action:
 
-> Upgrading from a pre-v7 deployment requires a writer barrier: stop every old
-> API and worker that can publish memory, run `schema install` and `schema
-> verify`, then start only v7 processes. Do not run the v7 rebuild concurrently
-> with pre-v7 writers, because those writers do not maintain retrieval
+> Upgrading from a pre-v8 deployment requires a writer barrier: stop every old
+> API and worker that can publish memory or embeddings, run `schema install` and `schema
+> verify`, then start only v8 processes. Do not run the rebuild concurrently
+> with pre-v8 writers, because those writers do not maintain every v8 retrieval
 > projections. A large existing memory set also makes `install` an `O(N)`
 > maintenance operation; rehearse and budget its transaction time first.
 
@@ -116,6 +144,20 @@ The durable composition creates one `CockroachDatabase` pool shared by the
 coordination and memory repositories. Pool bounds are controlled with
 `SWARMBRAIN_DATABASE_POOL_MIN_SIZE` and
 `SWARMBRAIN_DATABASE_POOL_MAX_SIZE`.
+
+When embeddings are enabled, dense v2 writes a separate current-memory
+`retrieval_vectors_1024` projection carrying canonical resource version,
+content digest, scope key, renderer/model signature, and domain lane. Query
+embeddings are generated before the read snapshot; CockroachDB then runs one
+fully prefix-bound ANN branch per allowed repository/run/task scope. In the
+same snapshot it validates canonical lifecycle/trust/time, version, and digest,
+adaptively widens an under-filled ANN window, and then fuses dense ranks with
+exact/FTS/trigram ranks. `SWARMBRAIN_RETRIEVAL_DENSE_MIN_SIMILARITY`
+controls the optional raw cosine floor (disabled by default until calibrated),
+while
+`SWARMBRAIN_RETRIEVAL_DENSE_ANN_BEAM_SIZE` controls the per-query CockroachDB
+beam. Tune both only against the exact-vector oracle and a representative saved
+retrieval run; see [retrieval evaluation](docs/retrieval-evaluation.md).
 
 Use the [local restart demo](docs/restart-demo.md) to test API and
 database process restarts against a persistent local store. The guide defines a
