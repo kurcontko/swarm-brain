@@ -597,6 +597,28 @@ CREATE VECTOR INDEX IF NOT EXISTS retrieval_vectors_1024_ann_v2
         projection_signature, scope_key, embedding vector_cosine_ops
     );
 
+-- v9 makes retrieval reuse durable and auditable. Recall itself stays a
+-- read-only snapshot, so a short write transaction after that snapshot commits
+-- folds one recall into this per-run counter. Only counts are persisted: query
+-- text and memory content never reach this table.
+CREATE TABLE IF NOT EXISTS retrieval_reuse_counters (
+    tenant_id STRING NOT NULL,
+    run_id STRING NOT NULL,
+    project_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
+    swarm_id STRING NOT NULL,
+    reuse_count INT8 NOT NULL DEFAULT 0,
+    recall_count INT8 NOT NULL DEFAULT 0,
+    first_recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT retrieval_reuse_counters_values_check CHECK (
+        reuse_count >= 0 AND recall_count >= 0
+    ),
+    PRIMARY KEY (tenant_id, run_id),
+    CONSTRAINT retrieval_reuse_counters_run_fk FOREIGN KEY (tenant_id, run_id)
+        REFERENCES runs (tenant_id, id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS evidence (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id STRING NOT NULL,

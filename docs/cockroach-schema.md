@@ -1,9 +1,9 @@
 # Swarm Brain CockroachDB schema
 
-## Current v8 retrieval addendum
+## Current v9 retrieval addendum
 
-Schema v8 retains the two v7 lexical projections and adds a separate versioned
-dense projection while `memories` remains the canonical source of truth:
+Schema v9 keeps every v8 projection and adds one durable retrieval-reuse
+counter. `memories` remains the canonical source of truth:
 
 - `retrieval_documents`: deterministic `search_text`, bounded `lookup_text`, a
   stored `to_tsvector('simple', search_text)`, a fully scope-prefixed inverted
@@ -16,7 +16,10 @@ dense projection while `memories` remains the canonical source of truth:
 - `memory_links`: open semantic links plus covering
   `(source_memory_id, link_type, created_at DESC, id)` and
   `(target_memory_id, link_type, created_at DESC, id)` indexes for bounded
-  bidirectional expansion.
+  bidirectional expansion;
+- `retrieval_reuse_counters`: one row per authenticated run under primary key
+  `(tenant_id, run_id)`, holding `reuse_count`, `recall_count`, the owning
+  project/repository/swarm, and first/last write times.
 
 Projected exact-term lookups start at the scope-prefixed exact B-tree; FTS and
 trigram lookups start at their scope-prefixed inverted indexes. Each uses a
@@ -60,6 +63,24 @@ relation/query/hop decay, a hard total budget, and complete edge/node path
 provenance. `EXPLAIN` gates verify both directional link indexes and reject
 full scans for the emitted hop SQL.
 
+`retrieval_reuse_counters` is telemetry, not a retrieval input. Recall itself
+stays a read-only snapshot; after that snapshot commits, the memory adapter runs
+one short transaction whose single statement is a primary-key
+`INSERT ... ON CONFLICT (tenant_id, run_id) DO UPDATE` that adds the number of
+distinct public hits to `reuse_count` and one to `recall_count`. The conflict
+branch updates only when the stored project/repository/swarm match the
+authenticated scope, so a run identity cannot merge foreign telemetry, and the
+`(tenant_id, run_id)` foreign key to `runs` cascades on run deletion. Only counts
+are persisted: recall text and memory content never reach this table. The write
+is fire-and-forget — a failure is logged and dropped, never surfaced to recall.
+`get_run_metrics` reads `reuse_count` with one primary-key lookup inside its
+already run-scoped query, so `memories_reused` now has parity between the local
+and CockroachDB backends.
+
+Installing v9 is additive: the counter table starts empty and no projection is
+rebuilt. Because schema verification includes the checksum of `schema.sql`, an
+existing v8 database must still run `schema install` before v9 processes start.
+
 An upgrade from pre-v8 requires an explicit writer barrier: stop all old API
 and worker processes that can publish memory or embeddings, run `schema
 install` and `schema verify`, and only then start v8 writers. A pre-v8 writer
@@ -73,8 +94,9 @@ copy before scheduling the maintenance window.
 Startup verification checks the critical index methods, ordered prefixes,
 graph direction/relation/time ordering (including descending edge time),
 `gin_trgm_ops`, `vector_cosine_ops`, exact-term key, signed vector projection
-shape, and stored `to_tsvector('simple', ...)` definition in addition to names,
-columns, schema version, and checksum.
+shape, the exact `(tenant_id, run_id)` reuse-counter key, and stored
+`to_tsvector('simple', ...)` definition in addition to names, columns, schema
+version, and checksum.
 
 The authoritative implementation is
 [schema.sql](../src/swarmbrain/adapters/cockroach/schema.sql); the operational
@@ -92,7 +114,7 @@ status and remaining benchmark limitations are in
 The paragraphs and inventory below describe the historical v0/P0 starting
 point, not the current runtime. At that point the executable API used only
 `InMemoryKernel`, and Cockroach repositories were future P1 work. Today the
-authoritative v8 DDL remains an explicit operator action (API startup never
+authoritative v9 DDL remains an explicit operator action (API startup never
 runs migrations), while durable Cockroach repositories, runtime composition,
 projection maintenance, schema verification, and live retrieval gates are
 implemented. Use the addendum above and `schema.sql` for current facts.

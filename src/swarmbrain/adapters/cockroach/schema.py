@@ -252,10 +252,14 @@ async def install_schema(database_url: str) -> int:
         dense_create_cursor = await connection.execute("SHOW CREATE TABLE retrieval_vectors_1024")
         dense_create_row = await dense_create_cursor.fetchone()
         dense_ddl = "" if dense_create_row is None else str(dense_create_row["create_statement"])
+        counters_cursor = await connection.execute("SHOW CREATE TABLE retrieval_reuse_counters")
+        counters_row = await counters_cursor.fetchone()
+        counters_ddl = "" if counters_row is None else str(counters_row["create_statement"])
         incompatible_objects = incompatible_retrieval_schema_objects(
             index_rows,
             retrieval_ddl,
             dense_ddl,
+            counters_ddl,
         )
         if incompatible_objects:
             raise RuntimeError(
@@ -271,7 +275,8 @@ async def install_schema(database_url: str) -> int:
             """,
             (
                 SCHEMA_VERSION,
-                "Swarm Brain v8 dense, lexical, fuzzy, exact, and bounded graph retrieval",
+                "Swarm Brain v9 dense, lexical, fuzzy, exact, and bounded graph retrieval "
+                "with durable retrieval reuse counters",
                 digest,
             ),
         )

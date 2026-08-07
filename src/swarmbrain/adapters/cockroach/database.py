@@ -25,7 +25,7 @@ from .retry import AmbiguousTransactionResult, RetryPolicy, run_serializable
 ModelT = TypeVar("ModelT", bound=BaseModel)
 TransactionBody = Callable[[Any], Awaitable[ModelT]]
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 REQUIRED_TABLES = frozenset(
     {
         "runs",
@@ -45,6 +45,7 @@ REQUIRED_TABLES = frozenset(
         "memory_embeddings",
         "memory_vector_embeddings",
         "retrieval_vectors_1024",
+        "retrieval_reuse_counters",
         "evidence",
         "memory_evidence",
         "memory_links",
@@ -151,6 +152,17 @@ REQUIRED_COLUMNS = {
         "dimensions",
         "embedding",
         "indexed_at",
+    },
+    "retrieval_reuse_counters": {
+        "tenant_id",
+        "run_id",
+        "project_id",
+        "repository_id",
+        "swarm_id",
+        "reuse_count",
+        "recall_count",
+        "first_recorded_at",
+        "last_recorded_at",
     },
     "memory_evidence": {"memory_id", "evidence_id", "relation"},
     "memory_links": {
@@ -340,6 +352,7 @@ def incompatible_retrieval_schema_objects(
     index_rows: Sequence[dict[str, Any]],
     retrieval_documents_ddl: str,
     dense_vectors_ddl: str | None = None,
+    reuse_counters_ddl: str | None = None,
 ) -> tuple[str, ...]:
     """Return critical retrieval objects whose definitions are not compatible."""
 
@@ -442,6 +455,26 @@ def incompatible_retrieval_schema_objects(
                 if vector_position < 0:
                     incompatible.append("retrieval_vectors_1024_ann_v2")
                     break
+
+    if reuse_counters_ddl is not None:
+        # One counter row per authenticated run keeps the post-recall UPSERT
+        # atomic and the metrics read a single primary-key lookup. A wider or
+        # reordered key silently splits or duplicates a run's reuse total.
+        counters_ddl = " ".join(reuse_counters_ddl.lower().split())
+        counter_fragments = ("reuse_count int8 not null", "recall_count int8 not null")
+        start = counters_ddl.find("primary key (")
+        end = counters_ddl.find(")", start)
+        key_columns: tuple[str, ...] = ()
+        if start >= 0 and end > start:
+            key_columns = tuple(
+                part.strip().split(" ")[0]
+                for part in counters_ddl[start + len("primary key (") : end].split(",")
+                if part.strip()
+            )
+        if key_columns != ("tenant_id", "run_id") or any(
+            fragment not in counters_ddl for fragment in counter_fragments
+        ):
+            incompatible.append("retrieval_reuse_counters")
     return tuple(dict.fromkeys(incompatible))
 
 
@@ -619,6 +652,10 @@ class CockroachDatabase:
                     "SHOW CREATE TABLE retrieval_vectors_1024"
                 )
                 dense_create_row = await dense_create_cursor.fetchone()
+                counters_create_cursor = await connection.execute(
+                    "SHOW CREATE TABLE retrieval_reuse_counters"
+                )
+                counters_create_row = await counters_create_cursor.fetchone()
         except Exception as exc:
             if getattr(exc, "sqlstate", None) == "42P01":
                 raise SchemaNotInstalled(
@@ -638,10 +675,14 @@ class CockroachDatabase:
         missing_indexes = sorted(REQUIRED_INDEXES - present_indexes)
         retrieval_ddl = "" if create_row is None else str(create_row["create_statement"])
         dense_ddl = "" if dense_create_row is None else str(dense_create_row["create_statement"])
+        counters_ddl = (
+            "" if counters_create_row is None else str(counters_create_row["create_statement"])
+        )
         incompatible_objects = incompatible_retrieval_schema_objects(
             index_rows,
             retrieval_ddl,
             dense_ddl,
+            counters_ddl,
         )
         checksum_matches = (
             version_row is not None and bytes(version_row["schema_sha256"]) == expected_digest

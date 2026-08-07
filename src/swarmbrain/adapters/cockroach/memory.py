@@ -7,6 +7,7 @@ whole-transaction ``40001`` retries cannot change externally visible identity.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import timedelta
@@ -18,6 +19,7 @@ from psycopg.types.json import Jsonb
 from swarmbrain.application.errors import IdempotencyConflict, InvalidState, ResourceNotFound
 from swarmbrain.application.memory_policy import memory_content_text, memory_text_sha256
 from swarmbrain.domain.agents import ActorContext
+from swarmbrain.domain.common import ContractModel
 from swarmbrain.domain.conflicts import (
     Conflict,
     ConflictResolution,
@@ -110,6 +112,29 @@ CONFLICT_COLUMNS = """
     reported_by_agent_id, description, severity, state, resolution,
     resolved_by_agent_id, metadata, created_at, updated_at, resolved_at, version
 """
+
+# One primary-key UPSERT per recall. The conflict guard keeps a run's counter
+# owned by the scope that created it, so a mismatched project/repository/swarm
+# leaves the row untouched instead of merging foreign telemetry.
+RECORD_RETRIEVAL_REUSE_SQL = """
+    INSERT INTO retrieval_reuse_counters (
+        tenant_id, run_id, project_id, repository_id, swarm_id,
+        reuse_count, recall_count, first_recorded_at, last_recorded_at
+    ) VALUES (%s, %s, %s, %s, %s, %s, 1, now(), now())
+    ON CONFLICT (tenant_id, run_id) DO UPDATE
+    SET reuse_count = retrieval_reuse_counters.reuse_count + excluded.reuse_count,
+        recall_count = retrieval_reuse_counters.recall_count + 1,
+        last_recorded_at = now()
+    WHERE retrieval_reuse_counters.project_id = excluded.project_id
+      AND retrieval_reuse_counters.repository_id = excluded.repository_id
+      AND retrieval_reuse_counters.swarm_id = excluded.swarm_id
+"""
+
+logger = logging.getLogger(__name__)
+
+
+class _ReuseAck(ContractModel):
+    ok: bool = True
 
 
 def _uuid(value: str | UUID) -> UUID:
@@ -918,6 +943,46 @@ class CockroachMemoryStore:
                 for row in rows
             }
             return tuple(memories[item] for item in ordered_ids if item in memories)
+
+    async def record_retrieval_reuse(
+        self,
+        actor: ActorContext,
+        memory_ids: Sequence[str],
+    ) -> None:
+        """Account public recall hits durably after the read-only snapshot ends.
+
+        Recall must stay read-only and non-blocking, so this runs as its own
+        short transaction and swallows every failure: telemetry never turns an
+        answered recall into a client-visible error. Only counts cross this
+        boundary; query text and memory content are never persisted here.
+        """
+
+        reused = len(tuple(dict.fromkeys(memory_ids)))
+        if reused == 0:
+            return
+
+        async def body(connection: Any) -> _ReuseAck:
+            await connection.execute(
+                RECORD_RETRIEVAL_REUSE_SQL,
+                (
+                    actor.tenant_id,
+                    actor.run_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    actor.swarm_id,
+                    reused,
+                ),
+            )
+            return _ReuseAck()
+
+        try:
+            await self.database.run(body)
+        except Exception:
+            logger.warning(
+                "durable retrieval reuse counter write failed",
+                extra={"run_id": actor.run_id, "agent_id": actor.agent_id},
+                exc_info=True,
+            )
 
     async def get_lineage(self, actor: ActorContext, memory_id: str) -> MemoryLineage:
         async with self.database.pool.connection() as connection:

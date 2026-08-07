@@ -283,6 +283,77 @@ async def test_recall_applies_scope_trust_and_time_in_sql_before_ranking() -> No
     assert "s1.trust_label != 'untrusted'" in query_sql
 
 
+class _ReuseDatabase:
+    """Stand in for the transaction kernel used by the durable reuse counter."""
+
+    def __init__(self, now: datetime, failure: Exception | None = None) -> None:
+        self.now = now
+        self.failure = failure
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def run(self, body: Any) -> Any:
+        if self.failure is not None:
+            raise self.failure
+        connection = _RecordingConnection(self.now)
+        result = await body(connection)
+        self.calls.extend(connection.calls)
+        return result
+
+
+@pytest.mark.asyncio
+async def test_retrieval_reuse_write_is_scoped_deduplicated_and_content_free() -> None:
+    now = datetime(2026, 8, 2, 8, 30, tzinfo=UTC)
+    actor = _actor()
+    first, second = _id(), _id()
+    database = _ReuseDatabase(now)
+    store = CockroachMemoryStore(database)  # type: ignore[arg-type]
+
+    await store.record_retrieval_reuse(actor, (first, second, first))
+
+    assert len(database.calls) == 1
+    sql, parameters = database.calls[0]
+    assert "INSERT INTO retrieval_reuse_counters" in sql
+    assert "ON CONFLICT (tenant_id, run_id) DO UPDATE" in sql
+    assert parameters == (
+        actor.tenant_id,
+        actor.run_id,
+        actor.project_id,
+        actor.repository_id,
+        actor.swarm_id,
+        2,
+    )
+    assert first not in parameters
+    assert second not in parameters
+
+
+@pytest.mark.asyncio
+async def test_retrieval_reuse_write_is_skipped_without_hits() -> None:
+    database = _ReuseDatabase(datetime(2026, 8, 2, 8, 30, tzinfo=UTC))
+    store = CockroachMemoryStore(database)  # type: ignore[arg-type]
+
+    await store.record_retrieval_reuse(_actor(), ())
+
+    assert database.calls == []
+
+
+@pytest.mark.asyncio
+async def test_failed_retrieval_reuse_write_is_logged_and_never_raised(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    actor = _actor()
+    database = _ReuseDatabase(
+        datetime(2026, 8, 2, 8, 30, tzinfo=UTC),
+        failure=RuntimeError("counter write failed"),
+    )
+    store = CockroachMemoryStore(database)  # type: ignore[arg-type]
+
+    with caplog.at_level("WARNING"):
+        await store.record_retrieval_reuse(actor, (_id(),))
+
+    assert database.calls == []
+    assert "durable retrieval reuse counter write failed" in caplog.text
+
+
 @pytest.mark.asyncio
 async def test_event_and_full_outbox_envelope_share_one_stable_identity() -> None:
     now = datetime(2026, 8, 2, 8, 30, tzinfo=UTC)

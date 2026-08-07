@@ -204,6 +204,31 @@ optymalizowana. Fixed-depth application traversal daje jawny hop/fan-out/edge
 budget i łatwy `EXPLAIN` obu kierunków. Duże PPR/community graph pozostaje
 asynchroniczną projekcją przyszłości.
 
+### Trwały licznik reuse (schema v9)
+
+CockroachDB ma teraz audytowalny licznik reuse zapisywany poza read-only
+snapshotem recallu. Schema v9 dodaje `retrieval_reuse_counters` z kluczem
+głównym `(tenant_id, run_id)`, kolumnami `reuse_count` i `recall_count`,
+właścicielskim scope'em project/repository/swarm oraz czasem pierwszego i
+ostatniego zapisu.
+
+Po zamknięciu snapshotu adapter wykonuje jedną krótką transakcję z pojedynczym
+`INSERT ... ON CONFLICT (tenant_id, run_id) DO UPDATE`, który dodaje liczbę
+różnych publicznych hitów do `reuse_count` i jeden recall do `recall_count`.
+Gałąź konfliktu aktualizuje wiersz tylko wtedy, gdy zapisany
+project/repository/swarm zgadza się z uwierzytelnionym scope'em, a klucz obcy do
+`runs` kasuje licznik razem z runem. Zapisywane są wyłącznie liczby: ani tekst
+zapytania, ani treść pamięci nie trafiają do tej tabeli.
+
+Zapis jest fire-and-forget: recall pozostaje read-only i nieblokujący, a błąd
+licznika jest logowany i pomijany, nigdy nie wraca do klienta. `get_run_metrics`
+czyta `reuse_count` jednym lookupem po kluczu głównym wewnątrz zapytania już
+ograniczonego do runu, więc `memories_reused` ma teraz parytet między adapterem
+lokalnym a CockroachDB. Ta sama ścieżka obejmuje bootstrap po zatwierdzonym
+claimie, bo przechodzi przez `MemoryService.recall`. Verifier sprawdza kształt
+klucza `(tenant_id, run_id)` i kolumny licznika, a `schema install` pozostaje
+additive i idempotentny.
+
 ## Publiczna kompatybilność
 
 Bez zmian pozostają:
@@ -225,8 +250,8 @@ Nie dodano do publicznego request/response:
 
 ## Weryfikacja
 
-- pełna macierz na świeżym CockroachDB 26.2.1: `185 passed`;
-- fresh schema v8 install i verify na izolowanym CockroachDB v26.2;
+- pełna macierz na świeżym CockroachDB 26.2.1: `204 passed`;
+- fresh schema v9 install i verify na izolowanym CockroachDB v26.2;
 - istniejący live memory gate po transactional projection write;
 - live exact, FTS, trigram, RRF, abstention i `EXPLAIN` dokładnego SQL
   JOIN/filter/ranking emitowanego przez runtime;
@@ -257,7 +282,12 @@ Nie dodano do publicznego request/response:
   degraded-lane fallback;
 - live CockroachDB graph gate: dwa hop'y przez rzeczywiste `memory_links`,
   oba directional covering indexes, brak full scan w runtime `EXPLAIN`,
-  canonical validation i schema index `EXPLAIN`.
+  canonical validation i schema index `EXPLAIN`;
+- reuse unit gate: scoped, zdeduplikowany i wolny od treści UPSERT, brak zapisu
+  bez hitów oraz przełknięty i zalogowany błąd licznika;
+- live CockroachDB reuse gate: inkrementacja licznika i `memories_reused` w
+  metrykach runu, abstention bez wiersza licznika, awaria zapisu nieprzerywająca
+  recallu oraz izolacja cross-run i cross-tenant.
 
 Pełne końcowe wyniki komend są raportowane w handoffie gałęzi; ten dokument nie
 jest automatycznym substytutem CI evidence.
@@ -300,9 +330,9 @@ celu rozszerzany post-filterem.
 - upgrade pre-v8 → v8 wymaga writer barrier: zatrzymania starych publisherów i
   embedding workers, wykonania `schema install` + `verify`, a dopiero potem
   uruchomienia v8; mixed-version writes podczas backfillu nie są wspierane;
-- lokalny adapter zlicza `memories_reused`, ale CockroachDB nie ma jeszcze
-  trwałego licznika reuse; potrzebny jest audytowalny retrieval event/metric
-  zapisywany poza read-only snapshotem;
+- upgrade v8 → v9 jest additive (nowa pusta tabela licznika, brak rebuildu), ale
+  zmienia checksum `schema.sql`, więc istniejąca baza wymaga `schema install`
+  przed startem procesów v9;
 - trwały trace sink oraz metryki lane latency/underfill/freshness pozostają
   kolejnym slicem.
 

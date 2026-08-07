@@ -18,6 +18,7 @@ REQUIRED_TABLES = {
     "memory_embeddings",
     "memory_vector_embeddings",
     "retrieval_vectors_1024",
+    "retrieval_reuse_counters",
     "evidence",
     "memory_evidence",
     "memory_links",
@@ -137,6 +138,54 @@ def test_retrieval_v8_dense_projection_is_versioned_signed_and_scope_keyed() -> 
     assert "memory-content-v1:current:cosine" in schema
     assert "dense-v2|memory-content-v1:current:cosine|normalization=provider|" in schema
     assert "truncation=provider|dimensions=" in schema
+
+
+def test_retrieval_v9_reuse_counter_is_run_keyed_scoped_and_content_free() -> None:
+    schema = read_schema()
+    counters = _create_table_blocks(schema)["retrieval_reuse_counters"]
+
+    for field in (
+        "tenant_id STRING NOT NULL",
+        "run_id STRING NOT NULL",
+        "project_id STRING NOT NULL",
+        "repository_id STRING NOT NULL",
+        "swarm_id STRING NOT NULL",
+        "reuse_count INT8 NOT NULL",
+        "recall_count INT8 NOT NULL",
+        "PRIMARY KEY (tenant_id, run_id)",
+        "REFERENCES runs (tenant_id, id) ON DELETE CASCADE",
+    ):
+        assert field in counters
+    assert "reuse_count >= 0 AND recall_count >= 0" in counters
+    # Recall text and memory content must never reach a telemetry table.
+    for forbidden in ("query", "text", "content", "memory_id"):
+        assert forbidden not in counters.lower()
+
+
+def test_reuse_counter_verifier_rejects_a_widened_primary_key() -> None:
+    good = """
+        CREATE TABLE retrieval_reuse_counters (
+            tenant_id STRING NOT NULL, run_id STRING NOT NULL,
+            project_id STRING NOT NULL, repository_id STRING NOT NULL,
+            swarm_id STRING NOT NULL,
+            reuse_count INT8 NOT NULL DEFAULT 0:::INT8,
+            recall_count INT8 NOT NULL DEFAULT 0:::INT8,
+            CONSTRAINT retrieval_reuse_counters_pkey
+                PRIMARY KEY (tenant_id ASC, run_id ASC)
+        )
+    """
+    widened = good.replace(
+        "PRIMARY KEY (tenant_id ASC, run_id ASC)",
+        "PRIMARY KEY (tenant_id ASC, run_id ASC, project_id ASC)",
+    )
+
+    assert "retrieval_reuse_counters" not in incompatible_retrieval_schema_objects(
+        [], "", None, good
+    )
+    assert "retrieval_reuse_counters" in incompatible_retrieval_schema_objects(
+        [], "", None, widened
+    )
+    assert "retrieval_reuse_counters" in incompatible_retrieval_schema_objects([], "", None, "")
 
 
 def test_retrieval_v7_has_scoped_simple_fts_trigram_and_exact_projections() -> None:

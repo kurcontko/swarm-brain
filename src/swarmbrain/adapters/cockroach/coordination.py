@@ -674,6 +674,15 @@ RUN_METRICS_SQL = """
            AND memory.repository_id = run.repository_id
            AND memory.run_id = run.id
            AND memory.recorded_to IS NULL) AS memories_published,
+        COALESCE((
+            SELECT counter.reuse_count
+            FROM retrieval_reuse_counters AS counter
+            WHERE counter.tenant_id = run.tenant_id
+              AND counter.run_id = run.id
+              AND counter.project_id = run.project_id
+              AND counter.repository_id = run.repository_id
+              AND counter.swarm_id = run.swarm_id
+        ), 0) AS memories_reused,
         (SELECT count(*) FROM memory_conflicts AS conflict
          WHERE conflict.tenant_id = run.tenant_id
            AND conflict.project_id = run.project_id
@@ -1403,7 +1412,7 @@ class CockroachCoordinationStore:
                 checkpoints=int(row["checkpoints"]),
                 crash_handoffs=int(row["crash_handoffs"]),
                 memories_published=int(row["memories_published"]),
-                memories_reused=0,
+                memories_reused=int(row["memories_reused"]),
                 conflicts_open=int(row["conflicts_open"]),
                 conflicts_resolved=int(row["conflicts_resolved"]),
                 duplicate_claims_prevented=0,
