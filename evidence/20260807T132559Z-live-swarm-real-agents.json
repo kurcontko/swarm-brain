@@ -1,0 +1,270 @@
+{
+  "agents": {
+    "claude": {
+      "completed_the_loop": true,
+      "event_types": [
+        "agent.joined",
+        "task.claimed",
+        "source.registered",
+        "evidence.added",
+        "memory.added",
+        "task.checkpointed",
+        "task.completed"
+      ],
+      "identity": {
+        "harness": "claude-code",
+        "model": "sonnet",
+        "name": "live-claude",
+        "provider": "anthropic"
+      },
+      "reported_by_harness": {
+        "duration_ms": 45327,
+        "is_error": false,
+        "num_turns": 7,
+        "reported_models": [
+          "claude-haiku-4-5-20251001",
+          "claude-sonnet-5"
+        ],
+        "result_tail": "Report:\n\n- **task_id:** `9e52219b-7213-4668-9afd-6e1c71dca101`\n- **memory_id:** `965568ba-b3ef-4741-a863-946f431b08df`\n- **Invariant (one sentence):** The worker must maintain a durable, uniquely-constrained mapping from provider event id to charge \u2014 written atomically in the same transaction as the charge creation \u2014 so that any two deliveries of the same event id are serialized by that constraint and only the first can ever create a charge.\n- **Durable state required:** A persistent store (e.g., a `provider_event_id` column with a UNIQUE constraint, or an idempotency-key table) whose write is atomic with the charge insert, surviving process restarts and visible across all worker instances.\n- **Why check-then-insert alone fails:** There's a race window between the \"check if already processed\" read and the \"insert charge\" write \u2014 two concurrent or retried deliveries of the same redelivered event can both pass the check before either commits, so both proceed to insert, producing duplicate charges. Only an atomically-enforced uniqueness constraint at the storage layer closes that window, since it makes check-and-set indivisible rather than two sequential application steps that can interleave.\n\n**Recall result:** Prior swarm memory existed and was directly relevant \u2014 a confirmed memory in this run already established that the provider retries webhook delivery after a 5-second ack timeout, reusing the same stable provider event id, and that delivery is at-least-once, never exactly-once. This confirmed the premise and reinforced that dedup must key on `provider_event_id` specifically (not e.g. a computed payload hash), which shaped the phrasing of the invariant and its evidence.",
+        "subtype": "success",
+        "tool_calls_in_order": [
+          "ToolSearch",
+          "mcp__swarmbrain__claim_task",
+          "mcp__swarmbrain__recall_memory",
+          "mcp__swarmbrain__publish_memory",
+          "mcp__swarmbrain__checkpoint_task",
+          "mcp__swarmbrain__complete_task"
+        ],
+        "total_cost_usd": 0.3098921,
+        "transcript_tail": "1ede632e9\\\",\\\"project_id\\\":\\\"74508924-35fd-4a5c-bcb4-61557cbc1e72\\\",\\\"repository_id\\\":\\\"53493d44-1c8d-4ec1-93f4-13432a75be1d\\\",\\\"swa\ntool_use  mcp__swarmbrain__recall_memory {\"task_id\": \"9e52219b-7213-4668-9afd-6e1c71dca101\", \"text\": \"prevent double charges on webhook replay\"}\ntool_result ok \"{\\\"query\\\":{\\\"text\\\":\\\"prevent double charges on webhook replay\\\",\\\"task_id\\\":\\\"9e52219b-7213-4668-9afd-6e1c71dca101\\\",\\\"memory_ids\\\":[],\\\"kinds\\\":[],\\\"visibilities\\\":[\\\"task\\\",\\\"repository\\\",\\\"run\\\"],\\\"states\\\":null,\\\"include_refuted\\\":fa\ntool_use  mcp__swarmbrain__publish_memory {\"confidence\": 0.8, \"content\": \"Invariant: for any provider event id, the worker must create at most one charge, enforced by atomically checking-and-recording that event id as processed in the same durable transaction that creates the charg\ntool_result ok \"{\\\"operation\\\":\\\"add\\\",\\\"decision\\\":{\\\"operation\\\":\\\"add\\\",\\\"reason\\\":\\\"append independent memory; no explicit supersession target\\\",\\\"confidence\\\":0.9,\\\"target_memory_ids\\\":[]},\\\"memory\\\":{\\\"memory_id\\\":\\\"965568ba-b3ef-4741-a863-946f431b0\nassistant: Memory published with id `965568ba-b3ef-4741-a863-946f431b08df`. Now checkpointing and completing the task.\ntool_use  mcp__swarmbrain__checkpoint_task {\"completed_work\": [\"Recalled prior run memory confirming at-least-once delivery with stable provider event id\", \"Reasoned from first principles about the exactly-once-effect invariant and its durable-state requirement\", \"Explained why chec\ntool_result ok \"{\\\"task\\\":{\\\"task_id\\\":\\\"9e52219b-7213-4668-9afd-6e1c71dca101\\\",\\\"tenant_id\\\":\\\"eaaa0027-d8c5-4d62-aa59-67c1ede632e9\\\",\\\"project_id\\\":\\\"74508924-35fd-4a5c-bcb4-61557cbc1e72\\\",\\\"repository_id\\\":\\\"53493d44-1c8d-4ec1-93f4-13432a75be1d\\\",\\\"swa\ntool_use  mcp__swarmbrain__complete_task {\"idempotency_key\": \"claude-c6ca08db-complete\", \"memory_ids\": [\"965568ba-b3ef-4741-a863-946f431b08df\"], \"outcome\": \"succeeded\", \"summary\": \"Stated the exactly-once-charge invariant, its required durable state (unique constraint on provider_\ntool_result ok \"{\\\"task\\\":{\\\"task_id\\\":\\\"9e52219b-7213-4668-9afd-6e1c71dca101\\\",\\\"tenant_id\\\":\\\"eaaa0027-d8c5-4d62-aa59-67c1ede632e9\\\",\\\"project_id\\\":\\\"74508924-35fd-4a5c-bcb4-61557cbc1e72\\\",\\\"repository_id\\\":\\\"53493d44-1c8d-4ec1-93f4-13432a75be1d\\\",\\\"swa\nassistant: Report:\n\n- **task_id:** `9e52219b-7213-4668-9afd-6e1c71dca101`\n- **memory_id:** `965568ba-b3ef-4741-a863-946f431b08df`\n- **Invariant (one sentence):** The worker must maintain a durable, uniquely-constrained mapping from provider event id to charge \u2014 written atomically in the same transaction as the charge creation \u2014 so that any two deliveries of the same event id are serialized by that constraint and only the first can ever create a charge.\n- **Durable state required:** A persistent store (e.g., a `provider_event_id` column with a UNIQUE constraint, or an idempotency-key table) whose write is atomic with the charge insert, surviving process restarts and visible across all worker instances.\n- **Why check-then-insert alone fails:** There's a race window between the \"check if already processed\" read and the \"insert charge\" write \u2014 two concurrent or retried deliveries of the same redelivered event can both pass the check before either commits, so both proceed to insert, producing duplicate charges. Only an atomically-enforced uniqueness constraint at the storage layer closes that window, since it makes check-and-set indivisible rather than two sequential application steps that can interleave.\n\n**Recall result:** Prior swarm memory existed and was directly relevant \u2014 a confirmed memory in this run already established that the provider retries webhook delivery after a 5-second ack timeout, reusing the same stable provider event id, and that delivery is at-least-once, never exactly-once. This confirmed the premise and reinforced that dedup must key on `provider_event_id` specifically (not e.g. a computed payload hash), which shaped the phrasing of the invariant and its evidence.\nresult    success"
+      },
+      "tasks_touched": [
+        "duplicate-charge-invariant"
+      ]
+    },
+    "codex": {
+      "completed_the_loop": false,
+      "event_types": [
+        "agent.joined"
+      ],
+      "identity": {
+        "harness": "codex-cli",
+        "model": "gpt-5-codex",
+        "name": "live-codex",
+        "provider": "openai"
+      },
+      "tasks_touched": [],
+      "transcript_tail": "Reading additional input from stdin...\nOpenAI Codex v0.146.1\n--------\nworkdir: <bundle>/codex-workspace\nmodel: gpt-5.6-sol\nprovider: openai\napproval: never\nsandbox: read-only\nreasoning effort: none\nreasoning summaries: none\nsession id: 019fdc66-5044-7372-bd5c-7566b95f5acf\n--------\nuser\nYou are a real coding agent joining a live Swarm Brain run.\n\nYour only interface to the swarm is the `swarmbrain` MCP server. Do not read or\nwrite files, do not run shell commands, and do not use any other tool. Your\nidentity, run, and permissions come from the bridge's token; never put ids from\nthis prompt into tool arguments except the ones you receive from tool results.\n\nEvery mutating tool takes an `idempotency_key`. Use exactly the keys given\nbelow, one per step, so a retry replays instead of duplicating.\n\nDo these six steps in order and do not stop early:\n\n1. `claim_task` with `idempotency_key` \"codex-8874d7bd-claim\" and `lease_seconds`\n   300. Do not pass a task_id: take whatever the swarm gives you.\n   Read the returned task's `task_id`, `title`, and `description`.\n\n2. `recall_memory` with `text` set to a short phrase drawn from the task title\n   and the claimed `task_id` as `task_id`. State plainly in your final answer\n   whether prior swarm memory existed and whether it changed your answer.\n\n3. Answer the task from its description and whatever you recalled. It is a\n   reasoning task; it needs no repository access. Be concrete and specific.\n\n4. `publish_memory` with:\n   - `idempotency_key`: \"codex-8874d7bd-memory\"\n   - `task_id`: the claimed task_id\n   - `kind`: \"invariant\"\n   - `desired_state`: \"confirmed\"\n   - `visibility`: \"run\"\n   - `title`: a short name for the invariant\n   - `content`: the invariant plus the durable state or token it requires, as\n     one string\n   - `confidence`: 0.8\n   - `evidence`: [{\"kind\": \"message\", \"locator\": \"reasoning:1\", \"excerpt\":\n     \"<two or three sentences of your actual reasoning, quoted>\"}]\n   Keep the returned `memory_id`.\n\n5. `checkpoint_task` with `idempotency_key` \"codex-8874d7bd-checkpoint\", the claimed\n   `task_id`, a one-line `summary`, `completed_work` listing what you did, and\n   `memory_ids` containing the memory_id from step 4.\n\n6. `complete_task` with `idempotency_key` \"codex-8874d7bd-complete\", the claimed\n   `task_id`, `outcome` \"succeeded\", a one-line `summary`, and `memory_ids`\n   containing the memory_id from step 4.\n\nThen print a short plain-text report: the task_id you claimed, the memory_id\nyou published, the invariant in one sentence, and what recall returned. If any\ntool call fails, print the exact error text instead of retrying blindly.\ncodex\nI\u2019ll carry out the six swarm steps in the specified order, preserving each idempotency key exactly.\nmcp: swarmbrain/claim_task started\nmcp: swarmbrain/claim_task (failed)\nuser cancelled MCP tool call\ncodex\nuser cancelled MCP tool call\ntokens used\n10.061\nuser cancelled MCP tool call\n"
+    },
+    "codex-cli cancels every MCP tool call in a non-interactive `codex exec` session (its approval gate answers \"user cancelled MCP tool call\"), even with approval_policy": {
+      "gap": "\"never\", a trusted project, and stdin closed. The bridge itself started, authenticated, and joined the run under codex, so the gap is in the harness approval model, not in Swarm Brain. Unattended completion needs --dangerously-bypass-approvals-and-sandbox, which an operator must opt into."
+    }
+  },
+  "api_url": "http://127.0.0.1:8099",
+  "collected_at": "2026-08-07T13:25:59.017261+00:00",
+  "event_counts": {
+    "agent.joined": 3,
+    "evidence.added": 4,
+    "memory.added": 4,
+    "source.registered": 4,
+    "task.checkpointed": 1,
+    "task.claimed": 1,
+    "task.completed": 1
+  },
+  "event_timeline": [
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "agent",
+      "event_type": "agent.joined",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.228580Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.246597Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.288588Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.338597Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.403711Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.446336Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.517912Z",
+      "task": "lease-handoff-invariant"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.573777Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.620075Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-07T12:44:32.683925Z",
+      "task": "retry-amplification-invariant"
+    },
+    {
+      "agent": "live-codex",
+      "aggregate_type": "agent",
+      "event_type": "agent.joined",
+      "harness": "codex-cli",
+      "occurred_at": "2026-08-07T12:44:43.265322Z"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "agent",
+      "event_type": "agent.joined",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-07T13:13:24.140537Z"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "task",
+      "event_type": "task.claimed",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-07T13:13:30.987766Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-07T13:13:53.255360Z"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-07T13:13:53.288048Z"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-07T13:13:53.337192Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "task",
+      "event_type": "task.checkpointed",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-07T13:13:59.128548Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "task",
+      "event_type": "task.completed",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-07T13:14:02.714323Z",
+      "task": "duplicate-charge-invariant"
+    }
+  ],
+  "kind": "live-swarm",
+  "metrics": {
+    "active_leases": 0,
+    "checkpoints": 1,
+    "conflicts_open": 0,
+    "conflicts_resolved": 0,
+    "crash_handoffs": 0,
+    "custom": {},
+    "duplicate_claims_prevented": 0,
+    "duplicate_mutations_replayed": 0,
+    "measured_at": "2026-08-07T13:25:58.979608Z",
+    "memories_published": 4,
+    "memories_reused": 6,
+    "run_id": "52b7cdad-893e-449c-af88-935143dc06ca",
+    "tasks_claimed": 0,
+    "tasks_completed": 1,
+    "tasks_failed": 0,
+    "tasks_total": 3
+  },
+  "note": "Every agent below is a real LLM CLI process that spoke the production stdio MCP bridge (swarmbrain-mcp) against a CockroachDB-backed API. `identity.model` is the label carried in that agent's bearer token; `reported_by_harness.reported_models` is what the harness itself reported using. Tokens and absolute home paths are redacted.",
+  "run_id": "52b7cdad-893e-449c-af88-935143dc06ca",
+  "seeded_memory_ids": [
+    "d1006944-4d71-4603-b893-dad7a9c7d148",
+    "ccc3b236-5623-46a4-a25c-4f06d8cebec1",
+    "25b8320f-dde0-4155-a66b-1ff849ebe9be"
+  ],
+  "tasks": [
+    {
+      "key": "duplicate-charge-invariant",
+      "priority": 30,
+      "tags": [
+        "payments",
+        "webhook",
+        "invariant"
+      ],
+      "task_id": "9e52219b-7213-4668-9afd-6e1c71dca101",
+      "title": "State the invariant that prevents double charges on webhook replay"
+    },
+    {
+      "key": "lease-handoff-invariant",
+      "priority": 20,
+      "tags": [
+        "coordination",
+        "leases",
+        "invariant"
+      ],
+      "task_id": "bf09d611-d6cf-42d9-9a7a-313527a3b7de",
+      "title": "State the invariant that makes an expired task lease safe to hand off"
+    },
+    {
+      "key": "retry-amplification-invariant",
+      "priority": 10,
+      "tags": [
+        "reliability",
+        "retries",
+        "invariant"
+      ],
+      "task_id": "ff7d5086-20e1-4fc5-ac37-24a229dafb07",
+      "title": "State the invariant that keeps a client retry loop from amplifying an outage"
+    }
+  ]
+}
