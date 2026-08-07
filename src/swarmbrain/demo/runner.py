@@ -182,13 +182,43 @@ class DemoRunner:
         headers = {"Authorization": f"Bearer {self._token(agent)}"}
         if idempotent:
             headers["Idempotency-Key"] = idempotency_key or str(uuid4())
-        return await self._client.request(
-            method,
-            path,
-            headers=headers,
-            json=body if body is not None else ({} if method == "POST" else None),
-            params=params,
-        )
+        # An ambiguous commit (e.g. a database node dying mid-write) surfaces
+        # as a retryable error; replaying the same idempotency key is the
+        # contract that resolves it to exactly-once. Rising backoff covers
+        # range-lease recovery, which outlasts the server's own short poll.
+        response: httpx.Response | None = None
+        for delay in (0.0, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                response = await self._client.request(
+                    method,
+                    path,
+                    headers=headers,
+                    json=body if body is not None else ({} if method == "POST" else None),
+                    params=params,
+                )
+            except httpx.TransportError:
+                if not idempotent:
+                    raise
+                continue
+            if not self._retryable(response):
+                return response
+        if response is None:
+            raise DemoAssertionError(f"{agent.name} {method} {path}: transport never recovered")
+        return response
+
+    @staticmethod
+    def _retryable(response: httpx.Response) -> bool:
+        # Only infrastructure ambiguity (ambiguous_commit, backend
+        # unavailability) is worth replaying; retryable business outcomes such
+        # as no_task_available are answers the beats assert on, not failures.
+        if response.status_code < 500:
+            return False
+        try:
+            return bool(response.json()["error"]["retryable"])
+        except Exception:
+            return False
 
     async def _expect(
         self,

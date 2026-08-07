@@ -14,6 +14,8 @@ Start here:
 - [CockroachDB schema](cockroach-schema.md) — current v8 addendum plus the
   historical table inventory.
 - [Restart demo](restart-demo.md) — local durability/restart acceptance flow.
+- [Resilience demo](resilience-demo.md) — three-node cluster, one node killed
+  mid-run, every beat green on the surviving quorum.
 - [Extraction history](history/sen-extraction-map.md) — original Sen commits
   mapped to standalone repository history.
 - [Submission package](submission/architecture.md) — hackathon architecture
