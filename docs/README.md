@@ -16,6 +16,8 @@ Start here:
 - [Restart demo](restart-demo.md) — local durability/restart acceptance flow.
 - [Extraction history](history/sen-extraction-map.md) — original Sen commits
   mapped to standalone repository history.
+- [Submission package](submission/architecture.md) — hackathon architecture
+  overview, Devpost draft, video script, and CockroachDB tool feedback.
 
 Implementation context:
 
