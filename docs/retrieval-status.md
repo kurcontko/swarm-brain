@@ -1,5 +1,15 @@
 # Retrieval v2 — aktualny stan
 
+> **English summary.** This status document is maintained in Polish. Short
+> version: Swarm Brain has a working provider-neutral hybrid retrieval v2 —
+> exact, FTS `simple`, trigram, versioned dense ANN, and bounded graph lanes
+> fused with weighted RRF, followed by private canonical hydration that
+> re-checks scope, visibility, state, trust, and bitemporal validity.
+> CockroachDB schema is at v9 (additive durable reuse counter). Measured
+> quality lives in [retrieval-benchmark.md](retrieval-benchmark.md); the
+> evaluation protocol lives in [retrieval-evaluation.md](retrieval-evaluation.md).
+> Open debt is tracked at the bottom of this file.
+
 Stan na: 2026-08-06
 Repozytorium: standalone `swarm-brain`
 
