@@ -98,6 +98,10 @@ class ApiSettings:
     ingest_use_provider: bool = False
     ingest_chunk_chars: int = 65_536
     ingest_priority: int = 0
+    # Fail closed: the one-click hosted demo trigger only exists when an
+    # operator explicitly sets SWARMBRAIN_CONSOLE_DEMO=enabled. Any other
+    # value (including unset, empty, or a typo) leaves the route absent.
+    console_demo_enabled: bool = False
 
     def __post_init__(self) -> None:
         backend = _backend_kind(self.backend)
@@ -184,6 +188,9 @@ class ApiSettings:
                 ingest_use_provider=_boolean_env("SWARMBRAIN_INGEST_USE_PROVIDER", default=False),
                 ingest_chunk_chars=_integer_env("SWARMBRAIN_INGEST_CHUNK_CHARS", default=65_536),
                 ingest_priority=_integer_env("SWARMBRAIN_INGEST_PRIORITY", default=0),
+                console_demo_enabled=(
+                    (_env("SWARMBRAIN_CONSOLE_DEMO", default="") or "").casefold() == "enabled"
+                ),
             )
         except ValueError as exc:
             raise RuntimeError(f"invalid Swarm Brain API configuration: {exc}") from exc

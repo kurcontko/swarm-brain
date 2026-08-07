@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Annotated, Any, TypeVar
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import Body, Depends, FastAPI, Header, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -22,7 +27,14 @@ from swarmbrain.application.errors import (
     SwarmBrainError,
 )
 from swarmbrain.application.runtime import SwarmBrainRuntime
-from swarmbrain.domain.agents import ActorContext, Agent
+from swarmbrain.cli.demo import (
+    REAL_TIME_LEASE_SECONDS,
+    real_time_lease_expiry,
+    run_demo_scenario,
+)
+from swarmbrain.demo import build_scenario
+from swarmbrain.demo.scenario import DemoScenario
+from swarmbrain.domain.agents import ActorContext, Agent, Capability
 from swarmbrain.domain.conflicts import (
     ReportConflictCommand,
     ReportConflictResult,
@@ -76,6 +88,40 @@ from .contracts import (
 CommandT = TypeVar("CommandT", bound=BaseModel)
 JsonBody = Annotated[dict[str, Any], Body(default_factory=dict)]
 
+# One-click demo guard rails. The trigger takes no body and no secret, so the
+# only thing standing between it and a scenario storm is this in-process gate.
+DEMO_COOLDOWN_SECONDS = 30.0
+DEMO_VIEWER_TTL = timedelta(minutes=30)
+# A viewer token is a read-only credential for exactly the run the trigger just
+# created: it can read that run's events and metrics and recall its memories,
+# and nothing else. Handing that to whoever pressed the button is safe because
+# they caused the run to exist; the grant reveals no pre-existing data, cannot
+# mutate anything, and expires in thirty minutes.
+DEMO_VIEWER_CAPABILITIES = frozenset(
+    {
+        Capability.EVENTS_READ.value,
+        Capability.METRICS_READ.value,
+        Capability.MEMORY_RECALL.value,
+    }
+)
+
+
+@dataclass(slots=True)
+class _DemoGate:
+    """At most one scenario in flight, and no restart inside the cooldown."""
+
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    task: asyncio.Task[Any] | None = None
+    last_started_at: float | None = None
+
+    def running(self) -> bool:
+        return self.task is not None and not self.task.done()
+
+    def cooldown_remaining(self) -> float:
+        if self.last_started_at is None:
+            return 0.0
+        return max(0.0, DEMO_COOLDOWN_SECONDS - (time.monotonic() - self.last_started_at))
+
 
 async def _authenticated_actor(
     request: Request,
@@ -99,7 +145,7 @@ ActorDependency = Annotated[ActorContext, Depends(_authenticated_actor)]
 IdempotencyHeader = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)]
 
 
-def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
+def create_app(runtime: SwarmBrainRuntime, *, console_demo: bool = False) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runtime.start()
@@ -110,6 +156,9 @@ def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
 
     app = FastAPI(title="Swarm Brain", version="0.1.0", lifespan=lifespan)
     app.state.runtime = runtime
+    app.state.console_demo = console_demo
+    demo_gate = _DemoGate()
+    app.state.console_demo_gate = demo_gate
 
     @app.exception_handler(SwarmBrainError)
     async def handle_domain_error(request: Request, exc: SwarmBrainError) -> JSONResponse:
@@ -151,6 +200,74 @@ def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
         # Static document only; it carries no run data and no credentials, and
         # fetches everything from the bearer-authenticated routes in the browser.
         return HTMLResponse(console_html(), headers={"Cache-Control": "no-store"})
+
+    @app.get("/console/demo/status", include_in_schema=False)
+    async def console_demo_status() -> JSONResponse:
+        # Absent unless the operator enabled it, so the console can probe for
+        # the trigger and hide the button when a deployment has it switched off.
+        if not console_demo:
+            raise ResourceNotFound("route", "/console/demo/status")
+        return JSONResponse(
+            content={
+                "enabled": True,
+                "running": demo_gate.running(),
+                "cooldown_seconds": round(demo_gate.cooldown_remaining(), 1),
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/console/demo", include_in_schema=False, status_code=202)
+    async def console_demo_trigger(request: Request) -> JSONResponse:
+        if not console_demo:
+            raise ResourceNotFound("route", "/console/demo")
+
+        async with demo_gate.lock:
+            if demo_gate.running():
+                return _error_response(
+                    request,
+                    429,
+                    "demo_already_running",
+                    "a demo scenario is already running; watch it or retry when it finishes",
+                    True,
+                    {"cooldown_seconds": round(demo_gate.cooldown_remaining(), 1)},
+                )
+            remaining = demo_gate.cooldown_remaining()
+            if remaining > 0.0:
+                return _error_response(
+                    request,
+                    429,
+                    "demo_cooldown",
+                    "the demo trigger accepts at most one scenario every 30 seconds",
+                    True,
+                    {"cooldown_seconds": round(remaining, 1)},
+                )
+            if runtime.coordination_store is None:
+                raise InvalidState("the running backend cannot host the demo scenario")
+
+            # The run identity always comes from a freshly built scenario, so the
+            # trigger can never be aimed at a caller-chosen run: it takes no body.
+            scenario = build_scenario()
+            viewer = ActorContext(
+                **scenario.scope(),
+                agent_id=str(uuid4()),
+                harness="swarm-console",
+                provider="swarmbrain",
+                model="viewer",
+                capabilities=DEMO_VIEWER_CAPABILITIES,
+            )
+            viewer_token = runtime.tokens.issue(viewer, ttl=DEMO_VIEWER_TTL)
+            demo_gate.last_started_at = time.monotonic()
+            demo_gate.task = asyncio.create_task(_drive_console_demo(app, runtime, scenario))
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "run_id": scenario.run_id,
+                "viewer_token": viewer_token,
+                "expires_in": int(DEMO_VIEWER_TTL.total_seconds()),
+            },
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/readyz", include_in_schema=False)
     async def readiness() -> JSONResponse:
@@ -369,6 +486,41 @@ def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
         return await runtime.coordination.metrics(actor)
 
     return app
+
+
+async def _drive_console_demo(
+    app: FastAPI,
+    runtime: SwarmBrainRuntime,
+    scenario: DemoScenario,
+) -> None:
+    """Run the scripted scenario against this very app, in this very process.
+
+    The beats are driven over the canonical HTTP surface through an in-process
+    ASGI transport, exactly as ``swarmbrain-demo`` drives it, so the board a
+    judge is watching fills from real authenticated requests. Nothing is
+    written to disk: the hosted path produces no evidence artifact.
+    """
+
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://swarm-console-demo",
+            timeout=60.0,
+        ) as client:
+            await run_demo_scenario(
+                client=client,
+                runtime=runtime,
+                scenario=scenario,
+                expire_leases=real_time_lease_expiry(lambda _line: None),
+                lease_seconds=REAL_TIME_LEASE_SECONDS,
+                narrate=None,
+                now=None,
+            )
+    except Exception:
+        # A failed beat leaves the run's durable events in place; the console
+        # keeps reading them. Never let the background task escape as noise.
+        return
 
 
 def _command(

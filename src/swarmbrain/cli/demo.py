@@ -27,6 +27,11 @@ import httpx
 from swarmbrain.application.runtime import SwarmBrainRuntime, build_in_memory_runtime
 from swarmbrain.config import ApiSettings, BackendKind
 from swarmbrain.demo import ABReport, DemoReport, DemoRunner, build_scenario, run_comparison
+from swarmbrain.demo.scenario import DemoScenario
+
+# Lease expiry cannot be faked against a real server clock, so the hosted demo
+# leans on a short lease and simply waits it out.
+REAL_TIME_LEASE_SECONDS = 20
 
 
 class ControllableClock:
@@ -95,6 +100,51 @@ def _compose() -> tuple[SwarmBrainRuntime, ControllableClock | None]:
     return build_runtime(settings), None
 
 
+def real_time_lease_expiry(
+    announce: Callable[[str], None] = print,
+) -> Callable[[datetime], Awaitable[None]]:
+    """Wait out a lease on the wall clock, the only option against a real server."""
+
+    async def expire(expires_at: datetime) -> None:
+        remaining = (expires_at - datetime.now(UTC)).total_seconds() + 1.0
+        if remaining > 0:
+            announce(f"waiting {remaining:.0f}s for the crashed worker's lease to expire...")
+            await asyncio.sleep(remaining)
+
+    return expire
+
+
+async def run_demo_scenario(
+    *,
+    client: httpx.AsyncClient,
+    runtime: SwarmBrainRuntime,
+    scenario: DemoScenario,
+    expire_leases: Callable[[datetime], Awaitable[None]],
+    lease_seconds: int,
+    narrate: Callable[[str], None] | None = None,
+    now: Callable[[], datetime] | None = None,
+) -> DemoReport:
+    """Drive one scripted demo arm over an already-composed runtime and client.
+
+    Both the CLI and the hosted one-click trigger call exactly this, so the
+    beats a judge watches in the browser are the beats the CLI asserts.
+    """
+
+    if runtime.coordination_store is None:
+        raise RuntimeError("the composed runtime does not expose a coordination store")
+    runner = DemoRunner(
+        client=client,
+        tokens=runtime.tokens,
+        store=runtime.coordination_store,
+        scenario=scenario,
+        expire_leases=expire_leases,
+        narrate=narrate,
+        lease_seconds=lease_seconds,
+        now=now,
+    )
+    return await runner.run()
+
+
 @dataclass(slots=True)
 class _Harness:
     """Everything a demo arm needs to speak the agent and operator planes."""
@@ -122,14 +172,8 @@ async def _harness(args: argparse.Namespace) -> AsyncIterator[_Harness]:
 
         lease_seconds = args.lease_seconds or 120
     else:
-
-        async def expire(expires_at: datetime) -> None:
-            remaining = (expires_at - datetime.now(UTC)).total_seconds() + 1.0
-            if remaining > 0:
-                print(f"waiting {remaining:.0f}s for the crashed worker's lease to expire...")
-                await asyncio.sleep(remaining)
-
-        lease_seconds = args.lease_seconds or 20
+        expire = real_time_lease_expiry()
+        lease_seconds = args.lease_seconds or REAL_TIME_LEASE_SECONDS
 
     narrate = (lambda _line: None) if args.quiet else print
     app = create_app(runtime)
@@ -151,18 +195,15 @@ async def _harness(args: argparse.Namespace) -> AsyncIterator[_Harness]:
 
 async def _run(args: argparse.Namespace) -> DemoReport:
     async with _harness(args) as harness:
-        assert harness.runtime.coordination_store is not None
-        runner = DemoRunner(
+        return await run_demo_scenario(
             client=harness.client,
-            tokens=harness.runtime.tokens,
-            store=harness.runtime.coordination_store,
+            runtime=harness.runtime,
             scenario=build_scenario(),
             expire_leases=harness.expire,
             narrate=harness.narrate,
             lease_seconds=harness.lease_seconds,
             now=harness.clock if harness.clock is not None else None,
         )
-        return await runner.run()
 
 
 async def _run_ab(args: argparse.Namespace) -> ABReport:

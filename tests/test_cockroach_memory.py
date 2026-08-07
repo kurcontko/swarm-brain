@@ -390,5 +390,12 @@ async def test_event_and_full_outbox_envelope_share_one_stable_identity() -> Non
     assert outbox_parameters[5] == aggregate_id
     assert outbox_parameters[8] == f"event:{event_id}"
     assert envelope["event_id"] == str(event_id)
-    assert envelope["payload"] == {"operation": "add"}
+    # The emitter's own keys survive; actor enrichment is purely additive.
+    assert envelope["payload"] == {
+        "operation": "add",
+        "agent_harness": "pytest",
+        "agent_provider": "local",
+        "agent_model": "none",
+        "agent_display": "pytest (local)",
+    }
     assert envelope["idempotency_key"] == "remember-1"

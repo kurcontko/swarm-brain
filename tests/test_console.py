@@ -79,6 +79,25 @@ def test_console_document_reads_only_the_canonical_routes() -> None:
     assert "/v1/runs/${encodeURIComponent(state.runId)}/events" in body
     assert "/v1/runs/${encodeURIComponent(state.runId)}/metrics" in body
     assert "/v1/memories/${encodeURIComponent(memoryId)}/lineage" in body
-    # Read-only: no mutating verb is issued from the page.
-    assert 'method: "POST"' not in body
     assert "events:read" in body and "metrics:read" in body and "memory:recall" in body
+
+    # Read-only against the data plane: the only POST the page can issue is the
+    # operator-gated demo trigger, and it never carries the viewer's bearer token.
+    api_call = body.index("async function api(path)")
+    assert 'method: "POST"' not in body[api_call : body.index("async function pullEvents")]
+    posts = body.count('method: "POST"')
+    assert posts == 1
+    assert "`${state.base}/console/demo`" in body
+    assert "/v1/" not in body[body.index("async function triggerDemo") :]
+
+
+def test_console_prefers_enriched_payload_labels_with_uuid_fallback() -> None:
+    body = console_html()
+
+    # The board, the roster, and the ledger all read the additive payload keys.
+    assert "task_title" in body
+    assert "agent_display" in body
+    assert "agent_harness" in body
+    # ...and every label degrades to the short id when an event predates them.
+    assert "state.agentLabels.get(agentId)) || short(agentId)" in body
+    assert "esc(short(task.taskId))" in body

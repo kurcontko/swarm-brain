@@ -20,7 +20,14 @@ from swarmbrain.application.errors import (
 )
 from swarmbrain.domain.agents import ActorContext, Agent, AgentStatus
 from swarmbrain.domain.common import ContractModel, RunId
-from swarmbrain.domain.events import AggregateType, EventPage, EventType, RunMetrics, SwarmEvent
+from swarmbrain.domain.events import (
+    AggregateType,
+    EventPage,
+    EventType,
+    RunMetrics,
+    SwarmEvent,
+    enriched_payload,
+)
 from swarmbrain.domain.leases import LeaseStatus, RenewLeaseCommand, RenewLeaseResult, TaskLease
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
@@ -1012,6 +1019,7 @@ class CockroachCoordinationStore:
                 aggregate_version=task.version,
                 occurred_at=lease.acquired_at,
                 task_id=task.task_id,
+                task_title=task.title,
                 payload={"lease_id": lease.lease_id},
                 idempotency_key=command.idempotency_key,
             )
@@ -1139,6 +1147,7 @@ class CockroachCoordinationStore:
                 aggregate_version=task.version,
                 occurred_at=checkpoint.created_at,
                 task_id=task.task_id,
+                task_title=task.title,
                 payload={"checkpoint_id": checkpoint.checkpoint_id},
                 idempotency_key=command.idempotency_key,
             )
@@ -1237,6 +1246,7 @@ class CockroachCoordinationStore:
                 aggregate_version=task.version,
                 occurred_at=completion.completed_at,
                 task_id=task.task_id,
+                task_title=task.title,
                 payload={"outcome": command.outcome.value},
                 idempotency_key=command.idempotency_key,
             )
@@ -1325,6 +1335,7 @@ class CockroachCoordinationStore:
                 aggregate_version=task.version,
                 occurred_at=lease.released_at or task.updated_at,
                 task_id=task.task_id,
+                task_title=task.title,
                 payload={"reason": command.reason},
                 idempotency_key=command.idempotency_key,
             )
@@ -1656,6 +1667,7 @@ async def _append_event(
     aggregate_version: int,
     occurred_at: datetime,
     task_id: str | None = None,
+    task_title: str | None = None,
     payload: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
 ) -> SwarmEvent:
@@ -1672,7 +1684,13 @@ async def _append_event(
         agent_id=actor.agent_id,
         task_id=task_id,
         aggregate_version=aggregate_version,
-        payload=payload or {},
+        payload=enriched_payload(
+            payload,
+            harness=actor.harness,
+            provider=actor.provider,
+            model=actor.model,
+            task_title=task_title,
+        ),
         occurred_at=occurred_at,
         recorded_at=occurred_at,
         idempotency_key=idempotency_key,

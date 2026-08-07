@@ -9,7 +9,7 @@ from swarmbrain.transports.http import create_app
 
 def main() -> None:
     settings = ApiSettings.from_env()
-    app = create_app(build_runtime(settings))
+    app = create_app(build_runtime(settings), console_demo=settings.console_demo_enabled)
     uvicorn.run(app, host=settings.host, port=settings.port)
 
 

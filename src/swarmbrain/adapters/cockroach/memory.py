@@ -30,7 +30,7 @@ from swarmbrain.domain.conflicts import (
     ResolveConflictCommand,
     ResolveConflictResult,
 )
-from swarmbrain.domain.events import AggregateType, EventType, SwarmEvent
+from swarmbrain.domain.events import AggregateType, EventType, SwarmEvent, enriched_payload
 from swarmbrain.domain.evidence import (
     AddEvidenceCommand,
     Evidence,
@@ -2099,7 +2099,12 @@ class CockroachMemoryStore:
             agent_id=actor.agent_id,
             task_id=task_id,
             aggregate_version=aggregate_version,
-            payload=payload,
+            payload=enriched_payload(
+                payload,
+                harness=actor.harness,
+                provider=actor.provider,
+                model=actor.model,
+            ),
             occurred_at=occurred_at,
             recorded_at=occurred_at,
             idempotency_key=idempotency_key,

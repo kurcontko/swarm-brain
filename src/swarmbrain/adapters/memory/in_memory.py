@@ -49,6 +49,7 @@ from swarmbrain.domain.events import (
     OutboxEvent,
     RunMetrics,
     SwarmEvent,
+    enriched_payload,
 )
 from swarmbrain.domain.evidence import (
     AddEvidenceCommand,
@@ -332,6 +333,7 @@ class InMemoryKernel:
                 claimed.task_id,
                 claimed.version,
                 task_id=claimed.task_id,
+                task_title=claimed.title,
                 payload={"lease_id": lease.lease_id},
                 idempotency_key=command.idempotency_key,
             )
@@ -419,6 +421,7 @@ class InMemoryKernel:
                 task.task_id,
                 task.version,
                 task_id=task.task_id,
+                task_title=task.title,
                 payload={"checkpoint_id": checkpoint.checkpoint_id},
                 idempotency_key=command.idempotency_key,
             )
@@ -488,6 +491,7 @@ class InMemoryKernel:
                 task.task_id,
                 task.version,
                 task_id=task.task_id,
+                task_title=task.title,
                 payload={"outcome": command.outcome.value},
                 idempotency_key=command.idempotency_key,
             )
@@ -536,6 +540,7 @@ class InMemoryKernel:
                 task.task_id,
                 task.version,
                 task_id=task.task_id,
+                task_title=task.title,
                 payload={"reason": command.reason},
                 idempotency_key=command.idempotency_key,
             )
@@ -1723,6 +1728,7 @@ class InMemoryKernel:
         aggregate_version: int,
         *,
         task_id: str | None = None,
+        task_title: str | None = None,
         payload: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> SwarmEvent:
@@ -1740,7 +1746,13 @@ class InMemoryKernel:
             agent_id=actor.agent_id,
             task_id=task_id,
             aggregate_version=aggregate_version,
-            payload=payload or {},
+            payload=enriched_payload(
+                payload,
+                harness=actor.harness,
+                provider=actor.provider,
+                model=actor.model,
+                task_title=task_title,
+            ),
             occurred_at=now,
             recorded_at=now,
             idempotency_key=idempotency_key,

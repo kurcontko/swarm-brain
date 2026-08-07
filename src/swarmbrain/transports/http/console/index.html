@@ -161,6 +161,18 @@
   .btn-primary { background: var(--brand); border-color: var(--brand); color: #0a0d18; font-weight: 600; }
   .btn-primary:hover { background: #93a1ff; color: #0a0d18; }
   .btn-ghost { background: transparent; }
+  .btn[disabled] { opacity: .55; cursor: progress; }
+
+  .demo-note {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fence);
+    max-width: 34ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .demo-note:empty { display: none; }
 
   /* ---- meters ----------------------------------------------------------- */
 
@@ -291,7 +303,7 @@
 
   .strip-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 11px;
@@ -302,6 +314,23 @@
     letter-spacing: .04em;
   }
   .strip-id span { color: var(--dim); }
+  .strip-title {
+    min-width: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .strip-title small {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 3px;
+  }
 
   .tag {
     font-family: var(--mono);
@@ -627,6 +656,8 @@
     <span>Not connected</span>
   </div>
   <div class="topbar-actions">
+    <span class="demo-note" id="demo-note" role="status" aria-live="polite"></span>
+    <button class="btn btn-primary" id="run-demo" type="button" hidden>Run demo</button>
     <span class="pulse" id="pulse" data-state="idle" role="status" aria-live="polite">idle</span>
     <button class="btn" id="open-connect" type="button">Connection</button>
   </div>
@@ -741,9 +772,33 @@
     "#e2789b", "#b18cf0", "#57b6f0", "#e08a5f",
   ];
 
+  // Enrichment the emitters stamp on every payload. The ledger narrates from
+  // these and hides them from the raw key list, so a row reads as a sentence.
+  const ENRICHMENT = new Set([
+    "task_title", "agent_harness", "agent_provider", "agent_model", "agent_display",
+  ]);
+
+  const VERBS = {
+    "agent.joined": "joined the run",
+    "task.claimed": "claimed",
+    "lease.renewed": "renewed the lease on",
+    "task.checkpointed": "checkpointed",
+    "task.completed": "completed",
+    "task.released": "released",
+    "memory.added": "published a memory",
+    "memory.superseded": "superseded a memory",
+    "memory.confirmed": "confirmed a memory",
+    "memory.refuted": "refuted a memory",
+    "source.rejected": "rejected a source",
+    "conflict.reported": "reported a conflict",
+    "conflict.resolved": "resolved a conflict",
+  };
+
   const el = (id) => document.getElementById(id);
   const dom = {
     runline: el("runline"),
+    demoButton: el("run-demo"),
+    demoNote: el("demo-note"),
     pulse: el("pulse"),
     meters: el("meters"),
     boardBody: el("board-body"),
@@ -769,6 +824,8 @@
     cursor: null,
     seen: new Set(),
     events: [],
+    // agent_id -> "harness (provider)", learned from event payloads.
+    agentLabels: new Map(),
     fresh: new Set(),
     metrics: null,
     lineage: null,
@@ -821,9 +878,13 @@
     return AGENT_COLORS[hash % AGENT_COLORS.length];
   };
 
+  // Old events carry no enrichment, so every label degrades to the short UUID.
+  const agentLabel = (agentId) =>
+    (agentId && state.agentLabels.get(agentId)) || short(agentId);
+
   const agentChip = (agentId) =>
     `<span class="dot" style="background:${agentColor(agentId)}"></span>` +
-    `<span>${esc(short(agentId))}</span>`;
+    `<span>${esc(agentLabel(agentId))}</span>`;
 
   const family = (type) => String(type).split(".")[0];
 
@@ -907,8 +968,18 @@
 
     for (const event of state.events) {
       const type = String(event.event_type);
+      const enriched = event.payload || {};
+      if (event.agent_id && enriched.agent_display) {
+        state.agentLabels.set(event.agent_id, String(enriched.agent_display));
+      }
       if (event.agent_id && !agents.has(event.agent_id)) {
-        agents.set(event.agent_id, { agentId: event.agent_id, joinedAt: event.occurred_at });
+        agents.set(event.agent_id, {
+          agentId: event.agent_id,
+          joinedAt: event.occurred_at,
+          harness: enriched.agent_harness || "",
+          provider: enriched.agent_provider || "",
+          model: enriched.agent_model || "",
+        });
       }
 
       if (event.aggregate_type === "task" || type.startsWith("task.")) {
@@ -917,6 +988,7 @@
         if (!task) {
           task = {
             taskId,
+            title: "",
             status: "ready",
             events: 0,
             checkpoints: 0,
@@ -929,6 +1001,7 @@
         }
         task.events += 1;
         task.updatedAt = event.occurred_at;
+        if (enriched.task_title) task.title = String(enriched.task_title);
         const open = task.custody.length ? task.custody[task.custody.length - 1] : null;
         if (type === "task.claimed") {
           // A claim over an unclosed custody span is a fenced handoff, not a
@@ -1080,16 +1153,23 @@
       }
 
       const foot = [
+        `<span>task <b>${esc(short(task.taskId))}</b></span>`,
         `<span><b>${task.events}</b> events</span>`,
         `<span><b>${task.checkpoints}</b> checkpoints</span>`,
         task.outcome ? `<span>outcome <b>${esc(task.outcome)}</b></span>` : "",
         `<span>last <b>${esc(clock(task.updatedAt))}</b></span>`,
       ].filter(Boolean).join("");
 
+      // Titles arrive on the event payload; events written before that
+      // enrichment existed still identify their task by its short id.
+      const heading = task.title
+        ? `<div class="strip-title" title="${esc(task.taskId)}"><small>task</small>${esc(task.title)}</div>`
+        : `<div class="strip-id" title="${esc(task.taskId)}"><span>task</span> ${esc(short(task.taskId))}</div>`;
+
       return `<article class="strip" data-status="${esc(task.status)}"
                 data-handoff="${task.handoffs > 0}">
         <div class="strip-head">
-          <div class="strip-id"><span>task</span> ${esc(short(task.taskId))}</div>
+          ${heading}
           <div style="display:flex;gap:6px">${badges.join("")}</div>
         </div>
         <div class="custody">${custody}</div>
@@ -1101,9 +1181,11 @@
   function renderRoster(agents) {
     dom.rosterMeta.textContent = agents.length ? `${agents.length} seen` : "";
     dom.rosterBody.innerHTML = agents.length
-      ? `<div class="roster">${agents.map((agent) =>
-          `<span class="chip" title="${esc(agent.agentId)}">${agentChip(agent.agentId)}</span>`
-        ).join("")}</div>`
+      ? `<div class="roster">${agents.map((agent) => {
+          const detail = [agent.model, agent.agentId].filter(Boolean).join(" · ");
+          return `<span class="chip" title="${esc(detail || agent.agentId)}">` +
+            `${agentChip(agent.agentId)}</span>`;
+        }).join("")}</div>`
       : `<p class="empty">No agents have joined yet.</p>`;
   }
 
@@ -1128,7 +1210,7 @@
           <span>${esc(short(memory.memoryId))}</span>
           <span class="tag" data-tone="${tone}">${esc(memory.lastType || "memory")}</span>
         </span>
-        <span class="mem-row-note">by ${esc(short(memory.agentId))} · ${esc(clock(memory.firstAt))}
+        <span class="mem-row-note">by ${esc(agentLabel(memory.agentId))} · ${esc(clock(memory.firstAt))}
           · ${esc(memory.events.length)} event${memory.events.length > 1 ? "s" : ""}</span>
       </button>`;
     }).join("");
@@ -1205,11 +1287,11 @@
     dom.ledgerBody.innerHTML = rows.map((event) => {
       const type = String(event.event_type);
       const payload = event.payload || {};
-      const keys = Object.keys(payload);
-      const detail = keys.length
-        ? keys.slice(0, 3).map((key) =>
+      const keys = Object.keys(payload).filter((key) => !ENRICHMENT.has(key));
+      const extra = keys.length
+        ? keys.slice(0, 2).map((key) =>
             `<em>${esc(key)}</em> ${esc(summarize(payload[key]))}`).join("  ")
-        : `<em>aggregate</em> ${esc(short(event.aggregate_id))} <em>v</em>${event.aggregate_version}`;
+        : `<em>v</em>${event.aggregate_version}`;
       const subject = event.aggregate_type === "memory"
         ? `<button class="row-link" type="button" data-memory="${esc(event.aggregate_id)}">
              ${esc(short(event.aggregate_id))}</button>`
@@ -1218,9 +1300,25 @@
         <span class="row-time">${esc(clock(event.occurred_at))}</span>
         <span class="row-type" data-family="${esc(family(type))}">${esc(type)}</span>
         <span class="row-agent">${event.agent_id ? agentChip(event.agent_id) : "<span>—</span>"}</span>
-        <span class="row-detail">${subject} · ${detail}</span>
+        <span class="row-detail">${sentence(event)} · ${subject} · ${extra}</span>
       </div>`;
     }).join("");
+  }
+
+  // "claude-code (anthropic) claimed “Trace the duplicate charge”" — and, for
+  // events written before payload enrichment, the old short-id shape.
+  function sentence(event) {
+    const type = String(event.event_type);
+    const payload = event.payload || {};
+    const who = payload.agent_display || (event.agent_id ? agentLabel(event.agent_id) : "");
+    const verb = VERBS[type] || type;
+    const aboutTask = event.aggregate_type === "task" ||
+      type.startsWith("task.") || type.startsWith("lease.");
+    const title = payload.task_title
+      ? `&#8220;${esc(payload.task_title)}&#8221;`
+      : (aboutTask && event.task_id ? esc(short(event.task_id)) : "");
+    const clause = [esc(who), esc(verb), title].filter(Boolean).join(" ");
+    return clause || `<em>aggregate</em> ${esc(short(event.aggregate_id))}`;
   }
 
   function summarize(value) {
@@ -1301,6 +1399,7 @@
     state.cursor = null;
     state.seen = new Set();
     state.events = [];
+    state.agentLabels = new Map();
     state.fresh = new Set();
     state.metrics = null;
     state.lineage = null;
@@ -1324,6 +1423,61 @@
     dom.alert.textContent = state.error;
     if (!dom.dialog.open) dom.dialog.showModal();
   }
+
+  // -- one-click demo ------------------------------------------------------
+  //
+  // The trigger route only exists when an operator enabled it, so the button
+  // appears only when the probe finds it. Everything it hands back is a
+  // read-only viewer credential for the run it just created.
+
+  function note(message) {
+    dom.demoNote.textContent = message || "";
+  }
+
+  async function probeDemo() {
+    try {
+      const response = await fetch(`${state.base}/console/demo/status`, {
+        cache: "no-store",
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) return;
+      const body = await response.json();
+      if (body && body.enabled) dom.demoButton.hidden = false;
+    } catch (_) { /* no trigger on this deployment */ }
+  }
+
+  async function triggerDemo() {
+    dom.demoButton.disabled = true;
+    note("");
+    try {
+      const response = await fetch(`${state.base}/console/demo`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+      });
+      let body = null;
+      try { body = await response.json(); } catch (_) { body = null; }
+      if (!response.ok) {
+        note(body && body.error ? body.error.message : `HTTP ${response.status}`);
+        return;
+      }
+      state.runId = String(body.run_id || "");
+      state.token = String(body.viewer_token || "");
+      reset();
+      save();
+      note("scenario running — the board fills as beats land");
+      render();
+      start();
+    } catch (error) {
+      note(error.message || String(error));
+    } finally {
+      dom.demoButton.disabled = false;
+    }
+  }
+
+  dom.demoButton.addEventListener("click", triggerDemo);
 
   el("open-connect").addEventListener("click", openDialog);
   el("close-connect").addEventListener("click", () => dom.dialog.close());
@@ -1350,8 +1504,13 @@
   render();
   if (load()) {
     start();
+    probeDemo();
   } else {
-    openDialog();
+    // With a trigger available the judge needs no token at all, so the
+    // connection dialog only interrupts when there is nothing to press.
+    probeDemo().then(() => {
+      if (dom.demoButton.hidden) openDialog();
+    });
   }
 })();
 </script>

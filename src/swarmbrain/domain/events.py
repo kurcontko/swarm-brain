@@ -49,6 +49,82 @@ class EventType(StrEnum):
     CONFLICT_RESOLVED = "conflict.resolved"
 
 
+TASK_TITLE_KEY = "task_title"
+AGENT_HARNESS_KEY = "agent_harness"
+AGENT_PROVIDER_KEY = "agent_provider"
+AGENT_MODEL_KEY = "agent_model"
+AGENT_DISPLAY_KEY = "agent_display"
+
+EVENT_ENRICHMENT_KEYS: tuple[str, ...] = (
+    TASK_TITLE_KEY,
+    AGENT_HARNESS_KEY,
+    AGENT_PROVIDER_KEY,
+    AGENT_MODEL_KEY,
+    AGENT_DISPLAY_KEY,
+)
+
+
+def agent_display_label(harness: str | None, provider: str | None) -> str | None:
+    """Render the human label a reader sees instead of an opaque agent UUID."""
+
+    harness = (harness or "").strip()
+    provider = (provider or "").strip()
+    if not harness:
+        return None
+    return f"{harness} ({provider})" if provider else harness
+
+
+def event_enrichment(
+    *,
+    harness: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    task_title: str | None = None,
+) -> JsonObject:
+    """Additive, human-readable payload keys shared by every event emitter.
+
+    These live in :attr:`SwarmEvent.payload` rather than the envelope so the
+    wire contract stays backward compatible: readers that predate them simply
+    ignore extra payload keys, and no field becomes required. Both the
+    in-memory and the CockroachDB adapters call this one function so the keys
+    they stamp cannot drift apart.
+    """
+
+    enrichment: JsonObject = {}
+    if task_title:
+        enrichment[TASK_TITLE_KEY] = task_title
+    if harness:
+        enrichment[AGENT_HARNESS_KEY] = harness
+    if provider:
+        enrichment[AGENT_PROVIDER_KEY] = provider
+    if model:
+        enrichment[AGENT_MODEL_KEY] = model
+    display = agent_display_label(harness, provider)
+    if display is not None:
+        enrichment[AGENT_DISPLAY_KEY] = display
+    return enrichment
+
+
+def enriched_payload(
+    payload: JsonObject | None,
+    *,
+    harness: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    task_title: str | None = None,
+) -> JsonObject:
+    """Merge enrichment under an emitter's own payload keys, never over them."""
+
+    merged = event_enrichment(
+        harness=harness,
+        provider=provider,
+        model=model,
+        task_title=task_title,
+    )
+    merged.update(payload or {})
+    return merged
+
+
 class AuditOutcome(StrEnum):
     SUCCEEDED = "succeeded"
     REJECTED = "rejected"
@@ -153,6 +229,12 @@ class MarkOutboxFailedCommand(MutationCommand):
 
 
 __all__ = [
+    "AGENT_DISPLAY_KEY",
+    "AGENT_HARNESS_KEY",
+    "AGENT_MODEL_KEY",
+    "AGENT_PROVIDER_KEY",
+    "EVENT_ENRICHMENT_KEYS",
+    "TASK_TITLE_KEY",
     "AggregateType",
     "AuditEvent",
     "AuditOutcome",
@@ -165,4 +247,7 @@ __all__ = [
     "OutboxStatus",
     "RunMetrics",
     "SwarmEvent",
+    "agent_display_label",
+    "enriched_payload",
+    "event_enrichment",
 ]
