@@ -173,6 +173,31 @@ class FusedCandidate(ContractModel):
     reasons: tuple[str, ...] = ()
 
 
+RelevanceScore = Annotated[FiniteFloat, Field(ge=0.0, le=1.0)]
+
+
+class CandidateRelevance(ContractModel):
+    """Rank-independent relevance evidence for one fused candidate.
+
+    ``relevance`` is the conservative combination (``max``) of the per-lane
+    components below, each of which is a similarity in [0, 1] that does not
+    depend on where the candidate landed in any lane's ranking.  It is the
+    quantity ``RecallQuery.min_score`` is gated on; it is deliberately *not*
+    the public ``RecallHit.score``, whose rank-anchored meaning is unchanged.
+
+    See :mod:`swarmbrain.retrieval.relevance` for how each component is derived
+    and why the lexical and trigram components are recomputed from canonical
+    text instead of read off the lanes' raw scores.
+    """
+
+    canonical_id: MemoryId
+    relevance: RelevanceScore
+    exact_term: RelevanceScore = 0.0
+    lexical_coverage: RelevanceScore = 0.0
+    trigram_similarity: RelevanceScore = 0.0
+    dense_cosine: RelevanceScore = 0.0
+
+
 class HydrationRejection(ContractModel):
     canonical_id: MemoryId
     reason: SemanticLabel = "not_recallable"
@@ -187,6 +212,11 @@ class RetrievalTrace(ContractModel):
     batches: tuple[CandidateBatch, ...] = ()
     fusion_version: SemanticLabel = "weighted-rrf-v1"
     fused_candidates: tuple[FusedCandidate, ...] = ()
+    relevance_version: SemanticLabel = "lane-max-v1"
+    # Only the candidates the service actually evaluated, in fused order.  The
+    # service stops once the public limit is satisfied, so this is a prefix of
+    # the hydrated candidates rather than a score for every fused candidate.
+    candidate_relevance: tuple[CandidateRelevance, ...] = ()
     hydrated_ids: tuple[MemoryId, ...] = ()
     hydration_rejections: tuple[HydrationRejection, ...] = ()
     final_ids: tuple[MemoryId, ...] = ()
@@ -200,6 +230,7 @@ class RetrievalTrace(ContractModel):
 __all__ = [
     "Candidate",
     "CandidateBatch",
+    "CandidateRelevance",
     "DenseQuery",
     "FusedCandidate",
     "FusionContribution",

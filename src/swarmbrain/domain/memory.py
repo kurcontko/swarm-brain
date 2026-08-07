@@ -255,7 +255,20 @@ class RecallQuery(ContractModel):
     include_superseded: bool = False
     world_at: AwareDatetime | None = None
     recorded_at: AwareDatetime | None = None
-    min_score: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
+    min_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        allow_inf_nan=False,
+        description=(
+            "Abstention floor. On the v1 retrieval path this filters on the server's "
+            "calibrated, rank-independent relevance (max of the lanes' own evidence: "
+            "exact-term equality, query-token coverage, trigram similarity, dense "
+            "cosine), not on the returned RecallHit.score, which is a normalised "
+            "rank statement and cannot express 'nothing here is relevant'. The "
+            "default 0.0 admits every candidate and returns the ranking unchanged."
+        ),
+    )
     limit: int = Field(default=10, ge=1, le=100)
     include_evidence: bool = True
     include_lineage: bool = False

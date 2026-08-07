@@ -1052,38 +1052,244 @@
   "latency_ms": {
     "lanes": {
       "exact": {
-        "max": 4.319,
-        "p50": 3.855,
-        "p95": 4.104,
-        "p99": 4.319
+        "max": 6.186,
+        "p50": 5.605,
+        "p95": 6.019,
+        "p99": 6.186
       },
       "fuzzy": {
-        "max": 7.296,
-        "p50": 6.491,
-        "p95": 6.946,
-        "p99": 7.296
+        "max": 10.039,
+        "p50": 9.269,
+        "p95": 9.933,
+        "p99": 10.039
       },
       "graph": {
-        "max": 0.791,
-        "p50": 0.504,
-        "p95": 0.736,
-        "p99": 0.791
+        "max": 1.168,
+        "p50": 0.763,
+        "p95": 1.075,
+        "p99": 1.168
       },
       "lexical": {
-        "max": 2.194,
-        "p50": 1.795,
-        "p95": 2.072,
-        "p99": 2.194
+        "max": 3.322,
+        "p50": 2.633,
+        "p95": 3.113,
+        "p99": 3.322
       }
     },
     "wall": {
-      "max": 15.407,
-      "p50": 13.567,
-      "p95": 14.905,
-      "p99": 15.407
+      "max": 24.17,
+      "p50": 21.106,
+      "p95": 22.572,
+      "p99": 24.17
     }
   },
   "no_answer_min_score_sweep": {
+    "k=10": [
+      {
+        "empty_bundles": 0,
+        "mean_returned": 9.275,
+        "min_score": 0.0,
+        "mrr_at_k": 0.6351,
+        "ndcg_at_k": 0.6671,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.8382
+      },
+      {
+        "empty_bundles": 0,
+        "mean_returned": 8.7,
+        "min_score": 0.1,
+        "mrr_at_k": 0.7203,
+        "ndcg_at_k": 0.762,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.9265
+      },
+      {
+        "empty_bundles": 6,
+        "mean_returned": 5.4,
+        "min_score": 0.2,
+        "mrr_at_k": 0.7132,
+        "ndcg_at_k": 0.722,
+        "no_answer_precision": 0.6667,
+        "no_answer_recall": 0.6667,
+        "recall_at_k": 0.8088
+      },
+      {
+        "empty_bundles": 9,
+        "mean_returned": 4.5,
+        "min_score": 0.25,
+        "mrr_at_k": 0.7721,
+        "ndcg_at_k": 0.7596,
+        "no_answer_precision": 0.6667,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.799
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 3.85,
+        "min_score": 0.3,
+        "mrr_at_k": 0.7279,
+        "ndcg_at_k": 0.7258,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7598
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 2.85,
+        "min_score": 0.35,
+        "mrr_at_k": 0.7684,
+        "ndcg_at_k": 0.7522,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7794
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 2.775,
+        "min_score": 0.4,
+        "mrr_at_k": 0.7684,
+        "ndcg_at_k": 0.7453,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7696
+      },
+      {
+        "empty_bundles": 13,
+        "mean_returned": 2.45,
+        "min_score": 0.5,
+        "mrr_at_k": 0.739,
+        "ndcg_at_k": 0.7044,
+        "no_answer_precision": 0.4615,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7206
+      },
+      {
+        "empty_bundles": 15,
+        "mean_returned": 1.5,
+        "min_score": 0.6,
+        "mrr_at_k": 0.6654,
+        "ndcg_at_k": 0.6492,
+        "no_answer_precision": 0.4,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.6667
+      },
+      {
+        "empty_bundles": 24,
+        "mean_returned": 0.65,
+        "min_score": 0.8,
+        "mrr_at_k": 0.4706,
+        "ndcg_at_k": 0.4478,
+        "no_answer_precision": 0.25,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.4412
+      }
+    ],
+    "k=5": [
+      {
+        "empty_bundles": 0,
+        "mean_returned": 9.275,
+        "min_score": 0.0,
+        "mrr_at_k": 0.6319,
+        "ndcg_at_k": 0.6352,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.7549
+      },
+      {
+        "empty_bundles": 0,
+        "mean_returned": 8.7,
+        "min_score": 0.1,
+        "mrr_at_k": 0.7167,
+        "ndcg_at_k": 0.7129,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.8088
+      },
+      {
+        "empty_bundles": 6,
+        "mean_returned": 5.4,
+        "min_score": 0.2,
+        "mrr_at_k": 0.7132,
+        "ndcg_at_k": 0.716,
+        "no_answer_precision": 0.6667,
+        "no_answer_recall": 0.6667,
+        "recall_at_k": 0.7941
+      },
+      {
+        "empty_bundles": 9,
+        "mean_returned": 4.5,
+        "min_score": 0.25,
+        "mrr_at_k": 0.7721,
+        "ndcg_at_k": 0.7596,
+        "no_answer_precision": 0.6667,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.799
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 3.85,
+        "min_score": 0.3,
+        "mrr_at_k": 0.7279,
+        "ndcg_at_k": 0.7258,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7598
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 2.85,
+        "min_score": 0.35,
+        "mrr_at_k": 0.7647,
+        "ndcg_at_k": 0.7429,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.75
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 2.775,
+        "min_score": 0.4,
+        "mrr_at_k": 0.7647,
+        "ndcg_at_k": 0.736,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7402
+      },
+      {
+        "empty_bundles": 13,
+        "mean_returned": 2.45,
+        "min_score": 0.5,
+        "mrr_at_k": 0.7353,
+        "ndcg_at_k": 0.6951,
+        "no_answer_precision": 0.4615,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.6912
+      },
+      {
+        "empty_bundles": 15,
+        "mean_returned": 1.5,
+        "min_score": 0.6,
+        "mrr_at_k": 0.6618,
+        "ndcg_at_k": 0.6399,
+        "no_answer_precision": 0.4,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.6373
+      },
+      {
+        "empty_bundles": 24,
+        "mean_returned": 0.65,
+        "min_score": 0.8,
+        "mrr_at_k": 0.4706,
+        "ndcg_at_k": 0.4478,
+        "no_answer_precision": 0.25,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.4412
+      }
+    ]
+  },
+  "no_answer_public_score_sweep": {
     "k=10": [
       {
         "mean_returned": 9.275,

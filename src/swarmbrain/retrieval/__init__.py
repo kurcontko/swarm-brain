@@ -23,8 +23,15 @@ from .projection import (
     search_text,
     trigram_similarity,
 )
+from .relevance import (
+    RELEVANCE_VERSION,
+    RelevanceQuery,
+    candidate_relevance,
+    relevance_query,
+)
 
 __all__ = [
+    "RELEVANCE_VERSION",
     "DENSE_PROJECTION_ID",
     "DENSE_PROJECTION_REVISION",
     "DENSE_VECTOR_DIMENSIONS",
@@ -34,13 +41,16 @@ __all__ = [
     "GRAPH_RELATION_WEIGHTS",
     "RETRIEVAL_PROJECTION_ID",
     "RRF_K",
+    "RelevanceQuery",
     "RetrievalPlanner",
+    "candidate_relevance",
     "domain_lane",
     "dense_projection_signature",
     "exact_terms",
     "lookup_text",
     "parse_query_identifiers",
     "projection_scope_key",
+    "relevance_query",
     "search_text",
     "trigram_similarity",
     "weighted_rrf",

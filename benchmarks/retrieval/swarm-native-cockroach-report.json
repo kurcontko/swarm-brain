@@ -284,17 +284,17 @@
     ],
     "summary": {
       "ann_latency_ms": {
-        "max": 21.005,
-        "p50": 9.122,
-        "p95": 11.042,
-        "p99": 21.005
+        "max": 23.535,
+        "p50": 15.386,
+        "p95": 21.391,
+        "p99": 23.535
       },
       "cases": 40,
       "exact_latency_ms": {
-        "max": 44.511,
-        "p50": 27.391,
-        "p95": 32.262,
-        "p99": 44.511
+        "max": 58.73,
+        "p50": 45.225,
+        "p95": 54.844,
+        "p99": 58.73
       },
       "mean_ann_recall_at_10": 1.0,
       "mean_ann_recall_at_5": 1.0,
@@ -1499,44 +1499,250 @@
   "latency_ms": {
     "lanes": {
       "dense": {
-        "max": 63.195,
-        "p50": 39.293,
-        "p95": 50.247,
-        "p99": 63.195
+        "max": 92.136,
+        "p50": 52.256,
+        "p95": 81.532,
+        "p99": 92.136
       },
       "exact": {
-        "max": 14.923,
-        "p50": 2.357,
-        "p95": 5.659,
-        "p99": 14.923
+        "max": 17.955,
+        "p50": 3.191,
+        "p95": 9.518,
+        "p99": 17.955
       },
       "fuzzy": {
-        "max": 48.12,
-        "p50": 28.425,
-        "p95": 40.175,
-        "p99": 48.12
+        "max": 70.707,
+        "p50": 38.228,
+        "p95": 66.098,
+        "p99": 70.707
       },
       "graph": {
-        "max": 26.286,
-        "p50": 13.936,
-        "p95": 21.887,
-        "p99": 26.286
+        "max": 29.866,
+        "p50": 19.641,
+        "p95": 26.436,
+        "p99": 29.866
       },
       "lexical": {
-        "max": 38.382,
-        "p50": 21.935,
-        "p95": 32.834,
-        "p99": 38.382
+        "max": 60.076,
+        "p50": 31.089,
+        "p95": 50.342,
+        "p99": 60.076
       }
     },
     "wall": {
-      "max": 119.935,
-      "p50": 64.995,
-      "p95": 94.869,
-      "p99": 119.935
+      "max": 215.896,
+      "p50": 94.92,
+      "p95": 123.314,
+      "p99": 215.896
     }
   },
   "no_answer_min_score_sweep": {
+    "k=10": [
+      {
+        "empty_bundles": 0,
+        "mean_returned": 10.0,
+        "min_score": 0.0,
+        "mrr_at_k": 0.7167,
+        "ndcg_at_k": 0.7409,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.8824
+      },
+      {
+        "empty_bundles": 0,
+        "mean_returned": 9.675,
+        "min_score": 0.1,
+        "mrr_at_k": 0.7167,
+        "ndcg_at_k": 0.7466,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.8971
+      },
+      {
+        "empty_bundles": 2,
+        "mean_returned": 7.775,
+        "min_score": 0.2,
+        "mrr_at_k": 0.7446,
+        "ndcg_at_k": 0.7463,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 0.1667,
+        "recall_at_k": 0.8529
+      },
+      {
+        "empty_bundles": 4,
+        "mean_returned": 6.6,
+        "min_score": 0.25,
+        "mrr_at_k": 0.7755,
+        "ndcg_at_k": 0.7709,
+        "no_answer_precision": 0.75,
+        "no_answer_recall": 0.5,
+        "recall_at_k": 0.848
+      },
+      {
+        "empty_bundles": 6,
+        "mean_returned": 5.4,
+        "min_score": 0.3,
+        "mrr_at_k": 0.7657,
+        "ndcg_at_k": 0.7666,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 0.5,
+        "recall_at_k": 0.8284
+      },
+      {
+        "empty_bundles": 8,
+        "mean_returned": 3.6,
+        "min_score": 0.35,
+        "mrr_at_k": 0.7966,
+        "ndcg_at_k": 0.772,
+        "no_answer_precision": 0.625,
+        "no_answer_recall": 0.8333,
+        "recall_at_k": 0.8039
+      },
+      {
+        "empty_bundles": 11,
+        "mean_returned": 3.3,
+        "min_score": 0.4,
+        "mrr_at_k": 0.8137,
+        "ndcg_at_k": 0.7764,
+        "no_answer_precision": 0.5455,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7843
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 2.525,
+        "min_score": 0.5,
+        "mrr_at_k": 0.7892,
+        "ndcg_at_k": 0.7371,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7353
+      },
+      {
+        "empty_bundles": 15,
+        "mean_returned": 1.5,
+        "min_score": 0.6,
+        "mrr_at_k": 0.6863,
+        "ndcg_at_k": 0.6642,
+        "no_answer_precision": 0.4,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.6667
+      },
+      {
+        "empty_bundles": 24,
+        "mean_returned": 0.65,
+        "min_score": 0.8,
+        "mrr_at_k": 0.4706,
+        "ndcg_at_k": 0.4478,
+        "no_answer_precision": 0.25,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.4412
+      }
+    ],
+    "k=5": [
+      {
+        "empty_bundles": 0,
+        "mean_returned": 10.0,
+        "min_score": 0.0,
+        "mrr_at_k": 0.7167,
+        "ndcg_at_k": 0.7204,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.8333
+      },
+      {
+        "empty_bundles": 0,
+        "mean_returned": 9.675,
+        "min_score": 0.1,
+        "mrr_at_k": 0.7167,
+        "ndcg_at_k": 0.7204,
+        "no_answer_precision": 1.0,
+        "no_answer_recall": 0.0,
+        "recall_at_k": 0.8333
+      },
+      {
+        "empty_bundles": 2,
+        "mean_returned": 7.775,
+        "min_score": 0.2,
+        "mrr_at_k": 0.7446,
+        "ndcg_at_k": 0.7374,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 0.1667,
+        "recall_at_k": 0.8333
+      },
+      {
+        "empty_bundles": 4,
+        "mean_returned": 6.6,
+        "min_score": 0.25,
+        "mrr_at_k": 0.7755,
+        "ndcg_at_k": 0.7574,
+        "no_answer_precision": 0.75,
+        "no_answer_recall": 0.5,
+        "recall_at_k": 0.8186
+      },
+      {
+        "empty_bundles": 6,
+        "mean_returned": 5.4,
+        "min_score": 0.3,
+        "mrr_at_k": 0.7657,
+        "ndcg_at_k": 0.7532,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 0.5,
+        "recall_at_k": 0.799
+      },
+      {
+        "empty_bundles": 8,
+        "mean_returned": 3.6,
+        "min_score": 0.35,
+        "mrr_at_k": 0.7966,
+        "ndcg_at_k": 0.7637,
+        "no_answer_precision": 0.625,
+        "no_answer_recall": 0.8333,
+        "recall_at_k": 0.7843
+      },
+      {
+        "empty_bundles": 11,
+        "mean_returned": 3.3,
+        "min_score": 0.4,
+        "mrr_at_k": 0.8137,
+        "ndcg_at_k": 0.7764,
+        "no_answer_precision": 0.5455,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7843
+      },
+      {
+        "empty_bundles": 12,
+        "mean_returned": 2.525,
+        "min_score": 0.5,
+        "mrr_at_k": 0.7892,
+        "ndcg_at_k": 0.7371,
+        "no_answer_precision": 0.5,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.7353
+      },
+      {
+        "empty_bundles": 15,
+        "mean_returned": 1.5,
+        "min_score": 0.6,
+        "mrr_at_k": 0.6863,
+        "ndcg_at_k": 0.6642,
+        "no_answer_precision": 0.4,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.6667
+      },
+      {
+        "empty_bundles": 24,
+        "mean_returned": 0.65,
+        "min_score": 0.8,
+        "mrr_at_k": 0.4706,
+        "ndcg_at_k": 0.4478,
+        "no_answer_precision": 0.25,
+        "no_answer_recall": 1.0,
+        "recall_at_k": 0.4412
+      }
+    ]
+  },
+  "no_answer_public_score_sweep": {
     "k=10": [
       {
         "mean_returned": 10.0,

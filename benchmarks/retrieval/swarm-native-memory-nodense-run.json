@@ -6,6 +6,18 @@
       "case_id": "exact-path-webhook-router",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.75,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.75,
+        0.5
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -19,10 +31,10 @@
         0.563077
       ],
       "lane_latency_ms": {
-        "exact": 4.218,
-        "fuzzy": 6.618,
-        "graph": 0.714,
-        "lexical": 1.628
+        "exact": 5.768,
+        "fuzzy": 9.602,
+        "graph": 1.097,
+        "lexical": 2.335
       },
       "query": "services/payments/webhook_router.py",
       "rankings": {
@@ -155,13 +167,21 @@
         "inv-webhook-idempotency",
         "dec-webhook-timeout-budget"
       ],
-      "wall_ms": 14.139
+      "wall_ms": 21.718
     },
     {
       "abstained": false,
       "case_id": "exact-test-name",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.157143,
+        0.009901,
+        0.096386,
+        0.2
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -171,10 +191,10 @@
         0.238281
       ],
       "lane_latency_ms": {
-        "exact": 3.909,
-        "fuzzy": 5.813,
-        "graph": 0.324,
-        "lexical": 1.689
+        "exact": 6.104,
+        "fuzzy": 8.651,
+        "graph": 0.496,
+        "lexical": 2.197
       },
       "query": "test_checkout_retry_backoff",
       "rankings": {
@@ -220,13 +240,25 @@
         "obs-flaky-checkout-retry",
         "proc-repro-flaky-seed"
       ],
-      "wall_ms": 12.103
+      "wall_ms": 19.06
     },
     {
       "abstained": false,
       "case_id": "exact-symbol-retry-helper",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -240,10 +272,10 @@
         0.530435
       ],
       "lane_latency_ms": {
-        "exact": 4.095,
-        "fuzzy": 6.019,
-        "graph": 0.492,
-        "lexical": 1.847
+        "exact": 5.552,
+        "fuzzy": 8.604,
+        "graph": 0.702,
+        "lexical": 2.674
       },
       "query": "orion.db.retry.with_serializable_retry",
       "rankings": {
@@ -371,23 +403,28 @@
         "inv-serializable-retry",
         "proc-retry-loop"
       ],
-      "wall_ms": 13.185
+      "wall_ms": 20.2
     },
     {
       "abstained": false,
       "case_id": "exact-error-sqlstate-40001",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.034783
+      ],
       "final_scores": [
         1.0,
         1.0,
         0.25
       ],
       "lane_latency_ms": {
-        "exact": 3.864,
-        "fuzzy": 5.672,
-        "graph": 0.301,
-        "lexical": 1.695
+        "exact": 6.186,
+        "fuzzy": 8.324,
+        "graph": 0.382,
+        "lexical": 2.129
       },
       "query": "SQLSTATE 40001",
       "rankings": {
@@ -422,13 +459,25 @@
         "inv-serializable-retry",
         "obs-error-40001-spike"
       ],
-      "wall_ms": 11.848
+      "wall_ms": 17.99
     },
     {
       "abstained": false,
       "case_id": "exact-error-payments-4210",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
       "final_scores": [
         1.0,
         0.845725,
@@ -442,10 +491,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 3.936,
-        "fuzzy": 5.932,
-        "graph": 0.547,
-        "lexical": 1.545
+        "exact": 5.83,
+        "fuzzy": 8.027,
+        "graph": 0.798,
+        "lexical": 2.655
       },
       "query": "PAYMENTS-4210",
       "rankings": {
@@ -535,13 +584,19 @@
       "relevant_ids": [
         "warn-refund-partial"
       ],
-      "wall_ms": 12.513
+      "wall_ms": 19.591
     },
     {
       "abstained": false,
       "case_id": "exact-commit-leak-fix",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "final_scores": [
         1.0,
         0.25,
@@ -549,10 +604,10 @@
         0.242063
       ],
       "lane_latency_ms": {
-        "exact": 3.856,
-        "fuzzy": 5.477,
-        "graph": 0.238,
-        "lexical": 1.696
+        "exact": 5.865,
+        "fuzzy": 7.822,
+        "graph": 0.359,
+        "lexical": 2.105
       },
       "query": "e52b7f3",
       "rankings": {
@@ -587,13 +642,25 @@
       "relevant_ids": [
         "out-leak-fixed"
       ],
-      "wall_ms": 11.545
+      "wall_ms": 17.119
     },
     {
       "abstained": false,
       "case_id": "exact-alias-replay-guard-flag",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.666667,
+        0.666667,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         1.0,
         0.854382,
@@ -607,10 +674,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 3.855,
-        "fuzzy": 6.161,
-        "graph": 0.566,
-        "lexical": 1.527
+        "exact": 5.554,
+        "fuzzy": 8.425,
+        "graph": 0.837,
+        "lexical": 2.633
       },
       "query": "payments.replay_guard.v2",
       "rankings": {
@@ -702,13 +769,25 @@
       "relevant_ids": [
         "out-fix-behind-flag"
       ],
-      "wall_ms": 12.637
+      "wall_ms": 19.729
     },
     {
       "abstained": false,
       "case_id": "exact-tag-flaky-test",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.5,
+        1.0,
+        0.5,
+        0.5,
+        0.5
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -722,10 +801,10 @@
         0.530435
       ],
       "lane_latency_ms": {
-        "exact": 3.924,
-        "fuzzy": 5.781,
-        "graph": 0.481,
-        "lexical": 1.552
+        "exact": 6.019,
+        "fuzzy": 8.281,
+        "graph": 0.772,
+        "lexical": 2.212
       },
       "query": "flaky-test",
       "rankings": {
@@ -822,13 +901,25 @@
         "att-retry-count-bump",
         "obs-flaky-docker-pull"
       ],
-      "wall_ms": 12.277
+      "wall_ms": 20.038
     },
     {
       "abstained": false,
       "case_id": "code-lookup-pool-py",
       "category": "code_lookup",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.833333,
+        0.666667,
+        0.166667,
+        0.166667,
+        0.166667,
+        0.5,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         0.8,
         0.787097,
@@ -842,10 +933,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 3.86,
-        "fuzzy": 6.321,
-        "graph": 0.66,
-        "lexical": 1.57
+        "exact": 5.743,
+        "fuzzy": 8.912,
+        "graph": 0.988,
+        "lexical": 2.278
       },
       "query": "services/api/pool.py connection pool saturation",
       "rankings": {
@@ -965,13 +1056,25 @@
         "obs-pool-exhaustion",
         "dec-pool-size"
       ],
-      "wall_ms": 13.056
+      "wall_ms": 20.8
     },
     {
       "abstained": false,
       "case_id": "code-lookup-charge-worker",
       "category": "code_lookup",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.666667,
+        0.333333,
+        0.5,
+        0.333333,
+        0.166667,
+        0.666667,
+        0.5,
+        0.5
+      ],
       "final_scores": [
         0.8,
         0.787097,
@@ -985,10 +1088,10 @@
         0.554545
       ],
       "lane_latency_ms": {
-        "exact": 3.872,
-        "fuzzy": 6.187,
-        "graph": 0.736,
-        "lexical": 1.875
+        "exact": 5.807,
+        "fuzzy": 9.62,
+        "graph": 1.075,
+        "lexical": 2.461
       },
       "query": "services/payments/charge_worker.py duplicate charge",
       "rankings": {
@@ -1119,13 +1222,25 @@
         "obs-duplicate-charge-trace",
         "hand-payments-handoff-1"
       ],
-      "wall_ms": 13.4
+      "wall_ms": 21.61
     },
     {
       "abstained": false,
       "case_id": "code-lookup-search-indexer",
       "category": "code_lookup",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.833333,
+        0.5,
+        0.170455,
+        0.166667,
+        0.166667,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         0.8,
         0.787097,
@@ -1139,10 +1254,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 4.104,
-        "fuzzy": 6.41,
-        "graph": 0.478,
-        "lexical": 2.072
+        "exact": 5.612,
+        "fuzzy": 9.625,
+        "graph": 0.678,
+        "lexical": 2.359
       },
       "query": "services/search/indexer.py index lag",
       "rankings": {
@@ -1269,13 +1384,25 @@
       "relevant_ids": [
         "obs-search-index-lag"
       ],
-      "wall_ms": 13.979
+      "wall_ms": 20.735
     },
     {
       "abstained": false,
       "case_id": "lexical-webhook-dedupe",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.042017,
+        0.2,
+        0.6,
+        0.2,
+        0.6,
+        0.6,
+        0.6,
+        0.4,
+        0.08547,
+        0.4
+      ],
       "final_scores": [
         0.849087,
         0.826889,
@@ -1289,10 +1416,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 4.319,
-        "fuzzy": 7.093,
-        "graph": 0.791,
-        "lexical": 1.764
+        "exact": 5.667,
+        "fuzzy": 9.701,
+        "graph": 1.07,
+        "lexical": 2.378
       },
       "query": "how do we de-duplicate webhook deliveries before charging",
       "rankings": {
@@ -1411,13 +1538,25 @@
         "inv-webhook-idempotency",
         "dec-replay-guard-table"
       ],
-      "wall_ms": 14.778
+      "wall_ms": 21.512
     },
     {
       "abstained": false,
       "case_id": "lexical-pool-503-bursts",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.155039,
+        0.061069,
+        0.08547,
+        0.085526,
+        0.057143,
+        0.096491,
+        0.081967,
+        0.5,
+        0.25
+      ],
       "final_scores": [
         1.0,
         0.785714,
@@ -1431,10 +1570,10 @@
         0.580952
       ],
       "lane_latency_ms": {
-        "exact": 3.98,
-        "fuzzy": 6.925,
-        "graph": 0.598,
-        "lexical": 2.194
+        "exact": 5.683,
+        "fuzzy": 9.907,
+        "graph": 0.95,
+        "lexical": 3.113
       },
       "query": "api returns 503 bursts when the connection pool saturates at peak",
       "rankings": {
@@ -1627,13 +1766,25 @@
       "relevant_ids": [
         "obs-pool-exhaustion"
       ],
-      "wall_ms": 15.407
+      "wall_ms": 23.71
     },
     {
       "abstained": false,
       "case_id": "lexical-rotate-signing-secret",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.625,
+        0.375,
+        0.086207,
+        0.064,
+        0.25,
+        0.25,
+        0.173554,
+        0.125,
+        0.141844,
+        0.125
+      ],
       "final_scores": [
         0.8,
         0.787097,
@@ -1647,10 +1798,10 @@
         0.538235
       ],
       "lane_latency_ms": {
-        "exact": 3.892,
-        "fuzzy": 7.296,
-        "graph": 0.299,
-        "lexical": 1.92
+        "exact": 5.679,
+        "fuzzy": 9.874,
+        "graph": 0.413,
+        "lexical": 2.802
       },
       "query": "rotate the signing secret without rejecting tokens already in flight",
       "rankings": {
@@ -1835,13 +1986,25 @@
       "relevant_ids": [
         "proc-rotate-signing-key"
       ],
-      "wall_ms": 14.905
+      "wall_ms": 22.209
     },
     {
       "abstained": false,
       "case_id": "lexical-rebuild-catalogue-index",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.142857,
+        1.0,
+        0.060345,
+        0.082707,
+        0.285714,
+        0.15534,
+        0.074074,
+        0.428571,
+        0.285714,
+        0.285714
+      ],
       "final_scores": [
         0.819231,
         0.8,
@@ -1855,10 +2018,10 @@
         0.571875
       ],
       "lane_latency_ms": {
-        "exact": 3.991,
-        "fuzzy": 6.794,
-        "graph": 0.415,
-        "lexical": 1.9
+        "exact": 5.638,
+        "fuzzy": 9.596,
+        "graph": 0.599,
+        "lexical": 2.718
       },
       "query": "rebuild the catalogue index into a new name and swap the alias",
       "rankings": {
@@ -2046,13 +2209,25 @@
       "relevant_ids": [
         "proc-rebuild-index"
       ],
-      "wall_ms": 14.523
+      "wall_ms": 21.801
     },
     {
       "abstained": false,
       "case_id": "lexical-rollout-percentages",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.075188,
+        0.5,
+        0.166667,
+        0.103448,
+        0.051852,
+        0.099174,
+        0.077519,
+        0.166667,
+        0.05303,
+        0.166667
+      ],
       "final_scores": [
         0.843954,
         0.8,
@@ -2066,10 +2241,10 @@
         0.563077
       ],
       "lane_latency_ms": {
-        "exact": 3.822,
-        "fuzzy": 6.797,
-        "graph": 0.443,
-        "lexical": 1.826
+        "exact": 5.886,
+        "fuzzy": 9.933,
+        "graph": 0.678,
+        "lexical": 2.645
       },
       "query": "what percentages do we step through when rolling out a risky change",
       "rankings": {
@@ -2260,13 +2435,25 @@
       "relevant_ids": [
         "dec-rollout-percent"
       ],
-      "wall_ms": 14.153
+      "wall_ms": 22.387
     },
     {
       "abstained": false,
       "case_id": "lexical-worker-memory-growth",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.375,
+        0.25,
+        0.25,
+        0.125,
+        0.125,
+        0.125,
+        0.125,
+        0.125,
+        0.125
+      ],
       "final_scores": [
         0.8,
         0.590323,
@@ -2280,10 +2467,10 @@
         0.522857
       ],
       "lane_latency_ms": {
-        "exact": 3.854,
-        "fuzzy": 6.217,
-        "graph": 0.533,
-        "lexical": 1.556
+        "exact": 5.771,
+        "fuzzy": 9.631,
+        "graph": 0.785,
+        "lexical": 2.294
       },
       "query": "background worker resident memory grows under steady load",
       "rankings": {
@@ -2376,13 +2563,25 @@
       "relevant_ids": [
         "obs-memory-leak-worker"
       ],
-      "wall_ms": 12.94
+      "wall_ms": 20.713
     },
     {
       "abstained": false,
       "case_id": "lexical-metric-label-cardinality",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.035398,
+        0.053846,
+        0.035211,
+        0.068966,
+        0.8,
+        0.4,
+        0.2,
+        0.0625,
+        0.2,
+        0.074074
+      ],
       "final_scores": [
         0.733717,
         0.671616,
@@ -2396,10 +2595,10 @@
         0.554545
       ],
       "lane_latency_ms": {
-        "exact": 3.811,
-        "fuzzy": 6.421,
-        "graph": 0.345,
-        "lexical": 1.795
+        "exact": 5.471,
+        "fuzzy": 9.535,
+        "graph": 0.588,
+        "lexical": 2.614
       },
       "query": "can I add a customer identifier as a metric label",
       "rankings": {
@@ -2585,13 +2784,25 @@
         "inv-no-pii-in-metrics",
         "warn-cardinality-explosion"
       ],
-      "wall_ms": 13.567
+      "wall_ms": 21.589
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-path",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.75,
+        0.75,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.75,
+        0.75,
+        0.5
+      ],
       "final_scores": [
         0.8,
         0.768649,
@@ -2605,10 +2816,10 @@
         0.563077
       ],
       "lane_latency_ms": {
-        "exact": 3.825,
-        "fuzzy": 6.096,
-        "graph": 0.632,
-        "lexical": 1.643
+        "exact": 5.792,
+        "fuzzy": 8.778,
+        "graph": 0.921,
+        "lexical": 2.33
       },
       "query": "services/payments/webhok_router.py",
       "rankings": {
@@ -2737,13 +2948,20 @@
         "inv-webhook-idempotency",
         "dec-webhook-timeout-budget"
       ],
-      "wall_ms": 12.876
+      "wall_ms": 20.308
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-test-name",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.009901,
+        0.096386,
+        0.172414,
+        0.185185,
+        0.294118
+      ],
       "final_scores": [
         0.25,
         0.245968,
@@ -2752,10 +2970,10 @@
         0.2
       ],
       "lane_latency_ms": {
-        "exact": 3.811,
-        "fuzzy": 5.672,
-        "graph": 0.523,
-        "lexical": 1.437
+        "exact": 5.429,
+        "fuzzy": 8.538,
+        "graph": 0.391,
+        "lexical": 2.072
       },
       "query": "test_chekout_retry_backoff",
       "rankings": {
@@ -2792,13 +3010,25 @@
         "obs-flaky-checkout-retry",
         "proc-repro-flaky-seed"
       ],
-      "wall_ms": 11.706
+      "wall_ms": 17.555
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-symbol",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.333333,
+        0.333333,
+        0.333333,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.666667
+      ],
       "final_scores": [
         0.847222,
         0.844595,
@@ -2812,10 +3042,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 3.799,
-        "fuzzy": 5.759,
-        "graph": 0.605,
-        "lexical": 1.524
+        "exact": 5.466,
+        "fuzzy": 8.409,
+        "graph": 0.993,
+        "lexical": 2.236
       },
       "query": "payments.webhook.replay_gaurd",
       "rankings": {
@@ -2901,13 +3131,25 @@
       "relevant_ids": [
         "inv-webhook-idempotency"
       ],
-      "wall_ms": 12.389
+      "wall_ms": 19.905
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-flag",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.333333,
+        0.333333,
+        0.333333,
+        0.666667,
+        0.666667,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         0.85137,
         0.838949,
@@ -2921,10 +3163,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 3.849,
-        "fuzzy": 6.065,
-        "graph": 0.547,
-        "lexical": 1.608
+        "exact": 5.705,
+        "fuzzy": 8.622,
+        "graph": 0.78,
+        "lexical": 2.219
       },
       "query": "payments.replay_gaurd.v2",
       "rankings": {
@@ -3014,13 +3256,25 @@
       "relevant_ids": [
         "out-fix-behind-flag"
       ],
-      "wall_ms": 12.592
+      "wall_ms": 19.522
     },
     {
       "abstained": false,
       "case_id": "paraphrase-double-billing",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.116438,
+        0.142857,
+        0.070866,
+        0.087719,
+        0.104575,
+        0.136691,
+        0.065359,
+        0.285714,
+        0.054054,
+        0.084906
+      ],
       "final_scores": [
         0.785714,
         0.774943,
@@ -3034,10 +3288,10 @@
         0.590638
       ],
       "lane_latency_ms": {
-        "exact": 3.842,
-        "fuzzy": 6.706,
-        "graph": 0.569,
-        "lexical": 1.88
+        "exact": 5.449,
+        "fuzzy": 9.534,
+        "graph": 0.831,
+        "lexical": 2.692
       },
       "query": "customers were billed twice after the provider resent the same event",
       "rankings": {
@@ -3229,13 +3483,25 @@
         "inv-webhook-idempotency",
         "obs-duplicate-charge-trace"
       ],
-      "wall_ms": 14.436
+      "wall_ms": 22.057
     },
     {
       "abstained": false,
       "case_id": "paraphrase-nondeterministic-check",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.111111,
+        0.126984,
+        0.071429,
+        0.056911,
+        0.0625,
+        0.133858,
+        0.111111,
+        0.111111,
+        0.222222,
+        0.222222
+      ],
       "final_scores": [
         0.774558,
         0.764176,
@@ -3249,10 +3515,10 @@
         0.580952
       ],
       "lane_latency_ms": {
-        "exact": 3.838,
-        "fuzzy": 6.857,
-        "graph": 0.401,
-        "lexical": 2.138
+        "exact": 5.48,
+        "fuzzy": 9.687,
+        "graph": 0.825,
+        "lexical": 3.034
       },
       "query": "a check in the pipeline passes sometimes and fails other times with no code change",
       "rankings": {
@@ -3440,13 +3706,25 @@
         "obs-flaky-checkout-retry",
         "warn-time-sleep-in-tests"
       ],
-      "wall_ms": 14.806
+      "wall_ms": 22.383
     },
     {
       "abstained": false,
       "case_id": "paraphrase-transaction-conflict",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.10828,
+        0.142857,
+        0.057554,
+        0.117647,
+        0.139241,
+        0.272727,
+        0.181818,
+        0.078947,
+        0.065217,
+        0.181818
+      ],
       "final_scores": [
         0.865493,
         0.779853,
@@ -3460,10 +3738,10 @@
         0.580952
       ],
       "lane_latency_ms": {
-        "exact": 3.828,
-        "fuzzy": 6.866,
-        "graph": 0.493,
-        "lexical": 1.901
+        "exact": 5.535,
+        "fuzzy": 9.981,
+        "graph": 0.726,
+        "lexical": 2.694
       },
       "query": "two transactions touching the same rows abort each other under strict isolation",
       "rankings": {
@@ -3652,13 +3930,25 @@
         "inv-serializable-retry",
         "obs-error-40001-spike"
       ],
-      "wall_ms": 14.517
+      "wall_ms": 22.473
     },
     {
       "abstained": false,
       "case_id": "paraphrase-credentials-exposure",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.166667,
+        0.166667,
+        0.166667,
+        0.054688,
+        0.111111,
+        0.081967,
+        0.099237,
+        0.106061,
+        0.105691,
+        0.064
+      ],
       "final_scores": [
         0.6,
         0.590323,
@@ -3672,10 +3962,10 @@
         0.522857
       ],
       "lane_latency_ms": {
-        "exact": 3.859,
-        "fuzzy": 6.397,
-        "graph": 0.325,
-        "lexical": 1.562
+        "exact": 5.516,
+        "fuzzy": 9.523,
+        "graph": 0.451,
+        "lexical": 2.238
       },
       "query": "credentials ending up somewhere they can be read again later",
       "rankings": {
@@ -3762,13 +4052,25 @@
         "warn-token-in-logs",
         "warn-ci-secret-leak"
       ],
-      "wall_ms": 12.941
+      "wall_ms": 19.879
     },
     {
       "abstained": false,
       "case_id": "paraphrase-gradual-exposure",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.072581,
+        0.104478,
+        0.059701,
+        0.062016,
+        0.113043,
+        0.059259,
+        0.102564,
+        0.066225,
+        0.107914,
+        0.056
+      ],
       "final_scores": [
         0.865493,
         0.790696,
@@ -3782,10 +4084,10 @@
         0.605704
       ],
       "lane_latency_ms": {
-        "exact": 3.847,
-        "fuzzy": 6.754,
-        "graph": 0.517,
-        "lexical": 1.893
+        "exact": 5.548,
+        "fuzzy": 9.833,
+        "graph": 0.744,
+        "lexical": 2.737
       },
       "query": "exposing a change to a small slice of traffic before everyone sees it",
       "rankings": {
@@ -3979,13 +4281,25 @@
         "dec-rollout-percent",
         "inv-flag-default-off"
       ],
-      "wall_ms": 14.45
+      "wall_ms": 22.311
     },
     {
       "abstained": false,
       "case_id": "decoy-search-freshness",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.166667,
+        0.333333,
+        0.5,
+        0.333333,
+        0.333333,
+        0.166667,
+        0.166667,
+        0.101449,
+        0.166667,
+        0.166667
+      ],
       "final_scores": [
         0.8075,
         0.790323,
@@ -3999,10 +4313,10 @@
         0.530435
       ],
       "lane_latency_ms": {
-        "exact": 3.846,
-        "fuzzy": 6.46,
-        "graph": 0.372,
-        "lexical": 1.724
+        "exact": 5.607,
+        "fuzzy": 9.269,
+        "graph": 0.566,
+        "lexical": 2.824
       },
       "query": "recently written documents are missing from search results",
       "rankings": {
@@ -4178,13 +4492,25 @@
         "obs-search-index-lag",
         "out-search-fix"
       ],
-      "wall_ms": 13.322
+      "wall_ms": 21.079
     },
     {
       "abstained": false,
       "case_id": "decoy-filter-before-limit",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.096,
+        0.095652,
+        0.666667,
+        0.166667,
+        0.108911,
+        0.055556,
+        0.166667,
+        0.054545,
+        0.166667,
+        0.166667
+      ],
       "final_scores": [
         0.838949,
         0.80812,
@@ -4198,10 +4524,10 @@
         0.571875
       ],
       "lane_latency_ms": {
-        "exact": 3.84,
-        "fuzzy": 6.693,
-        "graph": 0.481,
-        "lexical": 1.882
+        "exact": 5.625,
+        "fuzzy": 9.768,
+        "graph": 0.705,
+        "lexical": 2.798
       },
       "query": "scope filters have to run before the limit or results disappear",
       "rankings": {
@@ -4393,13 +4719,25 @@
       "relevant_ids": [
         "inv-search-scope-filter"
       ],
-      "wall_ms": 14.331
+      "wall_ms": 22.304
     },
     {
       "abstained": false,
       "case_id": "decoy-provider-retry-schedule",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.098592,
+        0.2,
+        0.2,
+        0.125,
+        0.084416,
+        0.2,
+        0.056911,
+        0.059406,
+        0.8,
+        0.6
+      ],
       "final_scores": [
         0.865493,
         0.801855,
@@ -4413,10 +4751,10 @@
         0.590323
       ],
       "lane_latency_ms": {
-        "exact": 3.864,
-        "fuzzy": 6.557,
-        "graph": 0.737,
-        "lexical": 1.895
+        "exact": 5.605,
+        "fuzzy": 10.039,
+        "graph": 1.168,
+        "lexical": 3.322
       },
       "query": "how often does the provider retry an unacknowledged delivery",
       "rankings": {
@@ -4607,13 +4945,25 @@
       "relevant_ids": [
         "obs-provider-retry-schedule"
       ],
-      "wall_ms": 14.499
+      "wall_ms": 24.17
     },
     {
       "abstained": false,
       "case_id": "decoy-search-latency-step",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.2,
+        0.2,
+        0.2,
+        0.6,
+        0.2,
+        0.4,
+        0.2,
+        0.2,
+        0.4,
+        0.2
+      ],
       "final_scores": [
         0.838949,
         0.819231,
@@ -4627,10 +4977,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 3.832,
-        "fuzzy": 6.52,
-        "graph": 0.495,
-        "lexical": 1.589
+        "exact": 5.569,
+        "fuzzy": 8.674,
+        "graph": 0.695,
+        "lexical": 2.383
       },
       "query": "which step dominates search tail latency",
       "rankings": {
@@ -4744,13 +5094,25 @@
       "relevant_ids": [
         "obs-search-latency"
       ],
-      "wall_ms": 13.085
+      "wall_ms": 20.099
     },
     {
       "abstained": false,
       "case_id": "multi-duplicate-charge-thread",
       "category": "multi_evidence",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.25,
+        0.25,
+        0.625,
+        0.125,
+        0.5,
+        0.097902,
+        0.17,
+        0.125,
+        0.103774,
+        0.159722
+      ],
       "final_scores": [
         0.819231,
         0.801855,
@@ -4764,10 +5126,10 @@
         0.618646
       ],
       "lane_latency_ms": {
-        "exact": 3.943,
-        "fuzzy": 6.734,
-        "graph": 0.678,
-        "lexical": 1.886
+        "exact": 5.54,
+        "fuzzy": 9.885,
+        "graph": 0.98,
+        "lexical": 2.739
       },
       "query": "duplicate charge root cause, the fix and how far the rollout got",
       "rankings": {
@@ -4961,13 +5323,25 @@
         "out-fix-behind-flag",
         "out-rollout-complete"
       ],
-      "wall_ms": 14.686
+      "wall_ms": 22.572
     },
     {
       "abstained": false,
       "case_id": "multi-flaky-thread",
       "category": "multi_evidence",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.12931,
+        0.666667,
+        0.666667,
+        0.333333,
+        0.5,
+        0.666667,
+        0.030303,
+        0.06015,
+        0.1,
+        0.097087
+      ],
       "final_scores": [
         0.854382,
         0.796774,
@@ -4981,10 +5355,10 @@
         0.641282
       ],
       "lane_latency_ms": {
-        "exact": 3.834,
-        "fuzzy": 6.478,
-        "graph": 0.631,
-        "lexical": 1.85
+        "exact": 5.517,
+        "fuzzy": 9.106,
+        "graph": 0.906,
+        "lexical": 3.133
       },
       "query": "flaky checkout retry test cause and how it was fixed",
       "rankings": {
@@ -5181,13 +5555,25 @@
         "dec-freeze-clock-in-test",
         "out-flaky-fixed"
       ],
-      "wall_ms": 14.148
+      "wall_ms": 22.137
     },
     {
       "abstained": false,
       "case_id": "bootstrap-open-threads",
       "category": "multi_evidence",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.2,
+        0.2,
+        0.12844,
+        0.038462,
+        0.043478,
+        0.072,
+        0.052632,
+        0.053892,
+        0.032787,
+        0.054054
+      ],
       "final_scores": [
         0.838,
         0.790741,
@@ -5201,10 +5587,10 @@
         0.602378
       ],
       "lane_latency_ms": {
-        "exact": 3.811,
-        "fuzzy": 6.491,
-        "graph": 0.573,
-        "lexical": 1.881
+        "exact": 5.471,
+        "fuzzy": 9.349,
+        "graph": 0.866,
+        "lexical": 2.713
       },
       "query": "what work is still open at the end of this cycle",
       "rankings": {
@@ -5398,23 +5784,28 @@
         "hand-ci-handoff",
         "hand-rollout-handoff"
       ],
-      "wall_ms": 14.167
+      "wall_ms": 21.723
     },
     {
       "abstained": false,
       "case_id": "no-answer-kubernetes-autoscaler",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.2,
+        0.2,
+        0.027273
+      ],
       "final_scores": [
         0.6,
         0.590323,
         0.35
       ],
       "lane_latency_ms": {
-        "exact": 3.814,
-        "fuzzy": 6.513,
-        "graph": 0.18,
-        "lexical": 1.473
+        "exact": 5.499,
+        "fuzzy": 9.061,
+        "graph": 0.26,
+        "lexical": 2.126
       },
       "query": "kubernetes horizontal pod autoscaler configuration",
       "rankings": {
@@ -5443,13 +5834,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 12.233
+      "wall_ms": 17.699
     },
     {
       "abstained": false,
       "case_id": "no-answer-graphql-federation",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.08046,
+        0.028571,
+        0.064815,
+        0.2,
+        0.2,
+        0.2,
+        0.2,
+        0.048077,
+        0.034188,
+        0.036232
+      ],
       "final_scores": [
         0.813291,
         0.725605,
@@ -5463,10 +5866,10 @@
         0.546269
       ],
       "lane_latency_ms": {
-        "exact": 3.867,
-        "fuzzy": 6.098,
-        "graph": 0.424,
-        "lexical": 1.769
+        "exact": 5.434,
+        "fuzzy": 8.638,
+        "graph": 0.598,
+        "lexical": 2.494
       },
       "query": "graphql schema stitching and gateway federation",
       "rankings": {
@@ -5651,13 +6054,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 13.538
+      "wall_ms": 20.283
     },
     {
       "abstained": false,
       "case_id": "no-answer-ios-push",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.104348,
+        0.080645,
+        0.052174,
+        0.086957,
+        0.119658,
+        0.079646,
+        0.100917,
+        0.108333,
+        0.108333,
+        0.118182
+      ],
       "final_scores": [
         0.8075,
         0.754798,
@@ -5671,10 +6086,10 @@
         0.580952
       ],
       "lane_latency_ms": {
-        "exact": 3.845,
-        "fuzzy": 6.536,
-        "graph": 0.495,
-        "lexical": 1.897
+        "exact": 5.45,
+        "fuzzy": 9.01,
+        "graph": 0.702,
+        "lexical": 2.96
       },
       "query": "apns certificate renewal for the ios push notification service",
       "rankings": {
@@ -5861,13 +6276,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 14.223
+      "wall_ms": 21.498
     },
     {
       "abstained": false,
       "case_id": "no-answer-recommendation-embeddings",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.166667,
+        0.166667,
+        0.088,
+        0.166667,
+        0.166667,
+        0.051282,
+        0.054688,
+        0.055118,
+        0.078431,
+        0.046154
+      ],
       "final_scores": [
         0.6,
         0.590323,
@@ -5881,10 +6308,10 @@
         0.522857
       ],
       "lane_latency_ms": {
-        "exact": 3.853,
-        "fuzzy": 6.522,
-        "graph": 0.496,
-        "lexical": 1.519
+        "exact": 5.46,
+        "fuzzy": 8.926,
+        "graph": 1.007,
+        "lexical": 2.184
       },
       "query": "which sentence embedding model powers product recommendations",
       "rankings": {
@@ -5967,13 +6394,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 12.882
+      "wall_ms": 19.629
     },
     {
       "abstained": false,
       "case_id": "no-answer-terraform-state",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.092593,
+        0.05042,
+        0.066667,
+        0.054545,
+        0.079646,
+        0.118812,
+        0.07767,
+        0.175926,
+        0.117117,
+        0.059829
+      ],
       "final_scores": [
         0.819231,
         0.774603,
@@ -5987,10 +6426,10 @@
         0.580952
       ],
       "lane_latency_ms": {
-        "exact": 3.841,
-        "fuzzy": 6.593,
-        "graph": 0.504,
-        "lexical": 1.866
+        "exact": 5.425,
+        "fuzzy": 9.18,
+        "graph": 0.692,
+        "lexical": 2.671
       },
       "query": "terraform remote state locking for the staging workspace",
       "rankings": {
@@ -6177,13 +6616,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 14.241
+      "wall_ms": 21.106
     },
     {
       "abstained": false,
       "case_id": "no-answer-localisation",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.102564,
+        0.047244,
+        0.119266,
+        0.079646,
+        0.129032,
+        0.046154,
+        0.059829,
+        0.098214,
+        0.099099,
+        0.062992
+      ],
       "final_scores": [
         0.825325,
         0.74483,
@@ -6197,10 +6648,10 @@
         0.590323
       ],
       "lane_latency_ms": {
-        "exact": 4.089,
-        "fuzzy": 6.946,
-        "graph": 0.561,
-        "lexical": 2.044
+        "exact": 5.45,
+        "fuzzy": 9.073,
+        "graph": 0.763,
+        "lexical": 2.996
       },
       "query": "how are translations sourced for the czech and polish locales",
       "rankings": {
@@ -6388,7 +6839,7 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 15.228
+      "wall_ms": 21.671
     }
   ],
   "corpus_version": "swarm-coding-2026-08-07",

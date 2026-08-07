@@ -324,6 +324,24 @@ embeddera, więc są dowodem instalacji, nie jakości semantycznej. Check-in gol
 set nadal jest deterministyczną regresją correctness, a nie benchmarkiem
 jakości.
 
+Pierwszy z tych problemów jest zamknięty (2026-08-08). `RecallQuery.min_score`
+filtruje teraz po skalibrowanym, niezależnym od rangi sygnale trafności
+(`swarmbrain.retrieval.relevance`, `lane-max-v1`): maksimum z własnych dowodów
+lane'ów — exact-term equality, pokrycie tokenów zapytania, podobieństwo
+trigramowe i dense cosine — przy czym graph nie wnosi nic, bo jego aktywacja
+jest funkcją rangi seeda. Publiczny `RecallHit.score` nie zmienił znaczenia ani
+wartości, a domyślne `min_score = 0.0` zwraca dokładnie ten sam ranking co
+wcześniej (wszystkie metryki lane'ów w zapisanych runach są identyczne).
+Komponenty leksykalny i trigramowy są przeliczane z kanonicznego tekstu, a nie
+odczytywane z raw score'ów lane'ów, bo adaptery mają różne skale (token overlap
+vs `ts_rank`) — dzięki temu ten sam próg znaczy to samo na obu backendach, co
+potwierdza live test parzystości. Cena jest zmierzona i niezerowa: pełne
+abstention na wszystkich sześciu no-answer zapytaniach wymaga `min_score = 0.40`
+w wysyłanej konfiguracji i kosztuje Recall@10 `0.882 → 0.784` na CockroachDB
+(bez lane'u dense: próg `0.25`, `0.838 → 0.799`). Krzywa kompromisu, rozbicie
+per intent i to, co pozostaje otwarte, są w dodatku z 2026-08-08 w
+[retrieval benchmark](retrieval-benchmark.md).
+
 ### P3 — dług ewaluacyjny dense
 
 Implementacja dense v2 i exact oracle są domknięte, ale mały deterministic/live

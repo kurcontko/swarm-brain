@@ -450,3 +450,260 @@ questions, so no sampling was applied.
    [retrieval evaluation](retrieval-evaluation.md).
 5. Measure ANN recall at scale across scope-selectivity and
    filter–vector-correlation buckets, with beam-size and overfetch sweeps.
+
+Follow-up 2 is answered below and no longer open; follow-ups 1, 3, 4 and 5
+still are.
+
+---
+
+# Addendum, 2026-08-08 — calibrated abstention signal
+
+Everything above this line is the original 2026-08-07 measurement and is left
+exactly as it was written. This addendum reports a change to the retriever and
+a re-measurement of the same corpus with the same evaluator. It closes
+follow-up 2 and it does not touch any other conclusion in the report.
+
+## What changed
+
+`RecallQuery.min_score` no longer filters on the public `RecallHit.score`. It
+filters on a new server-side quantity, **calibrated candidate relevance**
+(`swarmbrain.retrieval.relevance`, version `lane-max-v1`), and the public score
+is unchanged in both meaning and value.
+
+The original diagnosis was that the public score is normalised weighted RRF
+anchored to the best possible rank in the strongest configured lane, so it
+carries rank information and no relevance information. That diagnosis stands.
+The fix is to compute the missing quantity separately rather than to redefine
+the score, so no caller reading `score` sees a different number.
+
+Relevance is the **maximum** of the lanes' own evidence, each already a
+similarity in [0, 1] and none of them a function of rank:
+
+| Component | Source | Why it is relevance and not rank |
+| --- | --- | --- |
+| exact term | `1.0` when the exact lane produced the candidate | the lane fires only on whole-query equality with a projected term, or on a caller-supplied memory id / planner seed |
+| lexical coverage | fraction of the query's distinct content tokens present in the memory's `search_text` projection | recomputed from canonical text, not read from the lane |
+| trigram similarity | `trigram_similarity(lookup_text(memory), normalised query)` | recomputed from canonical text, not read from the lane |
+| dense cosine | the cosine carried on the dense fusion contribution, clamped to [0, 1] | cannot be recomputed without the query vector; both adapters produce cosine in the same projection space |
+| graph | `0.0` | graph activation is a function of a *seed's* fused rank and of edge weights, so it is rank-derived by construction |
+
+Two design points are load-bearing and worth stating plainly.
+
+**Why `max` and not a sum.** A candidate is kept when *some* lane can defend it
+on its own evidence. Summing or averaging would let several individually weak
+lanes manufacture a passing score, which is the failure being fixed.
+
+**Why the lexical and trigram components are recomputed instead of calibrated
+from lane raw scores.** The two adapters' lexical raw scores are on different
+scales — the in-memory kernel reports token overlap, CockroachDB reports
+`ts_rank`, which is roughly an order of magnitude smaller for the same match.
+No affine calibration of those raw scores can mean the same thing on both
+backends. Recomputing both components from the canonical memory text, with the
+same `swarmbrain.retrieval.projection` helpers both adapters index with, makes
+the floor backend-independent by construction. This is verified, not assumed:
+see the parity result below.
+
+Cost: no extra queries. Everything comes from the canonical memory that
+hydration already loaded plus the per-lane raw scores the trace already
+carries. Candidates are evaluated lazily in fused order and the walk stops one
+past the public `limit`, so the default path pays for at most `limit + 1`
+computations.
+
+## Abstention versus answerable recall — the trade-off curve
+
+Measured by **re-executing all 40 queries at each floor**, not by filtering a
+saved top-10 offline. That distinction matters: the floor is applied before
+truncation, so raising it lets the server walk further down the fused list and
+backfill the remaining slots. An offline filter of the saved ranking would
+report a pessimistic recall, and at low floors it would miss that recall
+*rises*.
+
+Shipped configuration (all five lanes, `DeterministicEmbeddingProvider`), k = 10:
+
+No-answer recall, no-answer precision and the empty-bundle count are identical
+on both backends at every floor; the mean-hits column is the in-memory run and
+CockroachDB differs from it by at most 0.03.
+
+| `min_score` | in-memory R@10 | in-memory MRR@10 | CockroachDB R@10 | CockroachDB MRR@10 | no-answer recall | no-answer precision | empty bundles (of 40) | mean hits |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.00 | 0.858 | 0.774 | 0.882 | 0.717 | 0.00 | 1.00 | 0 | 10.00 |
+| 0.10 | **0.873** | 0.779 | **0.897** | 0.717 | 0.00 | 1.00 | 0 | 9.65 |
+| 0.20 | 0.848 | 0.779 | 0.853 | 0.745 | 0.17 | 0.50 | 2 | 7.80 |
+| 0.25 | 0.843 | 0.787 | 0.848 | 0.776 | 0.50 | 0.75 | 4 | 6.60 |
+| 0.30 | 0.828 | 0.760 | 0.828 | 0.766 | 0.50 | 0.50 | 6 | 5.40 |
+| 0.35 | 0.804 | 0.770 | 0.804 | 0.797 | 0.83 | 0.62 | 8 | 3.60 |
+| **0.40** | **0.784** | 0.777 | **0.784** | **0.814** | **1.00** | 0.55 | 11 | 3.30 |
+| 0.50 | 0.735 | 0.765 | 0.735 | 0.789 | 1.00 | 0.50 | 12 | 2.52 |
+| 0.60 | 0.667 | 0.667 | 0.667 | 0.686 | 1.00 | 0.40 | 15 | 1.50 |
+| 0.80 | 0.441 | 0.471 | 0.441 | 0.471 | 1.00 | 0.25 | 24 | 0.65 |
+
+Compare with the control, the same sweep on the rank-anchored public score
+(`no_answer_public_score_sweep`, still produced on every run): in both
+shipped-configuration runs it never reaches a no-answer recall above `0.00` at
+any floor up to 0.8, reproducing the original finding exactly. The signal, not
+the threshold, was the problem.
+
+Lane ablation without the dense lane (`--no-dense`, in-memory), which is what
+the abstention signal looks like when the non-semantic stand-in embedder is
+removed:
+
+| `min_score` | R@10 | MRR@10 | no-answer recall | empty bundles |
+| --- | --- | --- | --- | --- |
+| 0.00 | 0.838 | 0.635 | 0.00 | 0 |
+| 0.10 | **0.927** | **0.720** | 0.00 | 0 |
+| 0.20 | 0.809 | 0.713 | 0.67 | 6 |
+| **0.25** | **0.799** | 0.772 | **1.00** | 9 |
+| 0.40 | 0.770 | 0.768 | 1.00 | 12 |
+
+**The honest headline.** Full abstention on all six no-answer queries costs
+Recall@10 in the shipped configuration: `0.882 → 0.784` on CockroachDB and
+`0.858 → 0.784` in memory, a loss of 0.098 and 0.074. MRR@10 *improves* over
+the same interval (CockroachDB `0.717 → 0.814`, in-memory `0.774 → 0.777`),
+because what the floor removes is mostly ranked above the evidence it keeps.
+With the dense lane off, full abstention arrives at 0.25 for a smaller recall
+loss (`0.838 → 0.799`). No floor buys abstention for free, and no number below
+is presented as if it did.
+
+## Where the recall loss goes
+
+Recall@10 / MRR@10 by query intent, in-memory, shipped configuration:
+
+| Intent | n | floor 0.00 | floor 0.25 | floor 0.40 |
+| --- | --- | --- | --- | --- |
+| identifier_exact | 8 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 |
+| code_lookup | 3 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 |
+| lexical | 7 | 1.000 / 0.929 | 1.000 / 0.929 | 1.000 / 1.000 |
+| decoy_heavy | 4 | 1.000 / 0.432 | 0.875 / 0.792 | 0.875 / 0.875 |
+| fuzzy_typo | 4 | 0.875 / 0.812 | 0.875 / 0.812 | 0.750 / 0.583 |
+| multi_evidence | 3 | 0.556 / 0.611 | **0.889** / 0.611 | 0.556 / 0.528 |
+| paraphrase | 5 | 0.400 / 0.400 | 0.200 / 0.200 | 0.100 / 0.200 |
+
+The loss is concentrated in exactly one place. At floor 0.40, four of the five
+`paraphrase` queries return an empty bundle — and three of those four were
+already returning **no** judged evidence at floor 0.00, so the retriever now
+says "I have nothing" instead of returning ten confident wrong answers. The two
+genuinely damaged cases are `paraphrase-transaction-conflict` (both judged
+memories dropped; their best evidence is 0.18 coverage, 0.07 trigram, 0.15
+cosine) and `fuzzy-typo-test-name` (dropped at 0.35; its only evidence is a
+0.294 trigram similarity on a mistyped test name). `decoy-search-freshness`
+loses one of two judged memories and `multi-duplicate-charge-thread` loses one
+of two at 0.40.
+
+Every one of those is a case where lexical, trigram and hash-embedder evidence
+are all genuinely near zero — which is precisely the case a real semantic
+embedder is supposed to rescue and this one cannot. This is the sharpest
+argument yet for follow-up 1, and it is a reason to re-measure this table after
+the Titan rerun rather than to pick a lower floor now.
+
+Two intents *gain* from a modest floor: `decoy_heavy` MRR@10 rises 0.432 →
+0.792 at 0.25 and `multi_evidence` Recall@10 rises 0.556 → 0.889, because
+backfill replaces low-relevance graph neighbours with judged evidence that was
+sitting below rank 10.
+
+## What is recommended, and what is not
+
+- **The default stays `min_score = 0.0`.** Nothing about an unfiltered recall
+  changed: at floor 0.0 every lane metric in all three saved reports is
+  byte-identical to the 2026-08-07 run.
+- **A deployment that must abstain should set `min_score = 0.40`** with the
+  current lane set, or `0.25` with the dense lane disabled, and accept the
+  recall cost in the table above.
+- **`min_score = 0.10` is free or better** on this corpus — Recall@10 rises
+  (0.882 → 0.897 on CockroachDB, 0.858 → 0.873 in memory), MRR does not fall,
+  and mean hits drop from 10.00 to 9.65 — but it produces **no** abstention. It
+  is a precision floor, not an abstention floor. It is not made the default
+  here, because changing the default would change what every existing caller
+  gets from an unfiltered recall, and that is a decision for a release, not for
+  a benchmark.
+- **No server-side absolute floor was added.** The one conservative candidate
+  was dropping candidates whose only defence is a graph contribution; measured,
+  it changes no metric at floor 0.0 (those candidates already score 0.0
+  relevance and are removed by any positive floor) and it would silently reduce
+  what a default caller receives. It was not worth changing the default for.
+
+## Adapter parity
+
+The abstention behaviour is identical on both backends. Across the ten floors
+above, the number of empty bundles is the same sequence on the in-memory kernel
+and on live CockroachDB (0, 0, 2, 4, 6, 8, 11, 12, 15, 24) and no-answer recall
+matches at every floor. Recall differs at low floors only where it already
+differed in the original report, because CockroachDB's `TSVECTOR` lexical lane
+is stronger than the in-memory reference scorer.
+
+A live test (`tests/retrieval/test_relevance_parity_live.py`) publishes the
+same four memories to both backends and asserts that the per-candidate
+relevance values and the resulting abstention at `min_score = 0.25` are equal
+for every query in a fixed set, including two topically absent ones.
+
+## Latency
+
+The relevance computation adds bounded Python work over already-hydrated text
+and issues no queries. Measured on the same machine within minutes of each
+other, before and after the change:
+
+| Backend | wall p50 before | wall p50 after |
+| --- | --- | --- |
+| in-memory | 30.4 ms | 31.3 ms |
+| CockroachDB | 91.1 ms | 94.9 ms |
+
+Isolated microbenchmark of the computation itself: 1.4 ms for eleven candidates
+(0.26 ms lexical coverage, 1.19 ms lookup/trigram), which accounts for the
+in-memory delta. Both absolute numbers are higher than the 2026-08-07 figures
+(21.1 ms and 65.0 ms) because this machine was running other work; the
+before/after pair, not the absolute value, is the measurement.
+
+CockroachDB ANN Recall@5 and Recall@10 against the exact-vector oracle remain
+1.000 mean and 1.000 min over all 40 queries.
+
+## What remains open
+
+- **The floor is corpus-calibrated, not learned.** `0.40` and `0.25` are read
+  off the curves above on a 90-memory, 40-query, single-annotator corpus. They
+  are honest for this corpus and should be re-derived after the Titan rerun and
+  after the corpus grows. No claim is made that they transfer.
+- **Paraphrase abstention is a semantic-model gap, not a threshold gap.** With
+  a non-semantic embedder, any floor that separates the no-answer queries also
+  removes the weakest paraphrase evidence. The correct fix is follow-up 1.
+- **The function-word list used by the lexical component is English-only.** On
+  a non-English query nothing is filtered and the component degrades to plain
+  token coverage, which is more permissive, never less — so the failure
+  direction is "returns hits a floor might have dropped", not "drops relevant
+  hits". It has not been measured on a non-English corpus, because there is
+  none.
+- **The pre-v1 store fallback keeps the old semantics.** `MemoryService`
+  constructed without a `RetrievalService` falls back to `store.recall()`,
+  where `min_score` still filters on that store's own score. Production
+  runtimes install the v1 retrieval path, but the two are not the same floor
+  and this is not unified.
+- **Nothing here measures LongMemEval-S.** That track's saved runs are
+  unchanged and were not re-run: it is evaluated at the default
+  `min_score = 0.0`, where behaviour is identical, and its `*_abs` questions
+  are not no-answer retrieval cases (see Track 2 above).
+
+## Reproducing the addendum
+
+```bash
+# in-memory, with the abstention sweep (default thresholds)
+uv run --extra dev python scripts/run_retrieval_eval.py --track swarm --backend memory
+
+# live CockroachDB
+SWARMBRAIN_EVAL_DATABASE_URL="postgresql://root@127.0.0.1:26257/swarmbrain_eval?sslmode=disable" \
+  uv run --extra dev python scripts/run_retrieval_eval.py --track swarm --backend cockroach
+
+# without the dense lane
+uv run --extra dev python scripts/run_retrieval_eval.py --track swarm --backend memory --no-dense
+
+# custom floors, or none at all
+uv run --extra dev python scripts/run_retrieval_eval.py --track swarm --min-score-sweep 0.0 0.4
+```
+
+The sweep lands in each saved report under `no_answer_min_score_sweep`; the
+original public-score sweep is retained beside it as
+`no_answer_public_score_sweep`. Per-hit relevance for the default run is saved
+per case as `final_relevance` next to `final_scores`.
+
+Environment for this addendum: repository `swarm-brain` at `90975f6` plus the
+uncommitted change described here, Python 3.13.9 arm64, CockroachDB CCL
+v26.2.1, evaluation database `swarmbrain_eval`, same corpus
+`swarm-coding-2026-08-07` and judgments `r1` — no query, judgment or corpus
+memory was added, removed or edited.

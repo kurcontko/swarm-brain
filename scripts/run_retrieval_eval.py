@@ -270,6 +270,7 @@ async def _execute_case(
     text: str,
     *,
     limit: int,
+    min_score: float = 0.0,
 ) -> tuple[RetrievalExecution, float]:
     """Mirror ``MemoryService.recall``: embed outside the snapshot, then execute."""
 
@@ -281,7 +282,7 @@ async def _execute_case(
             dimensions=provider.dimensions,
             values=tuple(values),
         )
-    query = RecallQuery(text=text, limit=limit)
+    query = RecallQuery(text=text, limit=limit, min_score=min_score)
     started = perf_counter()
     execution = await retrieval.execute(
         actor,
@@ -724,6 +725,74 @@ async def run_longmemeval(
 # --------------------------------------------------------------------------- #
 
 
+async def _relevance_sweep(
+    retrieval: RetrievalService,
+    provider: DeterministicEmbeddingProvider | None,
+    actor: ActorContext,
+    corpus: EvalCorpus,
+    key_by_id: dict[str, str],
+    *,
+    limit: int,
+    k_values: Sequence[int],
+    thresholds: Sequence[float],
+) -> dict[str, list[dict[str, Any]]]:
+    """Re-execute every query at each ``min_score`` floor and score the result.
+
+    This is a real re-execution rather than a post-hoc filter of a saved
+    top-``k``.  It has to be: the floor is applied before truncation, so raising
+    it lets the server walk further down the fused list and backfill the
+    remaining slots with candidates a saved top-10 never contained.  Filtering
+    the saved ranking offline would report a pessimistic recall.
+    """
+
+    relevant = {case.case_id: case.relevant for case in corpus.queries}
+    per_threshold: dict[float, dict[str, tuple[str, ...]]] = {}
+    abstentions: dict[float, int] = {}
+    for threshold in thresholds:
+        returned: dict[str, tuple[str, ...]] = {}
+        empty = 0
+        for case in corpus.queries:
+            execution, _ = await _execute_case(
+                retrieval,
+                provider,
+                actor,
+                case.text,
+                limit=limit,
+                min_score=threshold,
+            )
+            keys: list[str] = []
+            for hit in execution.bundle.hits:
+                key = key_by_id.get(hit.memory.memory_id)
+                if key is not None and key not in keys:
+                    keys.append(key)
+            returned[case.case_id] = tuple(keys)
+            empty += not execution.bundle.hits
+        per_threshold[threshold] = returned
+        abstentions[threshold] = empty
+
+    rows: dict[str, list[dict[str, Any]]] = {}
+    for k in k_values:
+        rows[f"k={k}"] = []
+        for threshold in thresholds:
+            returned = per_threshold[threshold]
+            metrics = evaluate_lanes(relevant, {"final": returned}, k=k)["final"]
+            rows[f"k={k}"].append(
+                {
+                    "min_score": threshold,
+                    "recall_at_k": round(metrics.recall_at_k, 4),
+                    "mrr_at_k": round(metrics.mrr_at_k, 4),
+                    "ndcg_at_k": round(metrics.ndcg_at_k, 4),
+                    "no_answer_precision": round(metrics.no_answer_precision, 4),
+                    "no_answer_recall": round(metrics.no_answer_recall, 4),
+                    "empty_bundles": abstentions[threshold],
+                    "mean_returned": round(
+                        _mean([float(len(value)) for value in returned.values()]), 3
+                    ),
+                }
+            )
+    return rows
+
+
 async def run_swarm_track(
     corpus: EvalCorpus,
     *,
@@ -733,9 +802,11 @@ async def run_swarm_track(
     database_url: str | None,
     k_values: Sequence[int],
     use_dense: bool = True,
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    relevance_thresholds: Sequence[float] = (),
+) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, list[dict[str, Any]]]]:
     database: Any = None
     ann: dict[str, Any] | None = None
+    sweep: dict[str, list[dict[str, Any]]] = {}
     if backend == "cockroach":
         if database_url is None:
             raise RuntimeError("SWARMBRAIN_EVAL_DATABASE_URL is required for the cockroach backend")
@@ -770,6 +841,9 @@ async def run_swarm_track(
                 [hit.memory.memory_id for hit in bundle.hits],
                 key_by_id.get,
             )
+            relevance_by_id = {
+                item.canonical_id: item for item in execution.trace.candidate_relevance
+            }
             cases.append(
                 {
                     "case_id": case.case_id,
@@ -777,6 +851,14 @@ async def run_swarm_track(
                     "query": case.text,
                     "relevant_ids": list(case.relevant),
                     "final_scores": [round(hit.score, 6) for hit in bundle.hits],
+                    # Rank-independent relevance behind the same hits, so the
+                    # rank-anchored public score and the abstention signal can
+                    # be compared per hit in the saved artifact.
+                    "final_relevance": [
+                        round(relevance_by_id[hit.memory.memory_id].relevance, 6)
+                        for hit in bundle.hits
+                        if hit.memory.memory_id in relevance_by_id
+                    ],
                     "wall_ms": round(wall_ms, 3),
                     "lane_latency_ms": {
                         batch.lane.value: round(batch.latency_ms, 3)
@@ -786,6 +868,17 @@ async def run_swarm_track(
                     "abstained": execution.trace.abstained,
                     "rankings": rankings,
                 }
+            )
+        if relevance_thresholds:
+            sweep = await _relevance_sweep(
+                retrieval,
+                provider if use_dense else None,
+                actor,
+                corpus,
+                key_by_id,
+                limit=limit,
+                k_values=k_values,
+                thresholds=relevance_thresholds,
             )
         if backend == "cockroach":
             ann = await _ann_recall(
@@ -823,7 +916,7 @@ async def run_swarm_track(
         ),
         "cases": cases,
     }
-    return payload, ann
+    return payload, ann, sweep
 
 
 # --------------------------------------------------------------------------- #
@@ -1021,6 +1114,17 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="lane ablation: run without the dense lane, as if no embedding provider existed",
     )
+    parser.add_argument(
+        "--min-score-sweep",
+        type=float,
+        nargs="*",
+        default=[0.0, 0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.8],
+        help=(
+            "abstention sweep: re-execute every query at each RecallQuery.min_score "
+            "floor (a floor on calibrated relevance) and score the result; pass no "
+            "values to skip the sweep"
+        ),
+    )
     parser.add_argument("--lme-path", type=Path, default=None)
     parser.add_argument("--lme-download", action="store_true")
     parser.add_argument("--lme-sample", type=int, default=150)
@@ -1036,7 +1140,8 @@ async def _main(args: argparse.Namespace) -> int:
 
     if args.track in {"swarm", "both"}:
         corpus = load_corpus(args.corpus)
-        payload, ann = await run_swarm_track(
+        relevance_thresholds = tuple(sorted(set(args.min_score_sweep)))
+        payload, ann, relevance_sweep = await run_swarm_track(
             corpus,
             backend=args.backend,
             limit=args.limit,
@@ -1044,6 +1149,7 @@ async def _main(args: argparse.Namespace) -> int:
             database_url=_eval_database_url(),
             k_values=k_values,
             use_dense=use_dense,
+            relevance_thresholds=relevance_thresholds,
         )
         run_path = args.out_dir / f"swarm-native-{args.backend}{suffix}-run.json"
         run_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1051,7 +1157,10 @@ async def _main(args: argparse.Namespace) -> int:
         report["corpus_version"] = corpus.corpus_version
         report["judgments_revision"] = corpus.judgments_revision
         report["backend"] = args.backend
-        report["no_answer_min_score_sweep"] = {
+        # Kept unchanged so the original 2026-08-07 measurement stays
+        # reproducible: this sweeps the rank-anchored public score, which is
+        # what ``min_score`` used to filter on.
+        report["no_answer_public_score_sweep"] = {
             f"k={k}": no_answer_min_score_sweep(
                 payload["cases"],
                 k=k,
@@ -1059,6 +1168,10 @@ async def _main(args: argparse.Namespace) -> int:
             )
             for k in k_values
         }
+        # What ``RecallQuery.min_score`` filters on now: calibrated relevance,
+        # measured by re-executing every query at each floor.
+        if relevance_sweep:
+            report["no_answer_min_score_sweep"] = relevance_sweep
         if ann is not None:
             report["ann_vs_exact_oracle"] = ann
         report_path = args.out_dir / f"swarm-native-{args.backend}{suffix}-report.json"

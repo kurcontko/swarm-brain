@@ -1,4 +1,13 @@
-"""Deterministic weighted Reciprocal Rank Fusion."""
+"""Deterministic weighted Reciprocal Rank Fusion.
+
+``FusedCandidate.normalized_score`` published here is a *rank* statement and
+nothing else: it is raw weighted RRF divided by the score a rank-one hit in the
+strongest configured lane would earn.  It orders results well and it is stable
+across lane availability, but it carries no information about how well a
+candidate actually matches the query, so a threshold on it cannot abstain.
+The rank-independent counterpart lives in :mod:`swarmbrain.retrieval.relevance`
+and is what ``RecallQuery.min_score`` is gated on.
+"""
 
 from __future__ import annotations
 

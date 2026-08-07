@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +16,7 @@ from swarmbrain.domain.common import MemoryId, utc_now
 from swarmbrain.domain.memory import RecallBundle, RecallHit, RecallQuery
 from swarmbrain.domain.retrieval import (
     CandidateBatch,
+    CandidateRelevance,
     DenseQuery,
     HydrationRejection,
     RetrievalPurpose,
@@ -28,7 +29,14 @@ from swarmbrain.ports.retrieval import (
     RetrievalGateway,
     RetrievalTraceSink,
 )
-from swarmbrain.retrieval import RetrievalPlanner, parse_query_identifiers, weighted_rrf
+from swarmbrain.retrieval import (
+    RELEVANCE_VERSION,
+    RetrievalPlanner,
+    candidate_relevance,
+    parse_query_identifiers,
+    relevance_query,
+    weighted_rrf,
+)
 
 
 @asynccontextmanager
@@ -193,11 +201,36 @@ class RetrievalService:
         hydrated_by_id = {memory.memory_id: memory for memory in hydrated}
         candidate_domain = self._candidate_domains(tuple(batches))
 
+        # ``min_score`` is a floor on calibrated relevance, not on the public
+        # score.  The public score is normalised weighted RRF: it is anchored to
+        # the best possible rank in the strongest configured lane, so it is a
+        # rank statement, and thresholding it cannot express "nothing here is
+        # actually about the query".  Relevance is the rank-independent
+        # per-hit quantity defined in ``swarmbrain.retrieval.relevance``; the
+        # published ``RecallHit.score`` keeps its previous meaning and value.
+        #
+        # ``min_score = 0.0`` (the default) admits every relevance, so callers
+        # who do not opt in see exactly the ranking they saw before.
+        #
+        # Candidates are evaluated lazily in fused order and the walk stops one
+        # past the public limit, which is also how ``truncated`` is decided, so
+        # the default path pays for at most ``limit + 1`` relevance
+        # computations and no extra queries.
+        terms = relevance_query(query.text)
+        relevance_scores: list[CandidateRelevance] = []
         eligible: list[RecallHit] = []
+        overflowed = False
         for candidate in fused:
             memory = hydrated_by_id.get(candidate.canonical_id)
-            if memory is None or candidate.normalized_score < query.min_score:
+            if memory is None:
                 continue
+            relevance = candidate_relevance(terms, memory, candidate.contributions)
+            relevance_scores.append(relevance)
+            if relevance.relevance < query.min_score:
+                continue
+            if len(eligible) >= query.limit:
+                overflowed = True
+                break
             reasons = list(candidate.reasons)
             reasons.append(f"purpose:{purpose.value}")
             section = self._section(purpose, candidate_domain.get(candidate.canonical_id))
@@ -212,7 +245,7 @@ class RetrievalService:
                 )
             )
 
-        hits = tuple(eligible[: query.limit])
+        hits = tuple(eligible)
         hydrated_ids = tuple(memory.memory_id for memory in hydrated)
         hydrated_set = frozenset(hydrated_ids)
         trace = RetrievalTrace(
@@ -223,6 +256,8 @@ class RetrievalService:
             ),
             batches=tuple(batches),
             fused_candidates=fused,
+            relevance_version=RELEVANCE_VERSION,
+            candidate_relevance=tuple(relevance_scores),
             hydrated_ids=hydrated_ids,
             hydration_rejections=tuple(
                 HydrationRejection(canonical_id=candidate_id)
@@ -232,7 +267,7 @@ class RetrievalService:
             final_ids=tuple(hit.memory.memory_id for hit in hits),
             degraded_lanes=frozenset(batch.lane for batch in batches if batch.degraded),
             abstained=not hits,
-            abstention_reason="no_relevant_recallable_candidates" if not hits else None,
+            abstention_reason=self._abstention_reason(query, hits, relevance_scores),
             started_at=started_at,
             completed_at=completed_at,
         )
@@ -245,12 +280,30 @@ class RetrievalService:
                 hits=hits,
                 generated_at=completed_at,
                 total_candidates=len(fused),
-                truncated=(
-                    len(eligible) > query.limit or any(batch.truncated for batch in batches)
-                ),
+                truncated=(overflowed or any(batch.truncated for batch in batches)),
             ),
             trace=trace,
         )
+
+    @staticmethod
+    def _abstention_reason(
+        query: RecallQuery,
+        hits: tuple[RecallHit, ...],
+        relevance_scores: Sequence[CandidateRelevance],
+    ) -> str | None:
+        """Name why an empty bundle is empty, separating the two causes.
+
+        ``below_relevance_floor`` means recallable candidates existed and every
+        one of them failed the caller's calibrated floor — the abstention this
+        feature adds.  ``no_relevant_recallable_candidates`` keeps its previous
+        meaning: nothing survived scope, fusion, or hydration at all.
+        """
+
+        if hits:
+            return None
+        if query.min_score > 0.0 and relevance_scores:
+            return "below_relevance_floor"
+        return "no_relevant_recallable_candidates"
 
     @staticmethod
     def _candidate_domains(batches: tuple[CandidateBatch, ...]) -> dict[str, str]:

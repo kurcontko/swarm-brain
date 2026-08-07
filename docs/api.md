@@ -322,7 +322,9 @@ states?: MemoryState[]         # default effective states: tentative,confirmed
 include_refuted: boolean = false
 include_superseded: boolean = false
 world_at?, recorded_at?: aware datetime
-min_score: number[0,1] = 0
+min_score: number[0,1] = 0     # floors calibrated per-hit relevance
+                               # (lane-max-v1), not the ranked score; 0 keeps
+                               # today's behavior, higher values allow abstention
 limit: integer[1,100] = 10
 include_evidence: boolean = true
 include_lineage: boolean = false

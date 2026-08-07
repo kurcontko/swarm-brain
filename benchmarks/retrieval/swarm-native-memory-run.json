@@ -6,6 +6,18 @@
       "case_id": "exact-path-webhook-router",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.75,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.5,
+        0.75
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -19,11 +31,11 @@
         0.748076
       ],
       "lane_latency_ms": {
-        "dense": 6.746,
-        "exact": 4.469,
-        "fuzzy": 6.763,
-        "graph": 0.811,
-        "lexical": 1.806
+        "dense": 9.254,
+        "exact": 5.734,
+        "fuzzy": 9.13,
+        "graph": 1.281,
+        "lexical": 2.352
       },
       "query": "services/payments/webhook_router.py",
       "rankings": {
@@ -255,13 +267,25 @@
         "inv-webhook-idempotency",
         "dec-webhook-timeout-budget"
       ],
-      "wall_ms": 22.58
+      "wall_ms": 32.048
     },
     {
       "abstained": false,
       "case_id": "exact-test-name",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.044544,
+        0.024183,
+        0.012039,
+        0.032466,
+        0.157143,
+        0.041667,
+        0.047059,
+        0.020833
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -275,11 +299,11 @@
         0.231061
       ],
       "lane_latency_ms": {
-        "dense": 7.324,
-        "exact": 3.903,
-        "fuzzy": 17.365,
-        "graph": 0.759,
-        "lexical": 1.466
+        "dense": 9.137,
+        "exact": 5.744,
+        "fuzzy": 8.762,
+        "graph": 0.956,
+        "lexical": 2.11
       },
       "query": "test_checkout_retry_backoff",
       "rankings": {
@@ -315,8 +339,8 @@
           "proc-flag-cleanup",
           "proc-bisect-flaky",
           "out-leak-fixed",
-          "out-pool-fix",
           "obs-flag-eval-latency",
+          "out-pool-fix",
           "warn-index-rebuild-cost",
           "proc-rebuild-index",
           "warn-search-stale",
@@ -367,8 +391,8 @@
           "proc-flag-cleanup",
           "proc-bisect-flaky",
           "out-leak-fixed",
-          "out-pool-fix",
           "obs-flag-eval-latency",
+          "out-pool-fix",
           "warn-index-rebuild-cost",
           "proc-rebuild-index",
           "warn-search-stale",
@@ -442,8 +466,8 @@
           "dec-webhook-timeout-budget",
           "proc-flag-cleanup",
           "proc-bisect-flaky",
-          "out-pool-fix",
           "obs-flag-eval-latency",
+          "out-pool-fix",
           "warn-index-rebuild-cost",
           "proc-rebuild-index",
           "warn-search-stale",
@@ -479,13 +503,25 @@
         "obs-flaky-checkout-retry",
         "proc-repro-flaky-seed"
       ],
-      "wall_ms": 33.384
+      "wall_ms": 29.874
     },
     {
       "abstained": false,
       "case_id": "exact-symbol-retry-helper",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -499,11 +535,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.677,
-        "exact": 4.257,
-        "fuzzy": 6.452,
-        "graph": 0.859,
-        "lexical": 1.709
+        "dense": 8.915,
+        "exact": 5.529,
+        "fuzzy": 8.851,
+        "graph": 0.95,
+        "lexical": 2.272
       },
       "query": "orion.db.retry.with_serializable_retry",
       "rankings": {
@@ -594,8 +630,8 @@
           "obs-token-expiry-bug",
           "proc-local-dev-setup",
           "proc-explain-analyze",
-          "obs-trace-sampling",
           "proc-rebuild-index",
+          "obs-trace-sampling",
           "proc-add-span",
           "inv-money-decimal",
           "inv-single-snapshot",
@@ -665,8 +701,8 @@
           "obs-token-expiry-bug",
           "proc-local-dev-setup",
           "proc-explain-analyze",
-          "obs-trace-sampling",
           "proc-rebuild-index",
+          "obs-trace-sampling",
           "proc-add-span",
           "inv-money-decimal",
           "inv-single-snapshot",
@@ -727,18 +763,30 @@
         "inv-serializable-retry",
         "proc-retry-loop"
       ],
-      "wall_ms": 21.681
+      "wall_ms": 29.808
     },
     {
       "abstained": false,
       "case_id": "exact-error-sqlstate-40001",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        0.070767,
+        0.062257,
+        0.016,
+        0.136145,
+        0.132129,
+        0.118525,
+        0.116972,
+        0.115897
+      ],
       "final_scores": [
         1.0,
         1.0,
         0.40443,
-        0.383046,
+        0.384604,
         0.242063,
         0.193651,
         0.190625,
@@ -747,11 +795,11 @@
         0.18209
       ],
       "lane_latency_ms": {
-        "dense": 6.837,
-        "exact": 4.192,
-        "fuzzy": 6.296,
-        "graph": 0.418,
-        "lexical": 1.586
+        "dense": 8.967,
+        "exact": 5.505,
+        "fuzzy": 7.96,
+        "graph": 0.482,
+        "lexical": 2.474
       },
       "query": "SQLSTATE 40001",
       "rankings": {
@@ -783,8 +831,8 @@
           "dec-schema-v9-counter",
           "warn-lease-loss",
           "warn-mac-arm-wheels",
-          "inv-money-decimal",
           "out-fix-behind-flag",
+          "inv-money-decimal",
           "obs-trace-sampling",
           "dec-webhook-timeout-budget",
           "inv-token-scope",
@@ -835,8 +883,8 @@
           "dec-schema-v9-counter",
           "warn-lease-loss",
           "warn-mac-arm-wheels",
-          "inv-money-decimal",
           "out-fix-behind-flag",
+          "inv-money-decimal",
           "obs-trace-sampling",
           "dec-webhook-timeout-budget",
           "inv-token-scope",
@@ -942,13 +990,25 @@
         "inv-serializable-retry",
         "obs-error-40001-spike"
       ],
-      "wall_ms": 20.904
+      "wall_ms": 28.691
     },
     {
       "abstained": false,
       "case_id": "exact-error-payments-4210",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -962,11 +1022,11 @@
         0.816462
       ],
       "lane_latency_ms": {
-        "dense": 6.959,
-        "exact": 4.173,
-        "fuzzy": 5.757,
-        "graph": 0.47,
-        "lexical": 1.667
+        "dense": 9.183,
+        "exact": 5.467,
+        "fuzzy": 7.923,
+        "graph": 0.634,
+        "lexical": 2.18
       },
       "query": "PAYMENTS-4210",
       "rankings": {
@@ -988,39 +1048,39 @@
           "proc-profile-worker",
           "dec-search-ranking",
           "warn-capability-check",
-          "dec-schema-v9-counter",
-          "dec-webhook-timeout-budget",
-          "att-first-fix-attempt",
-          "dec-rollout-percent",
-          "inv-money-decimal",
-          "obs-flaky-docker-pull",
-          "warn-time-sleep-in-tests",
-          "obs-clock-skew-jwt",
-          "out-leak-fixed",
-          "obs-memory-leak-worker",
-          "dec-pool-size",
-          "obs-provider-retry-schedule",
-          "out-pool-fix",
-          "dec-graceful-shutdown",
-          "warn-cardinality-explosion",
-          "proc-bisect-flaky",
-          "proc-run-full-matrix",
-          "proc-flag-cleanup",
-          "proc-rebuild-index",
-          "obs-flaky-checkout-retry",
-          "out-flaky-fixed",
           "obs-token-expiry-bug",
-          "proc-alert-runbook",
-          "att-search-shard",
-          "inv-no-select-star",
-          "obs-duplicate-charge-trace",
+          "dec-pool-size",
+          "out-auth-fix",
+          "hand-rollout-handoff",
+          "obs-provider-retry-schedule",
+          "dec-rollout-percent",
+          "proc-run-full-matrix",
+          "warn-cardinality-explosion",
+          "inv-lockfile-committed",
+          "out-rollout-complete",
           "inv-serializable-retry",
+          "obs-duplicate-charge-trace",
+          "proc-flag-cleanup",
+          "warn-time-sleep-in-tests",
           "warn-lease-loss",
-          "att-parallel-jobs",
-          "proc-retry-loop",
+          "inv-no-select-star",
+          "dec-replay-guard-table",
           "obs-search-duplicate-docs",
-          "proc-release-tag",
-          "inv-no-pii-in-metrics"
+          "inv-flag-default-off",
+          "proc-explain-analyze",
+          "out-leak-fixed",
+          "obs-ci-runner-clock-skew",
+          "obs-ci-cache-miss",
+          "obs-memory-leak-worker",
+          "warn-long-txn",
+          "hand-payments-handoff-1",
+          "obs-clock-skew-jwt",
+          "obs-onboarding-doc",
+          "out-pool-fix",
+          "out-flaky-fixed",
+          "warn-token-in-logs",
+          "dec-graceful-shutdown",
+          "obs-flaky-checkout-retry"
         ],
         "direct_fused": [
           "warn-refund-partial",
@@ -1134,13 +1194,25 @@
       "relevant_ids": [
         "warn-refund-partial"
       ],
-      "wall_ms": 19.846
+      "wall_ms": 27.832
     },
     {
       "abstained": false,
       "case_id": "exact-commit-leak-fix",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.084116,
+        0.062939,
+        0.058037,
+        0.059857,
+        0.058926,
+        0.046829,
+        0.046625,
+        0.056058,
+        0.023113
+      ],
       "final_scores": [
         1.0,
         0.388138,
@@ -1150,15 +1222,15 @@
         0.348368,
         0.34815,
         0.339788,
-        0.332941,
-        0.313316
+        0.333977,
+        0.312671
       ],
       "lane_latency_ms": {
-        "dense": 6.648,
-        "exact": 3.92,
-        "fuzzy": 5.587,
-        "graph": 0.527,
-        "lexical": 1.503
+        "dense": 9.311,
+        "exact": 5.46,
+        "fuzzy": 7.796,
+        "graph": 0.718,
+        "lexical": 2.07
       },
       "query": "e52b7f3",
       "rankings": {
@@ -1186,8 +1258,8 @@
           "out-flaky-fixed",
           "obs-trace-sampling",
           "hand-rollout-handoff",
-          "warn-search-stale",
           "warn-token-in-logs",
+          "warn-search-stale",
           "hand-flaky-handoff",
           "proc-add-span",
           "inv-test-isolation",
@@ -1210,8 +1282,8 @@
           "dec-hs256",
           "hand-final-handoff",
           "obs-provider-retry-schedule",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "inv-webhook-idempotency"
         ],
         "direct_fused": [
@@ -1239,8 +1311,8 @@
           "out-flaky-fixed",
           "obs-trace-sampling",
           "hand-rollout-handoff",
-          "warn-search-stale",
           "warn-token-in-logs",
+          "warn-search-stale",
           "hand-flaky-handoff",
           "proc-add-span",
           "inv-test-isolation",
@@ -1263,8 +1335,8 @@
           "dec-hs256",
           "hand-final-handoff",
           "obs-provider-retry-schedule",
-          "proc-alert-runbook",
-          "obs-pool-exhaustion"
+          "obs-pool-exhaustion",
+          "proc-alert-runbook"
         ],
         "exact": [
           "out-leak-fixed"
@@ -1315,8 +1387,8 @@
           "out-flaky-fixed",
           "obs-trace-sampling",
           "hand-rollout-handoff",
-          "warn-search-stale",
           "warn-token-in-logs",
+          "warn-search-stale",
           "hand-flaky-handoff",
           "proc-add-span",
           "inv-test-isolation",
@@ -1353,13 +1425,25 @@
       "relevant_ids": [
         "out-leak-fixed"
       ],
-      "wall_ms": 19.672
+      "wall_ms": 28.668
     },
     {
       "abstained": false,
       "case_id": "exact-alias-replay-guard-flag",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.333333,
+        0.333333,
+        0.666667,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -1373,11 +1457,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.458,
-        "exact": 3.877,
-        "fuzzy": 6.145,
-        "graph": 0.691,
-        "lexical": 1.563
+        "dense": 9.006,
+        "exact": 5.437,
+        "fuzzy": 8.621,
+        "graph": 1.157,
+        "lexical": 2.177
       },
       "query": "payments.replay_guard.v2",
       "rankings": {
@@ -1411,8 +1495,8 @@
           "inv-token-scope",
           "inv-serializable-retry",
           "dec-search-ranking",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "out-leak-fixed",
           "proc-repro-flaky-seed",
           "proc-run-full-matrix",
@@ -1465,8 +1549,8 @@
           "inv-token-scope",
           "inv-serializable-retry",
           "dec-search-ranking",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "out-leak-fixed",
           "proc-repro-flaky-seed",
           "proc-run-full-matrix",
@@ -1533,8 +1617,8 @@
           "inv-token-scope",
           "inv-serializable-retry",
           "dec-search-ranking",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "proc-repro-flaky-seed",
           "proc-run-full-matrix",
           "inv-lockfile-committed",
@@ -1583,13 +1667,25 @@
       "relevant_ids": [
         "out-fix-behind-flag"
       ],
-      "wall_ms": 20.07
+      "wall_ms": 30.068
     },
     {
       "abstained": false,
       "case_id": "exact-tag-flaky-test",
       "category": "identifier_exact",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -1603,11 +1699,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.404,
-        "exact": 3.903,
-        "fuzzy": 5.912,
-        "graph": 0.453,
-        "lexical": 1.541
+        "dense": 9.398,
+        "exact": 5.533,
+        "fuzzy": 8.889,
+        "graph": 0.754,
+        "lexical": 2.203
       },
       "query": "flaky-test",
       "rankings": {
@@ -1649,19 +1745,19 @@
           "proc-local-dev-setup",
           "att-first-fix-attempt",
           "dec-replay-guard-table",
-          "dec-schema-v9-counter",
-          "dec-webhook-timeout-budget",
-          "dec-rollout-percent",
-          "inv-money-decimal",
-          "obs-flaky-docker-pull",
-          "warn-capability-check",
-          "out-leak-fixed",
+          "out-auth-fix",
+          "out-fix-behind-flag",
+          "hand-rollout-handoff",
           "obs-provider-retry-schedule",
-          "out-pool-fix",
-          "proc-profile-worker",
-          "dec-graceful-shutdown",
+          "dec-rollout-percent",
           "warn-cardinality-explosion",
-          "proc-bisect-flaky"
+          "inv-lockfile-committed",
+          "out-rollout-complete",
+          "inv-serializable-retry",
+          "obs-duplicate-charge-trace",
+          "proc-flag-cleanup",
+          "warn-lease-loss",
+          "inv-flag-default-off"
         ],
         "direct_fused": [
           "att-retry-count-bump",
@@ -1693,13 +1789,13 @@
           "obs-memory-leak-worker",
           "att-parallel-jobs",
           "warn-refund-partial",
-          "inv-charge-amount-currency",
           "proc-bisect-flaky",
+          "inv-charge-amount-currency",
           "obs-token-expiry-bug",
           "inv-no-select-star",
           "dec-pool-size",
-          "warn-flag-debt",
           "dec-freeze-clock-in-test",
+          "warn-flag-debt",
           "proc-reproduce-duplicate-charge",
           "proc-local-dev-setup",
           "att-first-fix-attempt",
@@ -1756,8 +1852,8 @@
           "obs-memory-leak-worker",
           "att-parallel-jobs",
           "warn-refund-partial",
-          "inv-charge-amount-currency",
           "proc-bisect-flaky",
+          "inv-charge-amount-currency",
           "obs-token-expiry-bug",
           "inv-no-select-star",
           "dec-pool-size",
@@ -1803,13 +1899,25 @@
         "att-retry-count-bump",
         "obs-flaky-docker-pull"
       ],
-      "wall_ms": 19.176
+      "wall_ms": 29.8
     },
     {
       "abstained": false,
       "case_id": "code-lookup-pool-py",
       "category": "code_lookup",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.833333,
+        0.666667,
+        0.166667,
+        0.333333,
+        0.333333,
+        0.5,
+        0.333333,
+        0.166667,
+        0.333333,
+        0.166667
+      ],
       "final_scores": [
         1.0,
         0.983871,
@@ -1823,11 +1931,11 @@
         0.683459
       ],
       "lane_latency_ms": {
-        "dense": 6.665,
-        "exact": 3.834,
-        "fuzzy": 6.115,
-        "graph": 0.566,
-        "lexical": 1.571
+        "dense": 9.03,
+        "exact": 5.618,
+        "fuzzy": 9.167,
+        "graph": 0.838,
+        "lexical": 2.258
       },
       "query": "services/api/pool.py connection pool saturation",
       "rankings": {
@@ -2043,13 +2151,25 @@
         "obs-pool-exhaustion",
         "dec-pool-size"
       ],
-      "wall_ms": 20.02
+      "wall_ms": 30.312
     },
     {
       "abstained": false,
       "case_id": "code-lookup-charge-worker",
       "category": "code_lookup",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.666667,
+        0.5,
+        0.333333,
+        1.0,
+        0.5,
+        0.666667,
+        0.5,
+        0.5,
+        0.5
+      ],
       "final_scores": [
         0.977722,
         0.959177,
@@ -2063,11 +2183,11 @@
         0.707246
       ],
       "lane_latency_ms": {
-        "dense": 6.294,
-        "exact": 3.851,
-        "fuzzy": 6.393,
-        "graph": 0.718,
-        "lexical": 1.672
+        "dense": 8.995,
+        "exact": 5.468,
+        "fuzzy": 8.865,
+        "graph": 1.022,
+        "lexical": 2.841
       },
       "query": "services/payments/charge_worker.py duplicate charge",
       "rankings": {
@@ -2289,13 +2409,25 @@
         "obs-duplicate-charge-trace",
         "hand-payments-handoff-1"
       ],
-      "wall_ms": 20.311
+      "wall_ms": 30.861
     },
     {
       "abstained": false,
       "case_id": "code-lookup-search-indexer",
       "category": "code_lookup",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.833333,
+        0.5,
+        0.166667,
+        0.170455,
+        0.166667,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         0.987692,
         0.987097,
@@ -2309,11 +2441,11 @@
         0.72886
       ],
       "lane_latency_ms": {
-        "dense": 6.302,
-        "exact": 3.876,
-        "fuzzy": 6.333,
-        "graph": 0.433,
-        "lexical": 1.616
+        "dense": 9.365,
+        "exact": 5.434,
+        "fuzzy": 8.437,
+        "graph": 0.644,
+        "lexical": 2.299
       },
       "query": "services/search/indexer.py index lag",
       "rankings": {
@@ -2356,8 +2488,8 @@
           "obs-flaky-docker-pull",
           "out-ci-time-cut",
           "proc-bisect-flaky",
-          "inv-money-decimal",
           "out-fix-behind-flag",
+          "inv-money-decimal",
           "obs-flaky-checkout-retry",
           "obs-trace-sampling",
           "warn-token-in-logs",
@@ -2533,13 +2665,25 @@
       "relevant_ids": [
         "obs-search-index-lag"
       ],
-      "wall_ms": 19.878
+      "wall_ms": 29.337
     },
     {
       "abstained": false,
       "case_id": "lexical-webhook-dedupe",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.6,
+        0.2,
+        0.6,
+        0.1774,
+        0.4,
+        0.6,
+        0.6,
+        0.2,
+        0.105195,
+        0.2
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -2553,11 +2697,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.276,
-        "exact": 3.816,
-        "fuzzy": 6.556,
-        "graph": 0.718,
-        "lexical": 1.616
+        "dense": 9.49,
+        "exact": 5.468,
+        "fuzzy": 9.208,
+        "graph": 1.04,
+        "lexical": 2.359
       },
       "query": "how do we de-duplicate webhook deliveries before charging",
       "rankings": {
@@ -2602,8 +2746,8 @@
           "dec-schema-v9-counter",
           "dec-ruff-config",
           "obs-search-index-lag",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "proc-bisect-flaky",
           "proc-run-full-matrix",
           "dec-search-analyzer",
@@ -2653,14 +2797,14 @@
           "proc-local-dev-setup",
           "out-dashboard",
           "inv-charge-amount-currency",
-          "obs-search-duplicate-docs",
           "dec-graceful-shutdown",
+          "obs-search-duplicate-docs",
           "obs-p99-regression",
           "dec-schema-v9-counter",
           "dec-ruff-config",
           "obs-search-index-lag",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "proc-bisect-flaky",
           "dec-search-analyzer",
           "inv-lockfile-committed"
@@ -2720,13 +2864,13 @@
           "proc-add-span",
           "out-dashboard",
           "inv-charge-amount-currency",
-          "obs-search-duplicate-docs",
           "dec-graceful-shutdown",
+          "obs-search-duplicate-docs",
           "dec-schema-v9-counter",
           "dec-ruff-config",
           "obs-search-index-lag",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "proc-bisect-flaky",
           "dec-search-analyzer"
         ],
@@ -2776,13 +2920,25 @@
         "inv-webhook-idempotency",
         "dec-replay-guard-table"
       ],
-      "wall_ms": 20.221
+      "wall_ms": 30.82
     },
     {
       "abstained": false,
       "case_id": "lexical-pool-503-bursts",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.166174,
+        0.5,
+        0.277613,
+        0.130558,
+        0.245617,
+        0.160003,
+        0.201456,
+        0.169494,
+        0.181547
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -2796,11 +2952,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.378,
-        "exact": 3.836,
-        "fuzzy": 6.703,
-        "graph": 0.483,
-        "lexical": 1.866
+        "dense": 8.927,
+        "exact": 5.459,
+        "fuzzy": 9.669,
+        "graph": 0.68,
+        "lexical": 2.663
       },
       "query": "api returns 503 bursts when the connection pool saturates at peak",
       "rankings": {
@@ -3043,13 +3199,25 @@
       "relevant_ids": [
         "obs-pool-exhaustion"
       ],
-      "wall_ms": 21.435
+      "wall_ms": 31.669
     },
     {
       "abstained": false,
       "case_id": "lexical-rotate-signing-secret",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.375,
+        0.625,
+        0.225528,
+        0.261757,
+        0.230341,
+        0.312325,
+        0.270066,
+        0.276204,
+        0.341506,
+        0.256776
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -3063,11 +3231,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 7.235,
-        "exact": 3.831,
-        "fuzzy": 7.38,
-        "graph": 1.871,
-        "lexical": 1.876
+        "dense": 8.954,
+        "exact": 5.458,
+        "fuzzy": 9.754,
+        "graph": 0.602,
+        "lexical": 2.672
       },
       "query": "rotate the signing secret without rejecting tokens already in flight",
       "rankings": {
@@ -3309,13 +3477,25 @@
       "relevant_ids": [
         "proc-rotate-signing-key"
       ],
-      "wall_ms": 32.273
+      "wall_ms": 31.931
     },
     {
       "abstained": false,
       "case_id": "lexical-rebuild-catalogue-index",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.346616,
+        0.422619,
+        0.495794,
+        0.428571,
+        0.290465,
+        0.436867,
+        0.418424,
+        0.369212,
+        0.38607
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -3329,11 +3509,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.843,
-        "exact": 6.098,
-        "fuzzy": 8.684,
-        "graph": 0.468,
-        "lexical": 2.749
+        "dense": 9.46,
+        "exact": 5.452,
+        "fuzzy": 9.476,
+        "graph": 0.594,
+        "lexical": 2.684
       },
       "query": "rebuild the catalogue index into a new name and swap the alias",
       "rankings": {
@@ -3572,13 +3752,25 @@
       "relevant_ids": [
         "proc-rebuild-index"
       ],
-      "wall_ms": 28.282
+      "wall_ms": 32.431
     },
     {
       "abstained": false,
       "case_id": "lexical-rollout-percentages",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.5,
+        0.177285,
+        0.166667,
+        0.244378,
+        0.191741,
+        0.098728,
+        0.220044,
+        0.195998,
+        0.215313,
+        0.166703
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -3592,11 +3784,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.643,
-        "exact": 4.124,
-        "fuzzy": 6.964,
-        "graph": 0.521,
-        "lexical": 1.939
+        "dense": 9.382,
+        "exact": 5.679,
+        "fuzzy": 9.712,
+        "graph": 0.683,
+        "lexical": 2.626
       },
       "query": "what percentages do we step through when rolling out a risky change",
       "rankings": {
@@ -3841,13 +4033,25 @@
       "relevant_ids": [
         "dec-rollout-percent"
       ],
-      "wall_ms": 22.366
+      "wall_ms": 32.42
     },
     {
       "abstained": false,
       "case_id": "lexical-worker-memory-growth",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        1.0,
+        0.125,
+        0.375,
+        0.25,
+        0.25,
+        0.125,
+        0.125,
+        0.125,
+        0.125,
+        0.125
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -3861,11 +4065,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.675,
-        "exact": 3.897,
-        "fuzzy": 6.246,
-        "graph": 0.552,
-        "lexical": 1.564
+        "dense": 9.429,
+        "exact": 5.423,
+        "fuzzy": 8.839,
+        "graph": 0.757,
+        "lexical": 2.223
       },
       "query": "background worker resident memory grows under steady load",
       "rankings": {
@@ -3913,13 +4117,13 @@
           "inv-search-no-cross-tenant",
           "att-retry-count-bump",
           "dec-replay-guard-table",
-          "att-first-fix-attempt",
-          "dec-rollout-percent",
-          "inv-money-decimal",
-          "obs-flaky-docker-pull",
-          "warn-capability-check",
+          "obs-token-expiry-bug",
+          "out-auth-fix",
           "obs-provider-retry-schedule",
-          "warn-cardinality-explosion"
+          "dec-rollout-percent",
+          "proc-run-full-matrix",
+          "warn-cardinality-explosion",
+          "out-rollout-complete"
         ],
         "direct_fused": [
           "obs-memory-leak-worker",
@@ -4061,13 +4265,25 @@
       "relevant_ids": [
         "obs-memory-leak-worker"
       ],
-      "wall_ms": 19.995
+      "wall_ms": 29.469
     },
     {
       "abstained": false,
       "case_id": "lexical-metric-label-cardinality",
       "category": "lexical",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.8,
+        0.4,
+        0.241934,
+        0.333498,
+        0.271233,
+        0.386628,
+        0.129344,
+        0.245098,
+        0.034247,
+        0.273662
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -4081,11 +4297,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.404,
-        "exact": 3.856,
-        "fuzzy": 6.517,
-        "graph": 0.459,
-        "lexical": 1.813
+        "dense": 8.968,
+        "exact": 5.434,
+        "fuzzy": 9.168,
+        "graph": 0.642,
+        "lexical": 2.561
       },
       "query": "can I add a customer identifier as a metric label",
       "rankings": {
@@ -4327,13 +4543,25 @@
         "inv-no-pii-in-metrics",
         "warn-cardinality-explosion"
       ],
-      "wall_ms": 20.862
+      "wall_ms": 30.597
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-path",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.75,
+        0.75,
+        0.5,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        0.75,
+        0.25,
+        0.25
+      ],
       "final_scores": [
         0.919608,
         0.89707,
@@ -4347,11 +4575,11 @@
         0.712267
       ],
       "lane_latency_ms": {
-        "dense": 6.346,
-        "exact": 3.833,
-        "fuzzy": 6.196,
-        "graph": 0.719,
-        "lexical": 1.608
+        "dense": 8.869,
+        "exact": 5.422,
+        "fuzzy": 8.654,
+        "graph": 1.013,
+        "lexical": 2.258
       },
       "query": "services/payments/webhok_router.py",
       "rankings": {
@@ -4395,8 +4623,8 @@
           "warn-ci-secret-leak",
           "dec-rollout-percent",
           "inv-lockfile-committed",
-          "inv-no-pii-in-metrics",
           "obs-trace-sampling",
+          "inv-no-pii-in-metrics",
           "dec-webhook-timeout-budget",
           "warn-time-sleep-in-tests",
           "warn-search-stale",
@@ -4580,13 +4808,25 @@
         "inv-webhook-idempotency",
         "dec-webhook-timeout-budget"
       ],
-      "wall_ms": 20.369
+      "wall_ms": 29.984
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-test-name",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.294118,
+        0.036116,
+        0.040582,
+        0.035635,
+        0.024183,
+        0.054054,
+        0.020833,
+        0.007812,
+        0.125,
+        0.052083
+      ],
       "final_scores": [
         0.4,
         0.39878,
@@ -4600,11 +4840,11 @@
         0.224265
       ],
       "lane_latency_ms": {
-        "dense": 6.609,
-        "exact": 3.852,
-        "fuzzy": 5.677,
-        "graph": 0.609,
-        "lexical": 1.447
+        "dense": 9.267,
+        "exact": 5.454,
+        "fuzzy": 8.048,
+        "graph": 0.872,
+        "lexical": 2.071
       },
       "query": "test_chekout_retry_backoff",
       "rankings": {
@@ -4656,9 +4896,9 @@
           "proc-add-span",
           "warn-ci-secret-leak",
           "obs-error-40001-spike",
-          "dec-schema-v9-counter",
-          "inv-money-decimal",
-          "obs-flaky-docker-pull"
+          "obs-token-expiry-bug",
+          "dec-pool-size",
+          "out-auth-fix"
         ],
         "direct_fused": [
           "obs-flaky-checkout-retry",
@@ -4796,13 +5036,25 @@
         "obs-flaky-checkout-retry",
         "proc-repro-flaky-seed"
       ],
-      "wall_ms": 19.188
+      "wall_ms": 28.46
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-symbol",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.333333,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.666667,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -4816,11 +5068,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.596,
-        "exact": 3.81,
-        "fuzzy": 5.808,
-        "graph": 0.644,
-        "lexical": 1.531
+        "dense": 9.941,
+        "exact": 5.494,
+        "fuzzy": 8.844,
+        "graph": 1.119,
+        "lexical": 2.363
       },
       "query": "payments.webhook.replay_gaurd",
       "rankings": {
@@ -5024,13 +5276,25 @@
       "relevant_ids": [
         "inv-webhook-idempotency"
       ],
-      "wall_ms": 19.546
+      "wall_ms": 31.305
     },
     {
       "abstained": false,
       "case_id": "fuzzy-typo-flag",
       "category": "fuzzy_typo",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.666667,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333,
+        0.333333
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -5044,11 +5308,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.326,
-        "exact": 3.801,
-        "fuzzy": 6.048,
-        "graph": 0.54,
-        "lexical": 1.542
+        "dense": 9.108,
+        "exact": 6.193,
+        "fuzzy": 9.374,
+        "graph": 0.952,
+        "lexical": 2.393
       },
       "query": "payments.replay_gaurd.v2",
       "rankings": {
@@ -5080,8 +5344,8 @@
           "out-ci-time-cut",
           "dec-search-ranking",
           "dec-search-analyzer",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "obs-flag-eval-latency",
           "warn-mac-arm-wheels",
           "dec-rollout-percent",
@@ -5134,8 +5398,8 @@
           "out-ci-time-cut",
           "dec-search-ranking",
           "dec-search-analyzer",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "obs-flag-eval-latency",
           "warn-mac-arm-wheels",
           "dec-rollout-percent",
@@ -5203,8 +5467,8 @@
           "out-ci-time-cut",
           "dec-search-ranking",
           "dec-search-analyzer",
-          "proc-alert-runbook",
           "obs-pool-exhaustion",
+          "proc-alert-runbook",
           "obs-flag-eval-latency",
           "warn-mac-arm-wheels",
           "out-dashboard",
@@ -5254,13 +5518,25 @@
       "relevant_ids": [
         "out-fix-behind-flag"
       ],
-      "wall_ms": 19.629
+      "wall_ms": 31.981
     },
     {
       "abstained": false,
       "case_id": "paraphrase-double-billing",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.543672,
+        0.331248,
+        0.537,
+        0.484072,
+        0.443552,
+        0.330198,
+        0.245619,
+        0.356141,
+        0.460386,
+        0.322548
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -5274,11 +5550,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.296,
-        "exact": 3.839,
-        "fuzzy": 6.737,
-        "graph": 0.534,
-        "lexical": 1.87
+        "dense": 9.472,
+        "exact": 5.839,
+        "fuzzy": 9.918,
+        "graph": 0.849,
+        "lexical": 2.778
       },
       "query": "customers were billed twice after the provider resent the same event",
       "rankings": {
@@ -5518,13 +5794,25 @@
         "inv-webhook-idempotency",
         "obs-duplicate-charge-trace"
       ],
-      "wall_ms": 21.368
+      "wall_ms": 33.954
     },
     {
       "abstained": false,
       "case_id": "paraphrase-nondeterministic-check",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.26653,
+        0.272838,
+        0.355025,
+        0.3272,
+        0.328933,
+        0.331237,
+        0.252368,
+        0.24237,
+        0.272004,
+        0.316207
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -5538,11 +5826,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.298,
-        "exact": 3.811,
-        "fuzzy": 6.937,
-        "graph": 0.427,
-        "lexical": 1.914
+        "dense": 9.662,
+        "exact": 5.738,
+        "fuzzy": 10.515,
+        "graph": 0.662,
+        "lexical": 2.911
       },
       "query": "a check in the pipeline passes sometimes and fails other times with no code change",
       "rankings": {
@@ -5782,13 +6070,25 @@
         "obs-flaky-checkout-retry",
         "warn-time-sleep-in-tests"
       ],
-      "wall_ms": 21.625
+      "wall_ms": 35.505
     },
     {
       "abstained": false,
       "case_id": "paraphrase-transaction-conflict",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.181818,
+        0.272727,
+        0.237986,
+        0.277189,
+        0.263752,
+        0.208987,
+        0.2,
+        0.195465,
+        0.123508,
+        0.236068
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -5802,11 +6102,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.32,
-        "exact": 3.812,
-        "fuzzy": 6.817,
-        "graph": 0.58,
-        "lexical": 1.872
+        "dense": 9.036,
+        "exact": 7.565,
+        "fuzzy": 10.279,
+        "graph": 0.867,
+        "lexical": 3.066
       },
       "query": "two transactions touching the same rows abort each other under strict isolation",
       "rankings": {
@@ -6050,13 +6350,25 @@
         "inv-serializable-retry",
         "obs-error-40001-spike"
       ],
-      "wall_ms": 21.507
+      "wall_ms": 35.972
     },
     {
       "abstained": false,
       "case_id": "paraphrase-credentials-exposure",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.166667,
+        0.176256,
+        0.099237,
+        0.081967,
+        0.166667,
+        0.078824,
+        0.054688,
+        0.064,
+        0.105691,
+        0.08871
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -6070,11 +6382,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.943,
-        "exact": 4.13,
-        "fuzzy": 6.674,
-        "graph": 0.413,
-        "lexical": 1.761
+        "dense": 9.577,
+        "exact": 5.481,
+        "fuzzy": 8.997,
+        "graph": 0.72,
+        "lexical": 2.235
       },
       "query": "credentials ending up somewhere they can be read again later",
       "rankings": {
@@ -6126,9 +6438,9 @@
           "inv-single-snapshot",
           "proc-rebuild-index",
           "proc-explain-analyze",
-          "dec-webhook-timeout-budget",
-          "att-first-fix-attempt",
-          "dec-rollout-percent"
+          "out-auth-fix",
+          "out-fix-behind-flag",
+          "obs-provider-retry-schedule"
         ],
         "direct_fused": [
           "proc-release-tag",
@@ -6279,13 +6591,25 @@
         "warn-token-in-logs",
         "warn-ci-secret-leak"
       ],
-      "wall_ms": 21.147
+      "wall_ms": 30.377
     },
     {
       "abstained": false,
       "case_id": "paraphrase-gradual-exposure",
       "category": "paraphrase",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.177701,
+        0.386342,
+        0.172606,
+        0.315584,
+        0.345689,
+        0.299813,
+        0.335547,
+        0.279751,
+        0.226339,
+        0.335268
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -6299,11 +6623,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.352,
-        "exact": 4.188,
-        "fuzzy": 6.98,
-        "graph": 0.519,
-        "lexical": 1.909
+        "dense": 9.122,
+        "exact": 5.646,
+        "fuzzy": 10.137,
+        "graph": 0.916,
+        "lexical": 2.821
       },
       "query": "exposing a change to a small slice of traffic before everyone sees it",
       "rankings": {
@@ -6546,13 +6870,25 @@
         "dec-rollout-percent",
         "inv-flag-default-off"
       ],
-      "wall_ms": 22.089
+      "wall_ms": 33.586
     },
     {
       "abstained": false,
       "case_id": "decoy-search-freshness",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.04967,
+        0.166667,
+        0.5,
+        0.333333,
+        0.333333,
+        0.166667,
+        0.166667,
+        0.333333,
+        0.083895,
+        0.166667
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -6566,11 +6902,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.545,
-        "exact": 3.956,
-        "fuzzy": 6.251,
-        "graph": 0.465,
-        "lexical": 1.722
+        "dense": 9.958,
+        "exact": 5.876,
+        "fuzzy": 9.534,
+        "graph": 0.764,
+        "lexical": 2.489
       },
       "query": "recently written documents are missing from search results",
       "rankings": {
@@ -6615,16 +6951,16 @@
           "warn-token-in-logs",
           "att-retry-count-bump",
           "dec-rollout-percent",
-          "dec-webhook-timeout-budget",
-          "att-first-fix-attempt",
-          "inv-money-decimal",
-          "warn-time-sleep-in-tests",
-          "obs-clock-skew-jwt",
-          "warn-capability-check",
-          "obs-memory-leak-worker",
+          "out-fix-behind-flag",
+          "hand-rollout-handoff",
           "obs-provider-retry-schedule",
-          "proc-profile-worker",
-          "dec-graceful-shutdown"
+          "proc-run-full-matrix",
+          "warn-cardinality-explosion",
+          "out-rollout-complete",
+          "inv-serializable-retry",
+          "obs-duplicate-charge-trace",
+          "proc-flag-cleanup",
+          "warn-time-sleep-in-tests"
         ],
         "direct_fused": [
           "obs-search-index-lag",
@@ -6807,13 +7143,25 @@
         "obs-search-index-lag",
         "out-search-fix"
       ],
-      "wall_ms": 20.183
+      "wall_ms": 32.135
     },
     {
       "abstained": false,
       "case_id": "decoy-filter-before-limit",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.666667,
+        0.333668,
+        0.221271,
+        0.173187,
+        0.279511,
+        0.255385,
+        0.313481,
+        0.137126,
+        0.236185,
+        0.26029
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -6827,11 +7175,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.338,
-        "exact": 3.888,
-        "fuzzy": 6.825,
-        "graph": 0.423,
-        "lexical": 1.912
+        "dense": 8.975,
+        "exact": 5.572,
+        "fuzzy": 9.679,
+        "graph": 0.629,
+        "lexical": 2.809
       },
       "query": "scope filters have to run before the limit or results disappear",
       "rankings": {
@@ -7073,13 +7421,25 @@
       "relevant_ids": [
         "inv-search-scope-filter"
       ],
-      "wall_ms": 21.489
+      "wall_ms": 32.402
     },
     {
       "abstained": false,
       "case_id": "decoy-provider-retry-schedule",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.226342,
+        0.331754,
+        0.322102,
+        0.4,
+        0.275661,
+        0.282913,
+        0.8,
+        0.227306,
+        0.6,
+        0.4
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -7093,11 +7453,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.343,
-        "exact": 3.812,
-        "fuzzy": 6.514,
-        "graph": 0.63,
-        "lexical": 1.887
+        "dense": 9.041,
+        "exact": 5.465,
+        "fuzzy": 9.42,
+        "graph": 0.918,
+        "lexical": 2.699
       },
       "query": "how often does the provider retry an unacknowledged delivery",
       "rankings": {
@@ -7340,13 +7700,25 @@
       "relevant_ids": [
         "obs-provider-retry-schedule"
       ],
-      "wall_ms": 21.324
+      "wall_ms": 32.17
     },
     {
       "abstained": false,
       "case_id": "decoy-search-latency-step",
       "category": "decoy_heavy",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.2,
+        0.2,
+        0.2,
+        0.6,
+        0.2,
+        0.4,
+        0.2,
+        0.4,
+        0.2,
+        0.2
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -7360,11 +7732,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.569,
-        "exact": 3.851,
-        "fuzzy": 6.032,
-        "graph": 0.494,
-        "lexical": 1.604
+        "dense": 9.586,
+        "exact": 5.719,
+        "fuzzy": 9.069,
+        "graph": 0.727,
+        "lexical": 2.544
       },
       "query": "which step dominates search tail latency",
       "rankings": {
@@ -7397,28 +7769,28 @@
           "proc-release-tag",
           "warn-search-stale",
           "dec-schema-v9-counter",
-          "dec-webhook-timeout-budget",
-          "att-first-fix-attempt",
-          "inv-money-decimal",
-          "obs-flaky-docker-pull",
-          "warn-time-sleep-in-tests",
-          "warn-capability-check",
-          "obs-memory-leak-worker",
-          "obs-provider-retry-schedule",
-          "proc-profile-worker",
-          "dec-graceful-shutdown",
-          "warn-cardinality-explosion",
-          "proc-add-span",
-          "proc-bisect-flaky",
-          "proc-run-full-matrix",
-          "proc-flag-cleanup",
-          "obs-flaky-checkout-retry",
-          "dec-structured-logs",
           "obs-token-expiry-bug",
-          "proc-alert-runbook",
-          "inv-no-select-star",
+          "out-auth-fix",
+          "out-fix-behind-flag",
+          "hand-rollout-handoff",
+          "obs-provider-retry-schedule",
+          "proc-run-full-matrix",
+          "warn-cardinality-explosion",
+          "inv-lockfile-committed",
+          "inv-serializable-retry",
           "obs-duplicate-charge-trace",
-          "proc-reproduce-duplicate-charge"
+          "proc-flag-cleanup",
+          "warn-time-sleep-in-tests",
+          "warn-lease-loss",
+          "inv-no-select-star",
+          "dec-replay-guard-table",
+          "inv-flag-default-off",
+          "obs-ci-runner-clock-skew",
+          "obs-ci-cache-miss",
+          "obs-memory-leak-worker",
+          "warn-capability-check",
+          "warn-long-txn",
+          "obs-flag-eval-latency"
         ],
         "direct_fused": [
           "obs-search-latency",
@@ -7545,13 +7917,25 @@
       "relevant_ids": [
         "obs-search-latency"
       ],
-      "wall_ms": 19.447
+      "wall_ms": 30.381
     },
     {
       "abstained": false,
       "case_id": "multi-duplicate-charge-thread",
       "category": "multi_evidence",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.625,
+        0.364697,
+        0.338415,
+        0.476604,
+        0.502063,
+        0.5,
+        0.421931,
+        0.35122,
+        0.268584,
+        0.358072
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -7565,11 +7949,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.302,
-        "exact": 3.82,
-        "fuzzy": 6.728,
-        "graph": 0.697,
-        "lexical": 1.949
+        "dense": 8.938,
+        "exact": 5.582,
+        "fuzzy": 9.569,
+        "graph": 0.993,
+        "lexical": 2.721
       },
       "query": "duplicate charge root cause, the fix and how far the rollout got",
       "rankings": {
@@ -7815,13 +8199,25 @@
         "out-fix-behind-flag",
         "out-rollout-complete"
       ],
-      "wall_ms": 21.622
+      "wall_ms": 32.281
     },
     {
       "abstained": false,
       "case_id": "multi-flaky-thread",
       "category": "multi_evidence",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.666667,
+        0.666667,
+        0.666667,
+        0.155376,
+        0.666667,
+        0.5,
+        0.12931,
+        0.137846,
+        0.154785,
+        0.5
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -7835,11 +8231,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.276,
-        "exact": 3.852,
-        "fuzzy": 6.569,
-        "graph": 0.541,
-        "lexical": 1.854
+        "dense": 8.926,
+        "exact": 5.511,
+        "fuzzy": 9.467,
+        "graph": 0.776,
+        "lexical": 2.626
       },
       "query": "flaky checkout retry test cause and how it was fixed",
       "rankings": {
@@ -8087,13 +8483,25 @@
         "dec-freeze-clock-in-test",
         "out-flaky-fixed"
       ],
-      "wall_ms": 21.148
+      "wall_ms": 31.563
     },
     {
       "abstained": false,
       "case_id": "bootstrap-open-threads",
       "category": "multi_evidence",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.4,
+        0.297653,
+        0.192769,
+        0.4,
+        0.2,
+        0.36059,
+        0.33061,
+        0.317245,
+        0.236779,
+        0.25597
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -8107,11 +8515,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.317,
-        "exact": 3.842,
-        "fuzzy": 6.552,
-        "graph": 0.581,
-        "lexical": 1.882
+        "dense": 8.983,
+        "exact": 5.46,
+        "fuzzy": 9.242,
+        "graph": 0.829,
+        "lexical": 2.695
       },
       "query": "what work is still open at the end of this cycle",
       "rankings": {
@@ -8359,13 +8767,25 @@
         "hand-ci-handoff",
         "hand-rollout-handoff"
       ],
-      "wall_ms": 21.297
+      "wall_ms": 31.509
     },
     {
       "abstained": false,
       "case_id": "no-answer-kubernetes-autoscaler",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.2,
+        0.2,
+        0.039344,
+        0.045455,
+        0.027273,
+        0.087302,
+        0.076336,
+        0.072993,
+        0.053024,
+        0.046068
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -8379,19 +8799,19 @@
         0.750769
       ],
       "lane_latency_ms": {
-        "dense": 6.499,
-        "exact": 3.819,
-        "fuzzy": 6.058,
-        "graph": 0.481,
-        "lexical": 1.482
+        "dense": 9.275,
+        "exact": 5.433,
+        "fuzzy": 8.595,
+        "graph": 0.702,
+        "lexical": 2.109
       },
       "query": "kubernetes horizontal pod autoscaler configuration",
       "rankings": {
         "dense": [
           "dec-ruff-config",
           "warn-flag-debt",
-          "out-pool-fix",
           "obs-flag-eval-latency",
+          "out-pool-fix",
           "obs-p99-regression",
           "obs-pool-exhaustion",
           "obs-ci-runner-clock-skew",
@@ -8432,18 +8852,18 @@
           "proc-reproduce-duplicate-charge",
           "proc-local-dev-setup",
           "warn-capability-check",
-          "dec-webhook-timeout-budget",
-          "att-first-fix-attempt",
-          "dec-rollout-percent",
-          "warn-time-sleep-in-tests",
-          "out-leak-fixed",
-          "obs-memory-leak-worker"
+          "obs-token-expiry-bug",
+          "dec-pool-size",
+          "out-fix-behind-flag",
+          "hand-rollout-handoff",
+          "obs-provider-retry-schedule",
+          "dec-rollout-percent"
         ],
         "direct_fused": [
           "dec-ruff-config",
           "warn-flag-debt",
-          "out-pool-fix",
           "obs-flag-eval-latency",
+          "out-pool-fix",
           "obs-p99-regression",
           "obs-pool-exhaustion",
           "obs-ci-runner-clock-skew",
@@ -8494,8 +8914,8 @@
           "proc-flag-cleanup",
           "warn-long-txn",
           "proc-local-dev-setup",
-          "out-pool-fix",
           "obs-flag-eval-latency",
+          "out-pool-fix",
           "obs-p99-regression"
         ],
         "fused": [
@@ -8506,8 +8926,8 @@
           "proc-flag-cleanup",
           "warn-long-txn",
           "proc-local-dev-setup",
-          "out-pool-fix",
           "obs-flag-eval-latency",
+          "out-pool-fix",
           "obs-p99-regression",
           "obs-pool-exhaustion",
           "obs-ci-runner-clock-skew",
@@ -8568,13 +8988,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 19.281
+      "wall_ms": 28.795
     },
     {
       "abstained": false,
       "case_id": "no-answer-graphql-federation",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.141999,
+        0.056403,
+        0.2,
+        0.2,
+        0.047003,
+        0.139495,
+        0.058824,
+        0.066073,
+        0.10488,
+        0.093626
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -8588,11 +9020,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.272,
-        "exact": 3.834,
-        "fuzzy": 6.329,
-        "graph": 0.375,
-        "lexical": 1.752
+        "dense": 9.382,
+        "exact": 5.444,
+        "fuzzy": 8.574,
+        "graph": 0.546,
+        "lexical": 2.493
       },
       "query": "graphql schema stitching and gateway federation",
       "rankings": {
@@ -8829,13 +9261,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 20.084
+      "wall_ms": 29.787
     },
     {
       "abstained": false,
       "case_id": "no-answer-ios-push",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.192704,
+        0.138586,
+        0.294275,
+        0.262911,
+        0.274187,
+        0.310342,
+        0.209478,
+        0.190824,
+        0.143774,
+        0.313447
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -8849,11 +9293,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.311,
-        "exact": 3.861,
-        "fuzzy": 6.603,
-        "graph": 0.483,
-        "lexical": 1.877
+        "dense": 9.052,
+        "exact": 5.447,
+        "fuzzy": 9.37,
+        "graph": 0.718,
+        "lexical": 2.683
       },
       "query": "apns certificate renewal for the ios push notification service",
       "rankings": {
@@ -9096,13 +9540,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 21.224
+      "wall_ms": 31.667
     },
     {
       "abstained": false,
       "case_id": "no-answer-recommendation-embeddings",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.166667,
+        0.134086,
+        0.088,
+        0.064223,
+        0.166667,
+        0.070866,
+        0.054688,
+        0.060481,
+        0.166667,
+        0.166667
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -9116,11 +9572,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.534,
-        "exact": 3.834,
-        "fuzzy": 6.216,
-        "graph": 0.491,
-        "lexical": 1.53
+        "dense": 9.473,
+        "exact": 5.472,
+        "fuzzy": 9.089,
+        "graph": 0.713,
+        "lexical": 2.185
       },
       "query": "which sentence embedding model powers product recommendations",
       "rankings": {
@@ -9153,28 +9609,28 @@
           "att-first-fix-attempt",
           "proc-retry-loop",
           "out-flaky-fixed",
-          "proc-reproduce-duplicate-charge",
           "att-retry-count-bump",
-          "dec-schema-v9-counter",
-          "dec-webhook-timeout-budget",
-          "inv-money-decimal",
-          "obs-flaky-docker-pull",
-          "warn-time-sleep-in-tests",
-          "out-leak-fixed",
-          "obs-memory-leak-worker",
-          "dec-pool-size",
-          "obs-provider-retry-schedule",
-          "out-pool-fix",
-          "warn-cardinality-explosion",
-          "proc-add-span",
-          "proc-bisect-flaky",
-          "proc-run-full-matrix",
-          "proc-flag-cleanup",
-          "proc-rebuild-index",
+          "proc-reproduce-duplicate-charge",
           "obs-token-expiry-bug",
-          "proc-alert-runbook",
-          "att-search-shard",
-          "inv-no-select-star"
+          "dec-pool-size",
+          "out-auth-fix",
+          "out-fix-behind-flag",
+          "obs-provider-retry-schedule",
+          "proc-run-full-matrix",
+          "warn-cardinality-explosion",
+          "inv-lockfile-committed",
+          "inv-serializable-retry",
+          "obs-duplicate-charge-trace",
+          "proc-flag-cleanup",
+          "warn-time-sleep-in-tests",
+          "warn-lease-loss",
+          "inv-no-select-star",
+          "dec-replay-guard-table",
+          "proc-explain-analyze",
+          "out-leak-fixed",
+          "obs-ci-runner-clock-skew",
+          "inv-search-scope-filter",
+          "obs-ci-cache-miss"
         ],
         "direct_fused": [
           "dec-search-analyzer",
@@ -9205,8 +9661,8 @@
           "hand-rollout-handoff",
           "att-first-fix-attempt",
           "out-flaky-fixed",
-          "proc-reproduce-duplicate-charge",
-          "att-retry-count-bump"
+          "att-retry-count-bump",
+          "proc-reproduce-duplicate-charge"
         ],
         "exact": [],
         "final": [
@@ -9250,8 +9706,8 @@
           "dec-hs256",
           "hand-rollout-handoff",
           "att-first-fix-attempt",
-          "proc-reproduce-duplicate-charge",
           "att-retry-count-bump",
+          "proc-reproduce-duplicate-charge",
           "proc-rebuild-index",
           "out-auth-fix",
           "inv-webhook-idempotency"
@@ -9285,13 +9741,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 19.404
+      "wall_ms": 29.499
     },
     {
       "abstained": false,
       "case_id": "no-answer-terraform-state",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.266076,
+        0.281272,
+        0.133334,
+        0.143455,
+        0.241225,
+        0.164153,
+        0.302351,
+        0.203922,
+        0.17225,
+        0.204731
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -9305,11 +9773,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.292,
-        "exact": 3.83,
-        "fuzzy": 6.496,
-        "graph": 0.509,
-        "lexical": 1.872
+        "dense": 9.084,
+        "exact": 5.444,
+        "fuzzy": 9.399,
+        "graph": 0.777,
+        "lexical": 2.687
       },
       "query": "terraform remote state locking for the staging workspace",
       "rankings": {
@@ -9552,13 +10020,25 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 21.073
+      "wall_ms": 31.883
     },
     {
       "abstained": false,
       "case_id": "no-answer-localisation",
       "category": "no_answer",
       "degraded_lanes": [],
+      "final_relevance": [
+        0.373174,
+        0.219246,
+        0.154334,
+        0.163951,
+        0.305658,
+        0.233126,
+        0.338502,
+        0.188434,
+        0.279297,
+        0.189889
+      ],
       "final_scores": [
         1.0,
         1.0,
@@ -9572,11 +10052,11 @@
         1.0
       ],
       "lane_latency_ms": {
-        "dense": 6.313,
-        "exact": 3.836,
-        "fuzzy": 6.669,
-        "graph": 0.562,
-        "lexical": 1.885
+        "dense": 9.1,
+        "exact": 5.481,
+        "fuzzy": 9.407,
+        "graph": 0.865,
+        "lexical": 2.704
       },
       "query": "how are translations sourced for the czech and polish locales",
       "rankings": {
@@ -9820,10 +10300,11 @@
         ]
       },
       "relevant_ids": [],
-      "wall_ms": 21.396
+      "wall_ms": 32.577
     }
   ],
   "corpus_version": "swarm-coding-2026-08-07",
+  "dense_lane_enabled": true,
   "embedding": {
     "dimensions": 1024,
     "model": "deterministic-eval-1024-v0",
