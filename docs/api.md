@@ -591,7 +591,7 @@ next claim cycle terminalizes it as `failed` with `lease_expired` instead of
 leaving an unclaimable leased row.
 
 `SWARMBRAIN_EMBEDDINGS=none|deterministic|bedrock` controls the optional dense
-lane. CockroachDB schema v8 uses an additive `retrieval_vectors_1024`
+lane. CockroachDB schema v8 introduced an additive `retrieval_vectors_1024`
 projection with canonical resource version/content digest, repository/run/task
 scope key, domain lane, and a signature covering renderer, current mode,
 cosine metric, provider normalization/truncation, model, and dimensions. Its

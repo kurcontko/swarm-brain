@@ -123,10 +123,13 @@ Install or verify schema as an explicit operator action:
 
 > Upgrading from a pre-v8 deployment requires a writer barrier: stop every old
 > API and worker that can publish memory or embeddings, run `schema install` and `schema
-> verify`, then start only v8 processes. Do not run the rebuild concurrently
-> with pre-v8 writers, because those writers do not maintain every v8 retrieval
-> projections. A large existing memory set also makes `install` an `O(N)`
-> maintenance operation; rehearse and budget its transaction time first.
+> verify`, then start only current-version processes. Do not run the rebuild
+> concurrently with pre-v8 writers, because those writers do not maintain every
+> v8 retrieval projection. A large existing memory set also makes `install` an
+> `O(N)` maintenance operation; rehearse and budget its transaction time first.
+> The current schema version is v9; the v8→v9 step is additive (the durable
+> `retrieval_reuse_counters` table) and needs only `schema install` + `verify`,
+> with no projection rebuild.
 
 ```bash
 export SWARMBRAIN_BACKEND=cockroach
