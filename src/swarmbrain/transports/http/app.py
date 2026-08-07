@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Body, Depends, FastAPI, Header, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from swarmbrain.adapters.auth import ExpiredTokenError, InvalidTokenError
@@ -58,6 +58,7 @@ from swarmbrain.domain.tasks import (
 )
 from swarmbrain.domain.work import SourceExtractionStatus
 
+from .console import console_html
 from .contracts import (
     AddEvidenceBody,
     CheckpointBody,
@@ -144,6 +145,12 @@ def create_app(runtime: SwarmBrainRuntime) -> FastAPI:
     @app.get("/healthz", include_in_schema=False)
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/console", include_in_schema=False)
+    async def console() -> HTMLResponse:
+        # Static document only; it carries no run data and no credentials, and
+        # fetches everything from the bearer-authenticated routes in the browser.
+        return HTMLResponse(console_html(), headers={"Cache-Control": "no-store"})
 
     @app.get("/readyz", include_in_schema=False)
     async def readiness() -> JSONResponse:

@@ -199,3 +199,16 @@ secret fail immediately after the API restart. The v0 stdio path has no
 dual-secret grace window or per-token online revocation check, so checkpoint
 leased work before a planned rotation; an interrupted worker is recovered by
 normal lease expiry and checkpoint handoff.
+
+## Console
+
+The API serves a read-only swarm console at `GET /console`: a single
+self-contained page (no bundler, no CDN, no data baked in) that polls the
+canonical read routes every two seconds and draws task custody, crash handoffs,
+run counters, the durable event ledger, and memory lineage.
+
+The page is public; the data is not. Paste the run id and a viewer token into
+its connection dialog — the token stays in that tab's session storage. Issue one
+with the same `swarmbrain-token` command as above, keeping the grant to
+`--capability events:read --capability metrics:read --capability memory:recall`
+and matching `--run` to the run you want to watch.
