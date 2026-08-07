@@ -294,15 +294,25 @@ jest automatycznym substytutem CI evidence.
 
 ## Co pozostaje
 
-### Phase 2 — dług ewaluacyjny
+### Phase 2 — dług ewaluacyjny (mierzony baseline: zrobiony)
 
-Implementacja indexed lexical/identifier jest domknięta, ale wymagany przez
-architekturę mierzony baseline lexical-only nie został jeszcze wykonany na
-reprezentatywnym korpusie. Check-in gold set jest deterministyczną regresją
-correctness (w tym abstention i rekord starszy niż 2005 decoyów), a nie
-benchmarkiem jakości. Przed oznaczeniem phase 2 jako benchmark-complete trzeba
-opublikować Recall@k, MRR, no-answer precision, percentyle latency, wersję
-korpusu oraz ablation exact vs FTS vs trigram vs fused.
+Mierzony baseline istnieje. Reprezentatywny korpus `swarm-coding-2026-08-07`
+(90 pamięci, 40 zapytań, judgments `r1`, w tym sześć jawnych no-answer)
+przeszedł prawdziwą ścieżką retrievalu na adapterze lokalnym i na żywym
+CockroachDB 26.2.1 z pełnym ablation exact vs FTS vs trigram vs dense vs
+direct-fused vs final-fused, percentylami latency oraz ANN Recall@k względem
+exact oracle. Ten sam protokół policzył też oficjalny zewnętrzny zbiór
+LongMemEval-S (500 pytań, retrieval-only). Liczby, wersje, seedy i
+zastrzeżenia: [retrieval benchmark](retrieval-benchmark.md).
+
+Pomiar odsłonił dwa otwarte problemy, których zielone testy correctness nie
+pokazywały: final fusion nie abstainuje na zapytaniu spoza korpusu (no-answer
+recall `0.00`, bo publiczny score jest zakotwiczony w rank najlepszego lane'u,
+a nie w trafności), a graph lane psuje MRR na decoy-heavy zapytaniach, mimo że
+pomaga na multi-evidence. Dense liczby pochodzą z deterministycznego hash
+embeddera, więc są dowodem instalacji, nie jakości semantycznej. Check-in gold
+set nadal jest deterministyczną regresją correctness, a nie benchmarkiem
+jakości.
 
 ### P3 — dług ewaluacyjny dense
 

@@ -1,0 +1,1010 @@
+{
+  "corpus_version": "swarm-coding-2026-08-07",
+  "judgments_revision": "r1",
+  "description": "Representative coding-swarm memory corpus for offline retrieval evaluation. Content is fictional but shaped like real swarm output: invariants, decisions, procedures, warnings, attempts, outcomes and handoffs carrying paths, symbols, test names, commands, commit hashes and error codes.",
+  "clock": "2026-08-07T09:00:00Z",
+  "repository": "orion-payments",
+  "memories": [
+    {
+      "key": "inv-webhook-idempotency",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Webhook deliveries are de-duplicated before the charge worker runs",
+      "content": "Every payment provider webhook delivery must be de-duplicated by provider_event_id before the charge worker runs. The replay guard row is inserted in the same transaction as the charge, never after it.",
+      "tags": ["payments", "webhook", "idempotency"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/payments/webhook_router.py"],
+          "symbols": ["payments.webhook.replay_guard"]
+        }
+      }
+    },
+    {
+      "key": "dec-replay-guard-table",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Replay guard lives in payment_webhook_deliveries with a unique index",
+      "content": "We store the replay guard in the payment_webhook_deliveries table with a unique index on (provider, provider_event_id) instead of a cache. A cache loses the guard on eviction and the duplicate charge comes straight back.",
+      "tags": ["payments", "webhook", "schema"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["migrations/0042_payment_webhook_deliveries.sql"],
+          "symbols": ["payments.storage.PaymentWebhookDeliveries"]
+        }
+      },
+      "related": ["inv-webhook-idempotency"]
+    },
+    {
+      "key": "obs-duplicate-charge-trace",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Duplicate charge came from a guard check placed after commit",
+      "content": "Tracing delivery evt_9f21c4 showed the second webhook created a second charge because the guard check ran after the charge transaction committed. Both deliveries observed an empty guard table.",
+      "tags": ["payments", "bug", "webhook"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/payments/charge_worker.py"],
+          "commits": ["9f3ab21"]
+        }
+      },
+      "related": ["inv-webhook-idempotency"]
+    },
+    {
+      "key": "proc-reproduce-duplicate-charge",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Replay a webhook delivery twice against the local stack",
+      "content": "Start the local stack, then post the recorded delivery twice with the same provider_event_id and assert exactly one charge row is created. The replay fixture lives next to the payments integration tests.",
+      "tags": ["payments", "webhook", "runbook"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["uv run python -m orion.tools.replay_webhook --delivery evt_9f21c4 --times 2"],
+          "paths": ["tests/integration/test_webhook_replay.py"]
+        }
+      },
+      "related": ["obs-duplicate-charge-trace"]
+    },
+    {
+      "key": "warn-webhook-secret-rotation",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "Rotating the webhook signing secret invalidates in-flight retries",
+      "content": "Rotating the provider webhook signing secret invalidates every delivery the provider is still retrying. Keep the previous secret accepted for at least one hour or the retry storm is rejected as unsigned.",
+      "tags": ["payments", "webhook", "security"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["payments.webhook.verify_signature"],
+          "errors": ["PAYMENTS-4103"]
+        }
+      }
+    },
+    {
+      "key": "out-fix-behind-flag",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Duplicate-charge fix shipped behind payments.replay_guard.v2",
+      "content": "The guard-before-charge fix shipped behind the payments.replay_guard.v2 flag at ten percent. Duplicate charges dropped to zero for flagged traffic across two provider retry storms.",
+      "tags": ["payments", "fix", "rollout"],
+      "metadata": {
+        "retrieval": {
+          "aliases": ["payments.replay_guard.v2"],
+          "commits": ["4c81de0"]
+        }
+      },
+      "related": ["dec-replay-guard-table", "obs-duplicate-charge-trace"]
+    },
+    {
+      "key": "att-first-fix-attempt",
+      "kind": "attempt",
+      "state": "tentative",
+      "title": "Advisory lock on provider_event_id did not stop the duplicate",
+      "content": "First attempt took an advisory lock keyed by provider_event_id around the charge call. It serialized the two deliveries but the second still charged because the lock was released before the guard row was durable.",
+      "tags": ["payments", "webhook", "attempt"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["payments.webhook.advisory_lock"]
+        }
+      },
+      "related": ["obs-duplicate-charge-trace"]
+    },
+    {
+      "key": "hand-payments-handoff-1",
+      "kind": "handoff",
+      "state": "confirmed",
+      "title": "Handoff: duplicate charge root cause confirmed, fix pending review",
+      "content": "Root cause is confirmed: guard check after commit. The fix is written and gated. Remaining work is the regression test for identical deliveries and removing the advisory lock left over from the first attempt.",
+      "tags": ["payments", "handoff"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/payments/charge_worker.py"]
+        }
+      },
+      "related": ["att-first-fix-attempt", "out-fix-behind-flag"]
+    },
+    {
+      "key": "inv-charge-amount-currency",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Charge amounts are integer minor units with an explicit currency",
+      "content": "Charge amounts cross every boundary as integer minor units plus an ISO 4217 currency code. No float ever represents money in the payments service, including in logs and metrics.",
+      "tags": ["payments", "money", "invariant"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["payments.money.Amount"]
+        }
+      }
+    },
+    {
+      "key": "obs-provider-retry-schedule",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Provider retries deliveries at one, five and thirty minutes",
+      "content": "The provider retries an unacknowledged delivery three times: after one minute, five minutes and thirty minutes. A guard that is only durable after thirty seconds still sees a duplicate on the first retry.",
+      "tags": ["payments", "webhook", "timing"],
+      "related": ["obs-duplicate-charge-trace"]
+    },
+    {
+      "key": "dec-webhook-timeout-budget",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Webhook handler budget is two seconds, work moves to the queue",
+      "content": "The webhook endpoint acknowledges within a two second budget and pushes the charge onto the durable queue. Anything slower is a queue problem, not an HTTP handler problem.",
+      "tags": ["payments", "webhook", "performance"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/payments/webhook_router.py"]
+        }
+      }
+    },
+    {
+      "key": "warn-refund-partial",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "Partial refunds are not idempotent under the current guard",
+      "content": "The replay guard covers charges only. A retried partial refund delivery still applies twice because refunds are keyed by refund_id, which the provider regenerates per attempt.",
+      "tags": ["payments", "refund", "warning"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["payments.refund.apply_partial"],
+          "errors": ["PAYMENTS-4210"]
+        }
+      },
+      "related": ["inv-webhook-idempotency"]
+    },
+    {
+      "key": "obs-flaky-checkout-retry",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Checkout retry integration test fails roughly one run in five",
+      "content": "tests/integration/test_checkout_retry.py fails about one CI run in five. The failure is always the third retry asserting a stale cart total, never the first two.",
+      "tags": ["ci", "flaky-test", "checkout"],
+      "metadata": {
+        "retrieval": {
+          "tests": ["test_checkout_retry_backoff"],
+          "paths": ["tests/integration/test_checkout_retry.py"]
+        }
+      }
+    },
+    {
+      "key": "proc-repro-flaky-seed",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Reproduce the flaky checkout retry with the captured seed",
+      "content": "Run the checkout retry test with plugin randomisation disabled and the captured seed to reproduce the failure locally on the first try. The seed is recorded in the CI artifact for the failing job.",
+      "tags": ["ci", "flaky-test", "runbook"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["uv run --extra dev python -m pytest tests/integration/test_checkout_retry.py -p no:randomly --seed 40147"],
+          "tests": ["test_checkout_retry_backoff"]
+        }
+      },
+      "related": ["obs-flaky-checkout-retry"]
+    },
+    {
+      "key": "dec-freeze-clock-in-test",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Checkout retry tests inject a frozen clock instead of sleeping",
+      "content": "Retry tests inject a controllable clock into the backoff helper rather than sleeping. Wall-clock sleeps made the assertion depend on runner load, which is exactly what produced the one-in-five failure.",
+      "tags": ["ci", "tests", "checkout"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["checkout.retry.BackoffPolicy"]
+        }
+      },
+      "related": ["obs-flaky-checkout-retry"]
+    },
+    {
+      "key": "out-flaky-fixed",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Checkout retry test is green for two hundred consecutive runs",
+      "content": "After the injected clock landed, the checkout retry test passed two hundred consecutive CI runs with no failures. The quarantine marker was removed in the same change.",
+      "tags": ["ci", "flaky-test", "fix"],
+      "metadata": {
+        "retrieval": {
+          "commits": ["b17e40c"]
+        }
+      },
+      "related": ["dec-freeze-clock-in-test"]
+    },
+    {
+      "key": "warn-time-sleep-in-tests",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "A sleep in a test is a future flake",
+      "content": "Any test that calls sleep to wait for a background effect will eventually fail on a loaded runner. Wait on the observable condition instead, with an explicit timeout and a useful failure message.",
+      "tags": ["tests", "warning", "ci"]
+    },
+    {
+      "key": "inv-test-isolation",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Integration tests own a fresh scope and never share fixtures",
+      "content": "Every integration test creates its own tenant, project and repository identifiers. Shared fixtures leak state between tests and turn an ordering change into a mysterious failure.",
+      "tags": ["tests", "invariant"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["tests/conftest.py"]
+        }
+      }
+    },
+    {
+      "key": "att-retry-count-bump",
+      "kind": "attempt",
+      "state": "tentative",
+      "title": "Raising the retry count hid the flake without fixing it",
+      "content": "Bumping the retry count from three to six made the checkout test pass locally but only widened the timing window. The stale cart total still appeared once the runner was loaded.",
+      "tags": ["ci", "flaky-test", "attempt"],
+      "related": ["obs-flaky-checkout-retry"]
+    },
+    {
+      "key": "obs-ci-runner-clock-skew",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "CI runners drift up to four hundred milliseconds from the database clock",
+      "content": "Comparing runner timestamps with database now() showed up to four hundred milliseconds of drift. Any assertion that compares the two directly is a flake waiting to happen.",
+      "tags": ["ci", "timing", "database"],
+      "related": ["obs-flaky-checkout-retry"]
+    },
+    {
+      "key": "hand-flaky-handoff",
+      "kind": "handoff",
+      "state": "confirmed",
+      "title": "Handoff: flaky checkout retry reproduced and understood",
+      "content": "The flake is reproducible with the captured seed and understood as a wall-clock dependency. Remaining work is deleting the quarantine marker and auditing the other two tests that still sleep.",
+      "tags": ["ci", "handoff"],
+      "related": ["proc-repro-flaky-seed", "out-flaky-fixed"]
+    },
+    {
+      "key": "proc-bisect-flaky",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Bisect a flaky test by replaying the recorded seed across commits",
+      "content": "To find the commit that introduced a flake, replay the recorded seed at each candidate commit for twenty runs and record the failure rate. A single pass proves nothing for a one-in-five failure.",
+      "tags": ["ci", "runbook", "tests"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["git bisect run scripts/replay_seed.sh 40147"]
+        }
+      }
+    },
+    {
+      "key": "inv-serializable-retry",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "SQLSTATE 40001 is always retried with bounded backoff",
+      "content": "A serialization failure reported as SQLSTATE 40001 is expected under SERIALIZABLE isolation and must be retried with bounded exponential backoff. Surfacing it to the caller as a server error is a bug.",
+      "tags": ["database", "invariant", "retry"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["orion.db.retry.with_serializable_retry"],
+          "errors": ["SQLSTATE 40001"]
+        }
+      }
+    },
+    {
+      "key": "proc-retry-loop",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Wrap every multi-statement transaction in the retry helper",
+      "content": "Multi-statement transactions go through the retry helper, which reopens the transaction from the top on a serialization failure. Retrying a single statement inside an aborted transaction only produces a second error.",
+      "tags": ["database", "runbook", "retry"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["src/orion/db/retry.py"],
+          "symbols": ["orion.db.retry.with_serializable_retry"]
+        }
+      },
+      "related": ["inv-serializable-retry"]
+    },
+    {
+      "key": "obs-pool-exhaustion",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "API returns 503 bursts when the connection pool saturates at peak",
+      "content": "At peak traffic the API returns bursts of 503 while every pooled connection is checked out. Wait time at the pool exceeds eight hundred milliseconds and the slowest holders are the reporting queries.",
+      "tags": ["performance", "database", "incident"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/api/pool.py"],
+          "errors": ["ORION-5031"]
+        }
+      }
+    },
+    {
+      "key": "dec-pool-size",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Pool maximum stays at thirty two connections per API process",
+      "content": "We keep the pool maximum at thirty two connections per API process. Raising it moved the queue from the application into the database and made tail latency worse, not better.",
+      "tags": ["performance", "database", "decision"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/api/pool.py"]
+        }
+      },
+      "related": ["obs-pool-exhaustion"]
+    },
+    {
+      "key": "warn-long-txn",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "Holding a transaction open across an HTTP call starves the pool",
+      "content": "Never hold a database transaction open across an outbound HTTP call. One slow provider call multiplied by the request rate is enough to drain the whole pool within a few seconds.",
+      "tags": ["database", "warning", "performance"],
+      "related": ["obs-pool-exhaustion"]
+    },
+    {
+      "key": "obs-error-40001-spike",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Serialization failures spiked after the reporting job started",
+      "content": "SQLSTATE 40001 counts rose from a handful per hour to several hundred per minute the moment the nightly reporting job started. The job scans the same rows the charge worker updates.",
+      "tags": ["database", "incident", "retry"],
+      "metadata": {
+        "retrieval": {
+          "errors": ["SQLSTATE 40001"]
+        }
+      },
+      "related": ["inv-serializable-retry"]
+    },
+    {
+      "key": "inv-no-select-star",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Runtime queries name their columns explicitly",
+      "content": "Runtime queries list the columns they read. A wildcard projection silently widens the read set, breaks covering indexes and makes a schema addition an unplanned performance change.",
+      "tags": ["database", "invariant", "sql"]
+    },
+    {
+      "key": "dec-schema-v9-counter",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Reuse counters are a separate table written outside the read snapshot",
+      "content": "The reuse counter is its own table keyed by tenant and run, written in a short transaction after the read snapshot closes. Counting inside the read path would turn every recall into a write.",
+      "tags": ["database", "schema", "decision"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["migrations/0009_reuse_counters.sql"]
+        }
+      }
+    },
+    {
+      "key": "proc-explain-analyze",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Prove index selection with EXPLAIN ANALYZE on the runtime statement",
+      "content": "Capture the statement the runtime actually emits, then run EXPLAIN ANALYZE with the same parameters. Explaining a hand-written approximation proves nothing about the query the service runs.",
+      "tags": ["database", "runbook", "sql"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["EXPLAIN ANALYZE SELECT id FROM charges WHERE tenant_id = $1 AND created_at > $2"]
+        }
+      }
+    },
+    {
+      "key": "out-pool-fix",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Moving reporting to a replica removed the 503 bursts",
+      "content": "Routing the reporting queries to a follower removed the 503 bursts entirely. Pool wait time at peak fell from eight hundred milliseconds to under twenty.",
+      "tags": ["performance", "database", "fix"],
+      "metadata": {
+        "retrieval": {
+          "commits": ["7d0c19a"]
+        }
+      },
+      "related": ["obs-pool-exhaustion", "dec-pool-size"]
+    },
+    {
+      "key": "warn-lease-loss",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "A worker that lost its lease must not publish anything",
+      "content": "A background worker whose lease expired has to abort before writing. Publishing after lease loss lets two workers write conflicting results for the same subject and neither is detectably wrong.",
+      "tags": ["workers", "warning", "leases"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["orion.workers.lease.LeaseLost"]
+        }
+      }
+    },
+    {
+      "key": "inv-single-snapshot",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "One request reads one database snapshot",
+      "content": "All reads that make up a single response share one database snapshot and one clock. Mixing snapshots produces answers that were never simultaneously true and are impossible to reproduce.",
+      "tags": ["database", "invariant", "consistency"]
+    },
+    {
+      "key": "obs-ci-cache-miss",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Dependency cache misses on every pull request from a fork",
+      "content": "The dependency cache never hits for pull requests opened from forks because the cache key includes the branch reference. Fork builds take eleven minutes instead of three.",
+      "tags": ["ci", "build", "cache"],
+      "metadata": {
+        "retrieval": {
+          "paths": [".github/workflows/ci.yml"]
+        }
+      }
+    },
+    {
+      "key": "proc-run-full-matrix",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Run the full check matrix before asking for review",
+      "content": "Before review, run the test suite, the linter and the formatter check locally. A red pipeline discovered by the reviewer costs a full round trip that the author could have avoided in two minutes.",
+      "tags": ["ci", "runbook", "quality"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["uv run --extra dev python -m pytest -q", "uv run --extra dev ruff check src tests"]
+        }
+      }
+    },
+    {
+      "key": "dec-ruff-config",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "One linter configuration lives at the repository root",
+      "content": "Linter and formatter settings live in a single root configuration. Per-package overrides drifted apart within a month and produced diffs that were pure formatting noise.",
+      "tags": ["ci", "quality", "decision"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["pyproject.toml"]
+        }
+      }
+    },
+    {
+      "key": "warn-ci-secret-leak",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "Debug output in CI can print the whole environment",
+      "content": "Turning on shell tracing in a CI job prints every exported variable, including credentials, into a log that outlives the job. Enable tracing for a single command, never for the whole job.",
+      "tags": ["ci", "security", "warning"]
+    },
+    {
+      "key": "inv-lockfile-committed",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "The dependency lock file is committed and CI installs from it",
+      "content": "The lock file is committed and CI installs strictly from it. Resolving dependencies at build time means a passing pipeline yesterday says nothing about the build running today.",
+      "tags": ["ci", "build", "invariant"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["uv.lock"]
+        }
+      }
+    },
+    {
+      "key": "out-ci-time-cut",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Pipeline time dropped from eleven minutes to four",
+      "content": "Splitting the slow integration job and fixing the fork cache key cut median pipeline time from eleven minutes to four. The slowest remaining stage is the container image build.",
+      "tags": ["ci", "performance", "fix"],
+      "related": ["obs-ci-cache-miss"]
+    },
+    {
+      "key": "att-parallel-jobs",
+      "kind": "attempt",
+      "state": "tentative",
+      "title": "Running every job in parallel exhausted the runner quota",
+      "content": "Fanning every job out in parallel cut wall time on an idle queue but exhausted the runner quota during the working day, so pull requests queued longer than before.",
+      "tags": ["ci", "attempt", "performance"],
+      "related": ["out-ci-time-cut"]
+    },
+    {
+      "key": "obs-flaky-docker-pull",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Base image pulls fail intermittently from the public registry",
+      "content": "About one build in forty fails pulling the base image from the public registry with a timeout. Mirroring the image internally removed the failure class entirely.",
+      "tags": ["ci", "build", "flaky-test"]
+    },
+    {
+      "key": "proc-release-tag",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Cut a release from a green commit on the default branch only",
+      "content": "Tag a release only from a commit that is green on the default branch. Tagging a feature branch produces artifacts that nobody can rebuild from history later.",
+      "tags": ["release", "runbook", "ci"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["git tag -s v2.7.0 -m 'orion-payments 2.7.0'"]
+        }
+      }
+    },
+    {
+      "key": "hand-ci-handoff",
+      "kind": "handoff",
+      "state": "confirmed",
+      "title": "Handoff: pipeline work paused with the image build outstanding",
+      "content": "Cache and job-splitting work is merged. The container image build is still the slowest stage and nobody has profiled its layer cache yet. Start there.",
+      "tags": ["ci", "handoff"],
+      "related": ["out-ci-time-cut"]
+    },
+    {
+      "key": "inv-token-scope",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Scope and identity come from the token, never from the request body",
+      "content": "Tenant, project and repository identity are derived from the authenticated token. A caller-supplied scope in the request body is ignored, because trusting it turns every endpoint into a cross-tenant read.",
+      "tags": ["auth", "security", "invariant"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["orion.auth.tokens.decode_run_token"]
+        }
+      }
+    },
+    {
+      "key": "dec-hs256",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Run tokens are symmetric and short lived",
+      "content": "Run tokens are signed symmetrically with a rotating shared secret and expire in fifteen minutes. Asymmetric keys buy nothing here because the issuer and the verifier are the same service.",
+      "tags": ["auth", "decision", "security"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["src/orion/auth/tokens.py"]
+        }
+      }
+    },
+    {
+      "key": "warn-token-in-logs",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "Never log the raw authorization header",
+      "content": "Logging the raw authorization header puts a usable credential into the log pipeline and every downstream copy of it. Log the token identifier and the subject only.",
+      "tags": ["auth", "security", "warning", "observability"]
+    },
+    {
+      "key": "obs-clock-skew-jwt",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Token verification failed on one host with a fast clock",
+      "content": "One API host rejected freshly issued tokens as not yet valid. Its clock was ahead by ninety seconds, which exceeded the leeway the verifier allowed.",
+      "tags": ["auth", "incident", "timing"],
+      "metadata": {
+        "retrieval": {
+          "errors": ["AUTH-3007"]
+        }
+      }
+    },
+    {
+      "key": "proc-rotate-signing-key",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Rotate the signing secret with an overlap window",
+      "content": "Publish the new signing secret to verifiers first, wait for one full token lifetime, then switch issuers over. Rotating both at once rejects every token that was already in flight.",
+      "tags": ["auth", "runbook", "security"],
+      "related": ["dec-hs256"]
+    },
+    {
+      "key": "out-auth-fix",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Clock leeway raised to two minutes and hosts put on NTP",
+      "content": "Raising verification leeway to two minutes and enforcing time synchronisation on every API host removed the not-yet-valid rejections. No further occurrences in three weeks.",
+      "tags": ["auth", "fix", "timing"],
+      "related": ["obs-clock-skew-jwt"]
+    },
+    {
+      "key": "warn-capability-check",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "A capability check at the transport is not a capability check",
+      "content": "Checking capabilities only in the HTTP layer leaves the queue and the internal callers unguarded. The check belongs in the application service that performs the mutation.",
+      "tags": ["auth", "security", "warning"]
+    },
+    {
+      "key": "obs-token-expiry-bug",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Long claims outlive their token and fail at completion",
+      "content": "A task claim that runs longer than the token lifetime fails at completion time with an expired credential. The work is finished but the result cannot be written back.",
+      "tags": ["auth", "bug", "workers"],
+      "metadata": {
+        "retrieval": {
+          "errors": ["AUTH-3011"]
+        }
+      }
+    },
+    {
+      "key": "dec-structured-logs",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Logs are structured JSON with a fixed field set",
+      "content": "Every log line is JSON with a fixed field set: timestamp, level, service, request identifier and event. Free-form messages defeat every query we actually want to run during an incident.",
+      "tags": ["observability", "decision", "logging"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["src/orion/observability/logging.py"]
+        }
+      }
+    },
+    {
+      "key": "inv-no-pii-in-metrics",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Metric labels never carry user-identifying values",
+      "content": "Metric labels carry bounded, non-identifying values only. A customer identifier as a label is both a privacy problem and an unbounded cardinality problem in the same line of code.",
+      "tags": ["observability", "invariant", "security"]
+    },
+    {
+      "key": "proc-add-span",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Add a span at the boundary you can actually act on",
+      "content": "Instrument the boundaries where you would change behaviour: the outbound call, the queue hop, the database transaction. A span around a pure function adds cost and tells you nothing.",
+      "tags": ["observability", "runbook", "tracing"],
+      "metadata": {
+        "retrieval": {
+          "symbols": ["orion.observability.tracing.span"]
+        }
+      }
+    },
+    {
+      "key": "obs-p99-regression",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Checkout p99 doubled after the pricing rules change",
+      "content": "Checkout p99 latency doubled from four hundred to eight hundred milliseconds on the day the pricing rules change deployed. The median was unchanged, which points at a slow path taken rarely.",
+      "tags": ["observability", "performance", "checkout"],
+      "related": ["dec-structured-logs"]
+    },
+    {
+      "key": "warn-cardinality-explosion",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "One unbounded label can take down the metrics backend",
+      "content": "Adding a label whose value set is unbounded multiplies every series in the metric. One such label took the metrics backend down for forty minutes and the fix was a deploy, not a config change.",
+      "tags": ["observability", "warning", "performance"],
+      "related": ["inv-no-pii-in-metrics"]
+    },
+    {
+      "key": "out-dashboard",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Single incident dashboard replaced four ad hoc boards",
+      "content": "The four ad hoc boards were replaced by one incident dashboard covering error rate, saturation, queue depth and pool wait. Time to first useful signal during an incident dropped noticeably.",
+      "tags": ["observability", "fix"],
+      "related": ["obs-p99-regression"]
+    },
+    {
+      "key": "obs-trace-sampling",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Head sampling at one percent hides every rare failure",
+      "content": "With one percent head sampling, the traces for the failures we care about are almost never kept. Tail sampling on error status keeps the interesting traces at a similar total cost.",
+      "tags": ["observability", "tracing"]
+    },
+    {
+      "key": "proc-alert-runbook",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Every alert links to a runbook with a first action",
+      "content": "An alert without a runbook is a pager that trains people to ignore it. Each alert links to a page that names the first diagnostic command and the condition for escalating.",
+      "tags": ["observability", "runbook", "oncall"]
+    },
+    {
+      "key": "inv-flag-default-off",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "A new flag defaults to off in every environment",
+      "content": "A newly created flag is off everywhere, including development. Defaulting to on means the first deploy is the experiment and there is nothing to roll back to.",
+      "tags": ["rollout", "flags", "invariant"]
+    },
+    {
+      "key": "dec-rollout-percent",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Rollouts step through one, ten and fifty percent",
+      "content": "Risky changes roll out at one percent, then ten, then fifty, with at least one full traffic cycle at each step. Jumping straight to fifty gives no window in which to notice a regression.",
+      "tags": ["rollout", "flags", "decision"],
+      "related": ["inv-flag-default-off"]
+    },
+    {
+      "key": "proc-flag-cleanup",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Delete the flag and the dead branch in the same change",
+      "content": "When a rollout reaches one hundred percent, delete the flag and the branch it guarded together. Removing only the flag leaves unreachable code that the next reader assumes is live.",
+      "tags": ["rollout", "flags", "runbook"]
+    },
+    {
+      "key": "warn-flag-debt",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "Stale flags multiply the number of code paths under test",
+      "content": "Every flag left in place doubles the configuration space the tests are supposed to cover. Twelve stale flags mean nobody is testing the combination that production is actually running.",
+      "tags": ["rollout", "flags", "warning", "tests"],
+      "related": ["proc-flag-cleanup"]
+    },
+    {
+      "key": "obs-flag-eval-latency",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Flag evaluation added six milliseconds per request before caching",
+      "content": "Evaluating flags against the remote service added six milliseconds to every request. A local snapshot refreshed every thirty seconds removed the cost without changing behaviour in practice.",
+      "tags": ["rollout", "flags", "performance"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/api/flags.py"]
+        }
+      }
+    },
+    {
+      "key": "out-rollout-complete",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Replay guard rollout reached one hundred percent with no incidents",
+      "content": "The replay guard rollout finished at one hundred percent over six days with no duplicate charges and no latency regression. The flag is scheduled for deletion.",
+      "tags": ["rollout", "payments", "fix"],
+      "related": ["out-fix-behind-flag", "dec-rollout-percent"]
+    },
+    {
+      "key": "hand-rollout-handoff",
+      "kind": "handoff",
+      "state": "confirmed",
+      "title": "Handoff: rollout complete, flag deletion outstanding",
+      "content": "Rollout is finished and monitored. Remaining work is deleting the flag together with the legacy branch, and removing the temporary dashboard panel added for the rollout.",
+      "tags": ["rollout", "handoff"],
+      "related": ["out-rollout-complete", "proc-flag-cleanup"]
+    },
+    {
+      "key": "att-flag-rollback",
+      "kind": "attempt",
+      "state": "tentative",
+      "title": "Rolling the flag back mid-cycle left mixed state in the queue",
+      "content": "Turning the flag off while work was already queued left items written by both code paths in the same queue. The consumer had to tolerate both shapes for a full cycle.",
+      "tags": ["rollout", "flags", "attempt", "workers"],
+      "related": ["dec-rollout-percent"]
+    },
+    {
+      "key": "obs-search-index-lag",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Catalogue search index lags writes by up to ninety seconds",
+      "content": "The catalogue search index trails catalogue writes by up to ninety seconds at peak. A product edited and immediately searched for is frequently missing from the results.",
+      "tags": ["search", "indexing", "performance"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/search/indexer.py"]
+        }
+      }
+    },
+    {
+      "key": "dec-search-analyzer",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Catalogue search uses a simple analyzer with no stemming",
+      "content": "The catalogue index uses a simple analyzer without stemming so that part numbers and model codes survive tokenisation intact. Stemming helped prose and destroyed identifiers.",
+      "tags": ["search", "indexing", "decision"]
+    },
+    {
+      "key": "inv-search-scope-filter",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Search results are filtered by scope before the limit is applied",
+      "content": "Scope filters are part of the search query itself, applied before any limit. Filtering after the limit returns fewer results than exist and occasionally returns none at all.",
+      "tags": ["search", "invariant", "security"]
+    },
+    {
+      "key": "proc-rebuild-index",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Rebuild the catalogue index into a new alias and swap",
+      "content": "Build the replacement index under a new name, verify document counts, then swap the alias. Rebuilding in place makes search partially wrong for the whole duration of the rebuild.",
+      "tags": ["search", "indexing", "runbook"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["uv run python -m orion.tools.reindex --target catalogue_v7 --swap-alias catalogue"]
+        }
+      }
+    },
+    {
+      "key": "warn-index-rebuild-cost",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "A full index rebuild doubles storage for its duration",
+      "content": "A full rebuild keeps both index generations on disk until the swap. Starting one at eighty percent disk usage fills the volume and takes search down entirely.",
+      "tags": ["search", "indexing", "warning"],
+      "related": ["proc-rebuild-index"]
+    },
+    {
+      "key": "obs-search-latency",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Catalogue search p95 is dominated by the highlight step",
+      "content": "Profiling catalogue search showed the highlight step accounts for most of p95. Disabling highlighting for the type-ahead endpoint halved its latency with no complaints.",
+      "tags": ["search", "performance"]
+    },
+    {
+      "key": "out-search-fix",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Index lag reduced to under five seconds",
+      "content": "Batching index writes by document instead of by field reduced catalogue index lag from ninety seconds to under five. Edit-then-search now behaves as users expect.",
+      "tags": ["search", "indexing", "fix"],
+      "related": ["obs-search-index-lag"]
+    },
+    {
+      "key": "att-search-shard",
+      "kind": "attempt",
+      "state": "tentative",
+      "title": "Adding shards did not help a single-node index",
+      "content": "Increasing the shard count on a single-node index added coordination overhead without adding parallelism. Query latency rose slightly and nothing else changed.",
+      "tags": ["search", "attempt", "performance"],
+      "related": ["obs-search-latency"]
+    },
+    {
+      "key": "inv-search-no-cross-tenant",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "One index per tenant boundary, never a shared index with a filter",
+      "content": "Tenant separation in search is physical: one index per tenant boundary. A shared index protected only by a query filter is one forgotten clause away from a cross-tenant leak.",
+      "tags": ["search", "security", "invariant"],
+      "related": ["inv-search-scope-filter"]
+    },
+    {
+      "key": "dec-search-ranking",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Catalogue ranking is lexical score plus a small recency boost",
+      "content": "Catalogue ranking combines the lexical score with a small recency boost and nothing else. Every richer scheme we tried was untestable without a judged relevance set, which we do not have for the catalogue.",
+      "tags": ["search", "ranking", "decision"]
+    },
+    {
+      "key": "warn-search-stale",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "A stale search result is worse than a missing one",
+      "content": "Returning a deleted product from a stale index is worse than returning nothing, because the caller acts on it. Validate every hit against the canonical record before returning it.",
+      "tags": ["search", "warning", "correctness"],
+      "related": ["obs-search-index-lag"]
+    },
+    {
+      "key": "obs-search-duplicate-docs",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Duplicate documents appear after a partially failed reindex",
+      "content": "A reindex that fails halfway leaves documents present under both generations, so search returns the same product twice. The swap-and-verify procedure exists precisely to avoid this.",
+      "tags": ["search", "indexing", "bug"],
+      "related": ["proc-rebuild-index"]
+    },
+    {
+      "key": "obs-onboarding-doc",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "New contributors lose a day to the missing local database step",
+      "content": "The onboarding guide never says that a local database must be created before the first test run, and every new contributor loses roughly a day to it.",
+      "tags": ["onboarding", "docs"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["docs/onboarding.md"]
+        }
+      }
+    },
+    {
+      "key": "dec-timezone-utc",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Every stored timestamp is timezone-aware UTC",
+      "content": "All stored timestamps are timezone-aware and in UTC; conversion happens only at the presentation edge. Naive local timestamps caused two separate off-by-one-hour incidents.",
+      "tags": ["decision", "time", "invariant"]
+    },
+    {
+      "key": "inv-money-decimal",
+      "kind": "invariant",
+      "state": "confirmed",
+      "title": "Reporting aggregates money as integers, never as floats",
+      "content": "Reporting sums money as integer minor units. A float aggregation over a million rows drifted by enough to make the daily total disagree with the ledger.",
+      "tags": ["money", "invariant", "reporting"],
+      "related": ["inv-charge-amount-currency"]
+    },
+    {
+      "key": "proc-local-dev-setup",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Bring up the local stack before running integration tests",
+      "content": "Start the local database, create the development database and install the schema, then run the integration suite. Skipping the schema step produces failures that look like application bugs.",
+      "tags": ["onboarding", "runbook", "database"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["orion-schema install"]
+        }
+      },
+      "related": ["obs-onboarding-doc"]
+    },
+    {
+      "key": "warn-mac-arm-wheels",
+      "kind": "warning",
+      "state": "confirmed",
+      "title": "Two dependencies have no prebuilt wheel on Apple silicon",
+      "content": "Two dependencies still build from source on Apple silicon and need the platform toolchain installed. Without it the first install fails with a compiler error that looks unrelated.",
+      "tags": ["onboarding", "build", "warning"]
+    },
+    {
+      "key": "obs-memory-leak-worker",
+      "kind": "observation",
+      "state": "tentative",
+      "title": "Worker resident memory grows by about two hundred megabytes an hour",
+      "content": "The background worker grows by roughly two hundred megabytes of resident memory per hour under steady load and is restarted by the supervisor every six hours.",
+      "tags": ["workers", "performance", "incident"],
+      "metadata": {
+        "retrieval": {
+          "paths": ["services/worker/main.py"]
+        }
+      }
+    },
+    {
+      "key": "dec-graceful-shutdown",
+      "kind": "decision",
+      "state": "confirmed",
+      "title": "Workers drain in-flight items for thirty seconds on shutdown",
+      "content": "On shutdown a worker stops claiming new items and drains what it holds for up to thirty seconds. Exiting immediately returns items to the queue with their attempt count already incremented.",
+      "tags": ["workers", "decision", "reliability"],
+      "related": ["warn-lease-loss"]
+    },
+    {
+      "key": "proc-profile-worker",
+      "kind": "procedure",
+      "state": "confirmed",
+      "title": "Profile the worker with allocation tracking on a single item",
+      "content": "Reproduce growth by running the worker over one repeated item with allocation tracking enabled, comparing snapshots between iterations. Profiling the whole queue hides the responsible call site.",
+      "tags": ["workers", "runbook", "performance"],
+      "metadata": {
+        "retrieval": {
+          "commands": ["uv run python -m orion.tools.profile_worker --iterations 500 --track-allocations"]
+        }
+      },
+      "related": ["obs-memory-leak-worker"]
+    },
+    {
+      "key": "out-leak-fixed",
+      "kind": "outcome",
+      "state": "confirmed",
+      "title": "Unbounded response cache was the source of the worker growth",
+      "content": "The growth came from an unbounded cache of provider responses keyed by request body. Bounding it to a thousand entries flattened resident memory across a full day.",
+      "tags": ["workers", "performance", "fix"],
+      "metadata": {
+        "retrieval": {
+          "commits": ["e52b7f3"]
+        }
+      },
+      "related": ["obs-memory-leak-worker", "proc-profile-worker"]
+    },
+    {
+      "key": "hand-final-handoff",
+      "kind": "handoff",
+      "state": "confirmed",
+      "title": "Handoff: payments, CI and worker threads all closed this cycle",
+      "content": "Payments duplicate charge, the flaky checkout retry and the worker memory growth are all closed. Open threads are the container image build profile and the outstanding flag deletion.",
+      "tags": ["handoff", "summary"],
+      "related": ["hand-ci-handoff", "hand-rollout-handoff", "out-leak-fixed"]
+    }
+  ]
+}

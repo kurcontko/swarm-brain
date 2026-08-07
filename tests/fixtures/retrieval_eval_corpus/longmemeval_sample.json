@@ -1,0 +1,90 @@
+[
+  {
+    "question_id": "sample_lme_001",
+    "question_type": "single-session-user",
+    "question": "Where did I put the spare apartment key?",
+    "answer": "under the blue plant pot on the balcony",
+    "question_date": "2026/02/10 (Tue) 09:15",
+    "haystack_session_ids": [
+      "sample_sess_001",
+      "answer_sample_002",
+      "sample_sess_003"
+    ],
+    "haystack_dates": [
+      "2026/02/01 (Sun) 11:02",
+      "2026/02/03 (Tue) 18:40",
+      "2026/02/06 (Fri) 08:12"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "I finally replaced the hallway light bulb this morning."
+        },
+        {
+          "role": "assistant",
+          "content": "Nice, that one had been out for a while."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I hid the spare apartment key under the blue plant pot on the balcony so my sister can get in."
+        },
+        {
+          "role": "assistant",
+          "content": "Good idea. Let her know before she arrives so she is not locked out."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "The balcony furniture needs repainting before spring."
+        },
+        {
+          "role": "assistant",
+          "content": "Sanding it down first will make the paint hold much longer."
+        }
+      ]
+    ],
+    "answer_session_ids": ["answer_sample_002"]
+  },
+  {
+    "question_id": "sample_lme_002_abs",
+    "question_type": "single-session-user",
+    "question": "What is the name of my dog?",
+    "answer": "You did not mention this information. You mentioned a cat, not a dog.",
+    "question_date": "2026/02/11 (Wed) 20:05",
+    "haystack_session_ids": [
+      "answer_sample_101",
+      "sample_sess_102"
+    ],
+    "haystack_dates": [
+      "2026/02/04 (Wed) 07:55",
+      "2026/02/05 (Thu) 21:30"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "My cat Luna knocked the water glass off the desk again."
+        },
+        {
+          "role": "assistant",
+          "content": "Cats do seem to enjoy that particular experiment."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I booked the vet appointment for next Thursday afternoon."
+        },
+        {
+          "role": "assistant",
+          "content": "Thursday afternoon works. Bring the vaccination record with you."
+        }
+      ]
+    ],
+    "answer_session_ids": ["answer_sample_101"]
+  }
+]

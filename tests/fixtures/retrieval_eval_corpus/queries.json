@@ -1,0 +1,294 @@
+{
+  "corpus_version": "swarm-coding-2026-08-07",
+  "judgments_revision": "r1",
+  "judged_by": "corpus author, before any retrieval run",
+  "description": "Human-judged relevance sets for the swarm coding corpus. Judgments were written against the corpus text only, before the first measurement, and were not revised after seeing lane results.",
+  "queries": [
+    {
+      "case_id": "exact-path-webhook-router",
+      "category": "identifier_exact",
+      "text": "services/payments/webhook_router.py",
+      "relevant": ["inv-webhook-idempotency", "dec-webhook-timeout-budget"],
+      "note": "Whole query equals a projected path term on exactly two memories."
+    },
+    {
+      "case_id": "exact-test-name",
+      "category": "identifier_exact",
+      "text": "test_checkout_retry_backoff",
+      "relevant": ["obs-flaky-checkout-retry", "proc-repro-flaky-seed"],
+      "note": "Whole query equals a projected test term."
+    },
+    {
+      "case_id": "exact-symbol-retry-helper",
+      "category": "identifier_exact",
+      "text": "orion.db.retry.with_serializable_retry",
+      "relevant": ["inv-serializable-retry", "proc-retry-loop"],
+      "note": "Dotted symbol carried in retrieval metadata on two memories."
+    },
+    {
+      "case_id": "exact-error-sqlstate-40001",
+      "category": "identifier_exact",
+      "text": "SQLSTATE 40001",
+      "relevant": ["inv-serializable-retry", "obs-error-40001-spike"],
+      "note": "Error code appears as an explicit exact term on both."
+    },
+    {
+      "case_id": "exact-error-payments-4210",
+      "category": "identifier_exact",
+      "text": "PAYMENTS-4210",
+      "relevant": ["warn-refund-partial"],
+      "note": "Single-owner error code."
+    },
+    {
+      "case_id": "exact-commit-leak-fix",
+      "category": "identifier_exact",
+      "text": "e52b7f3",
+      "relevant": ["out-leak-fixed"],
+      "note": "Single-owner commit hash."
+    },
+    {
+      "case_id": "exact-alias-replay-guard-flag",
+      "category": "identifier_exact",
+      "text": "payments.replay_guard.v2",
+      "relevant": ["out-fix-behind-flag"],
+      "note": "Flag name carried as an explicit alias."
+    },
+    {
+      "case_id": "exact-tag-flaky-test",
+      "category": "identifier_exact",
+      "text": "flaky-test",
+      "relevant": [
+        "obs-flaky-checkout-retry",
+        "proc-repro-flaky-seed",
+        "out-flaky-fixed",
+        "att-retry-count-bump",
+        "obs-flaky-docker-pull"
+      ],
+      "note": "Query equals a tag shared by five memories; multi-evidence exact case."
+    },
+    {
+      "case_id": "code-lookup-pool-py",
+      "category": "code_lookup",
+      "text": "services/api/pool.py connection pool saturation",
+      "relevant": ["obs-pool-exhaustion", "dec-pool-size"],
+      "note": "Path plus natural language; exact lane cannot fire on the whole string."
+    },
+    {
+      "case_id": "code-lookup-charge-worker",
+      "category": "code_lookup",
+      "text": "services/payments/charge_worker.py duplicate charge",
+      "relevant": ["obs-duplicate-charge-trace", "hand-payments-handoff-1"],
+      "note": "Path shared by two memories plus discriminating words."
+    },
+    {
+      "case_id": "code-lookup-search-indexer",
+      "category": "code_lookup",
+      "text": "services/search/indexer.py index lag",
+      "relevant": ["obs-search-index-lag"],
+      "note": "Path owned by one memory inside a decoy-rich search cluster."
+    },
+    {
+      "case_id": "lexical-webhook-dedupe",
+      "category": "lexical",
+      "text": "how do we de-duplicate webhook deliveries before charging",
+      "relevant": ["inv-webhook-idempotency", "dec-replay-guard-table"],
+      "note": "Direct lexical overlap with the invariant and the storage decision."
+    },
+    {
+      "case_id": "lexical-pool-503-bursts",
+      "category": "lexical",
+      "text": "api returns 503 bursts when the connection pool saturates at peak",
+      "relevant": ["obs-pool-exhaustion"],
+      "note": "Near-verbatim overlap with the incident observation."
+    },
+    {
+      "case_id": "lexical-rotate-signing-secret",
+      "category": "lexical",
+      "text": "rotate the signing secret without rejecting tokens already in flight",
+      "relevant": ["proc-rotate-signing-key"],
+      "note": "Warning about the webhook signing secret is a near neighbour, not the answer."
+    },
+    {
+      "case_id": "lexical-rebuild-catalogue-index",
+      "category": "lexical",
+      "text": "rebuild the catalogue index into a new name and swap the alias",
+      "relevant": ["proc-rebuild-index"],
+      "note": "Several other search memories mention rebuilds."
+    },
+    {
+      "case_id": "lexical-rollout-percentages",
+      "category": "lexical",
+      "text": "what percentages do we step through when rolling out a risky change",
+      "relevant": ["dec-rollout-percent"],
+      "note": "Rollout cluster contains five other flag memories."
+    },
+    {
+      "case_id": "lexical-worker-memory-growth",
+      "category": "lexical",
+      "text": "background worker resident memory grows under steady load",
+      "relevant": ["obs-memory-leak-worker"],
+      "note": "The fix and the profiling procedure are related but are separate memories."
+    },
+    {
+      "case_id": "lexical-metric-label-cardinality",
+      "category": "lexical",
+      "text": "can I add a customer identifier as a metric label",
+      "relevant": ["inv-no-pii-in-metrics", "warn-cardinality-explosion"],
+      "note": "Two memories jointly answer: privacy rule and cardinality consequence."
+    },
+    {
+      "case_id": "fuzzy-typo-path",
+      "category": "fuzzy_typo",
+      "text": "services/payments/webhok_router.py",
+      "relevant": ["inv-webhook-idempotency", "dec-webhook-timeout-budget"],
+      "note": "One transposed character; exact lane must miss, trigram should not."
+    },
+    {
+      "case_id": "fuzzy-typo-test-name",
+      "category": "fuzzy_typo",
+      "text": "test_chekout_retry_backoff",
+      "relevant": ["obs-flaky-checkout-retry", "proc-repro-flaky-seed"],
+      "note": "Misspelled test identifier."
+    },
+    {
+      "case_id": "fuzzy-typo-symbol",
+      "category": "fuzzy_typo",
+      "text": "payments.webhook.replay_gaurd",
+      "relevant": ["inv-webhook-idempotency"],
+      "note": "Misspelled symbol suffix."
+    },
+    {
+      "case_id": "fuzzy-typo-flag",
+      "category": "fuzzy_typo",
+      "text": "payments.replay_gaurd.v2",
+      "relevant": ["out-fix-behind-flag"],
+      "note": "Misspelled flag alias."
+    },
+    {
+      "case_id": "paraphrase-double-billing",
+      "category": "paraphrase",
+      "text": "customers were billed twice after the provider resent the same event",
+      "relevant": ["inv-webhook-idempotency", "obs-duplicate-charge-trace"],
+      "note": "Deliberately avoids the words duplicate, webhook, charge and idempotency."
+    },
+    {
+      "case_id": "paraphrase-nondeterministic-check",
+      "category": "paraphrase",
+      "text": "a check in the pipeline passes sometimes and fails other times with no code change",
+      "relevant": ["obs-flaky-checkout-retry", "warn-time-sleep-in-tests"],
+      "note": "Avoids the word flaky and the test identifier."
+    },
+    {
+      "case_id": "paraphrase-transaction-conflict",
+      "category": "paraphrase",
+      "text": "two transactions touching the same rows abort each other under strict isolation",
+      "relevant": ["inv-serializable-retry", "obs-error-40001-spike"],
+      "note": "Avoids the words serialization, 40001 and retry."
+    },
+    {
+      "case_id": "paraphrase-credentials-exposure",
+      "category": "paraphrase",
+      "text": "credentials ending up somewhere they can be read again later",
+      "relevant": ["warn-token-in-logs", "warn-ci-secret-leak"],
+      "note": "Avoids the words log, header, secret and environment."
+    },
+    {
+      "case_id": "paraphrase-gradual-exposure",
+      "category": "paraphrase",
+      "text": "exposing a change to a small slice of traffic before everyone sees it",
+      "relevant": ["dec-rollout-percent", "inv-flag-default-off"],
+      "note": "Avoids the words rollout, flag and percent."
+    },
+    {
+      "case_id": "decoy-search-freshness",
+      "category": "decoy_heavy",
+      "text": "recently written documents are missing from search results",
+      "relevant": ["obs-search-index-lag", "out-search-fix"],
+      "note": "Twelve search memories share this vocabulary; two are correct."
+    },
+    {
+      "case_id": "decoy-filter-before-limit",
+      "category": "decoy_heavy",
+      "text": "scope filters have to run before the limit or results disappear",
+      "relevant": ["inv-search-scope-filter"],
+      "note": "Competes with the per-tenant index invariant and the stale-result warning."
+    },
+    {
+      "case_id": "decoy-provider-retry-schedule",
+      "category": "decoy_heavy",
+      "text": "how often does the provider retry an unacknowledged delivery",
+      "relevant": ["obs-provider-retry-schedule"],
+      "note": "Competes with eleven other payments and webhook memories."
+    },
+    {
+      "case_id": "decoy-search-latency-step",
+      "category": "decoy_heavy",
+      "text": "which step dominates search tail latency",
+      "relevant": ["obs-search-latency"],
+      "note": "Competes with the checkout p99 and flag evaluation latency observations."
+    },
+    {
+      "case_id": "multi-duplicate-charge-thread",
+      "category": "multi_evidence",
+      "text": "duplicate charge root cause, the fix and how far the rollout got",
+      "relevant": ["obs-duplicate-charge-trace", "out-fix-behind-flag", "out-rollout-complete"],
+      "note": "Three linked memories spanning the payments and rollout clusters."
+    },
+    {
+      "case_id": "multi-flaky-thread",
+      "category": "multi_evidence",
+      "text": "flaky checkout retry test cause and how it was fixed",
+      "relevant": ["obs-flaky-checkout-retry", "dec-freeze-clock-in-test", "out-flaky-fixed"],
+      "note": "Three linked memories in the CI cluster."
+    },
+    {
+      "case_id": "bootstrap-open-threads",
+      "category": "multi_evidence",
+      "text": "what work is still open at the end of this cycle",
+      "relevant": ["hand-final-handoff", "hand-ci-handoff", "hand-rollout-handoff"],
+      "note": "Handoff memories only; the word handoff is absent from the query."
+    },
+    {
+      "case_id": "no-answer-kubernetes-autoscaler",
+      "category": "no_answer",
+      "text": "kubernetes horizontal pod autoscaler configuration",
+      "relevant": [],
+      "note": "Nothing in the corpus concerns orchestration."
+    },
+    {
+      "case_id": "no-answer-graphql-federation",
+      "category": "no_answer",
+      "text": "graphql schema stitching and gateway federation",
+      "relevant": [],
+      "note": "No graphql surface exists in the corpus."
+    },
+    {
+      "case_id": "no-answer-ios-push",
+      "category": "no_answer",
+      "text": "apns certificate renewal for the ios push notification service",
+      "relevant": [],
+      "note": "No mobile surface exists in the corpus."
+    },
+    {
+      "case_id": "no-answer-recommendation-embeddings",
+      "category": "no_answer",
+      "text": "which sentence embedding model powers product recommendations",
+      "relevant": [],
+      "note": "Hard no-answer: shares vocabulary with the search cluster but has no answer."
+    },
+    {
+      "case_id": "no-answer-terraform-state",
+      "category": "no_answer",
+      "text": "terraform remote state locking for the staging workspace",
+      "relevant": [],
+      "note": "No infrastructure-as-code memories exist."
+    },
+    {
+      "case_id": "no-answer-localisation",
+      "category": "no_answer",
+      "text": "how are translations sourced for the czech and polish locales",
+      "relevant": [],
+      "note": "No localisation memories exist."
+    }
+  ]
+}
