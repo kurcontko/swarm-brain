@@ -10,6 +10,8 @@ from swarmbrain.domain.common import MemoryId
 from swarmbrain.domain.memory import Memory, RecallQuery
 from swarmbrain.domain.retrieval import (
     CandidateBatch,
+    DenseQuery,
+    FusedCandidate,
     RetrievalPlan,
     RetrievalSignal,
     RetrievalTrace,
@@ -28,6 +30,24 @@ class RetrievalGateway(Protocol):
         actor: ActorContext,
         plan: RetrievalPlan,
         query: RecallQuery,
+        dense_query: DenseQuery | None = None,
+    ) -> CandidateBatch: ...
+
+
+@runtime_checkable
+class GraphExpansionGateway(Protocol):
+    """Expand canonically validated direct hits through bounded memory links."""
+
+    @property
+    def signal(self) -> RetrievalSignal: ...
+
+    async def expand(
+        self,
+        actor: ActorContext,
+        plan: RetrievalPlan,
+        query: RecallQuery,
+        seeds: Sequence[FusedCandidate],
+        dense_query: DenseQuery | None = None,
     ) -> CandidateBatch: ...
 
 
@@ -48,4 +68,9 @@ class RetrievalTraceSink(Protocol):
     async def record(self, trace: RetrievalTrace) -> None: ...
 
 
-__all__ = ["CanonicalMemoryReader", "RetrievalGateway", "RetrievalTraceSink"]
+__all__ = [
+    "CanonicalMemoryReader",
+    "GraphExpansionGateway",
+    "RetrievalGateway",
+    "RetrievalTraceSink",
+]

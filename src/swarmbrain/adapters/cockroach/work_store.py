@@ -51,9 +51,10 @@ from swarmbrain.domain.work import (
     durable_work_id,
     source_extraction_state,
 )
+from swarmbrain.retrieval.dense import dense_projection_signature
 
 from .database import CockroachDatabase
-from .vector import vector_literal
+from .vector import upsert_memory_dense_projection, vector_literal
 
 WORK_COLUMNS = """
     id, tenant_id, project_id, repository_id, swarm_id, run_id, task_id,
@@ -783,6 +784,10 @@ class CockroachWorkStore:
         """Atomically fence the lease, upsert its vector, and complete the work."""
 
         literal = vector_literal(command.vector.values)
+        projection_signature = dense_projection_signature(
+            command.vector.model,
+            command.vector.dimensions,
+        )
 
         async def body(connection: Any) -> CompleteWorkResult:
             row = await self._locked_work_row(connection, command.work_id)
@@ -794,15 +799,28 @@ class CockroachWorkStore:
                     raise WorkCompletionConflict(command.work_id)
                 replay_cursor = await connection.execute(
                     """
-                    SELECT dimensions, embedding = %s::VECTOR AS vector_matches
-                    FROM memory_vector_embeddings
-                    WHERE memory_id = %s
-                      AND tenant_id = %s
-                      AND project_id = %s
-                      AND repository_id = %s
-                      AND model = %s
+                    SELECT legacy.dimensions,
+                           legacy.embedding = %s::VECTOR AS vector_matches,
+                           EXISTS (
+                               SELECT 1
+                               FROM retrieval_vectors_1024 AS projected
+                               WHERE projected.canonical_id = legacy.memory_id
+                                 AND projected.tenant_id = legacy.tenant_id
+                                 AND projected.project_id = legacy.project_id
+                                 AND projected.repository_id = legacy.repository_id
+                                 AND projected.projection_signature = %s
+                                 AND projected.embedding = %s::VECTOR
+                           ) AS projection_matches
+                    FROM memory_vector_embeddings AS legacy
+                    WHERE legacy.memory_id = %s
+                      AND legacy.tenant_id = %s
+                      AND legacy.project_id = %s
+                      AND legacy.repository_id = %s
+                      AND legacy.model = %s
                     """,
                     (
+                        literal,
+                        projection_signature,
                         literal,
                         _uuid(command.vector.memory_id),
                         item.tenant_id,
@@ -815,6 +833,7 @@ class CockroachWorkStore:
                 if replay_row is None or (
                     int(replay_row["dimensions"]) != command.vector.dimensions
                     or not bool(replay_row["vector_matches"])
+                    or not bool(replay_row["projection_matches"])
                 ):
                     raise WorkCompletionConflict("completed_embedding_vector")
                 return CompleteWorkResult(item=item, replayed=True)
@@ -861,6 +880,17 @@ class CockroachWorkStore:
                 ),
             )
             if await vector_cursor.fetchone() is None:
+                raise ResourceNotFound("memory", command.vector.memory_id)
+            projected = await upsert_memory_dense_projection(
+                connection,
+                command.vector,
+                tenant_id=item.tenant_id,
+                project_id=item.project_id,
+                repository_id=item.repository_id,
+                swarm_id=item.swarm_id,
+                run_id=item.run_id,
+            )
+            if not projected:
                 raise ResourceNotFound("memory", command.vector.memory_id)
 
             update_cursor = await connection.execute(

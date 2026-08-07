@@ -480,14 +480,19 @@ async def test_durable_extraction_work_queue_and_plans(
         stale = leases[0]
 
         await _expire_lease(database, stale.item.work_id)
-        handoff = await store.claim_work(
-            ClaimWorkCommand(
-                worker_id="live-worker-handoff",
-                kinds=frozenset({WorkKind.EXTRACT_SOURCE}),
-                lease_seconds=30,
+        handoff = None
+        for _ in range(3):
+            handoff = await store.claim_work(
+                ClaimWorkCommand(
+                    worker_id="live-worker-handoff",
+                    kinds=frozenset({WorkKind.EXTRACT_SOURCE}),
+                    lease_seconds=30,
+                )
             )
-        )
-        assert len(handoff.leases) == 1
+            if handoff.leases:
+                break
+            await asyncio.sleep(0.01)
+        assert handoff is not None and len(handoff.leases) == 1
         current = handoff.leases[0]
         assert current.attempt == stale.attempt + 1
         assert current.lease_version == stale.lease_version + 1

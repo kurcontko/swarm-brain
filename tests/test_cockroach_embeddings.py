@@ -32,6 +32,9 @@ class _Cursor:
     async def fetchall(self) -> list[dict[str, Any]]:
         return self.rows
 
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self.rows[0] if self.rows else None
+
 
 class _RecordingConnection:
     def __init__(self, *, upsert_rowcount: int = 1) -> None:
@@ -46,6 +49,24 @@ class _RecordingConnection:
         self.calls.append((sql, parameters))
         if "INSERT INTO memory_vector_embeddings" in sql:
             return _Cursor(rowcount=self.upsert_rowcount)
+        if "FROM memories" in sql:
+            return _Cursor(
+                [
+                    {
+                        "id": parameters[0],
+                        "repository_id": parameters[3],
+                        "run_id": UUID(new_id()),
+                        "task_id": None,
+                        "visibility": "repository",
+                        "kind": "observation",
+                        "metadata": {},
+                        "version": 3,
+                        "normalized_sha256": b"content-digest",
+                    }
+                ]
+            )
+        if "UPSERT INTO retrieval_vectors_1024" in sql:
+            return _Cursor(rowcount=1)
         return _Cursor(
             [
                 {"memory_id": UUID(new_id()), "distance": 0.125},
@@ -106,6 +127,17 @@ async def test_vector_upsert_derives_and_filters_complete_scope(
         actor.project_id,
         actor.repository_id,
     )
+    projection_sql, projection_parameters = connection.calls[2]
+    assert "UPSERT INTO retrieval_vectors_1024" in projection_sql
+    assert "projection_signature" in projection_sql
+    assert "resource_version" in projection_sql
+    assert "content_sha256" in projection_sql
+    assert projection_parameters[0:3] == (
+        actor.tenant_id,
+        actor.project_id,
+        actor.repository_id,
+    )
+    assert projection_parameters[5] == f"repository:{actor.repository_id}"
 
 
 @pytest.mark.asyncio

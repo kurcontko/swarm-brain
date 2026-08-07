@@ -16,6 +16,7 @@ from swarmbrain.domain.retrieval import (
     RetrievalSignal,
 )
 
+from .graph import GRAPH_LINK_TYPES
 from .projection import MAX_QUERY_CHARS
 
 _HEX_DIGEST = re.compile(r"(?i)^[0-9a-f]{64}$")
@@ -59,26 +60,38 @@ class RetrievalPlanner:
         seed_memory_ids: Sequence[MemoryId] = (),
     ) -> RetrievalPlan:
         available = frozenset(available_signals)
-        selected = frozenset(
+        intent = self._intent(query)
+        primary = frozenset(
             signal
             for signal in (
                 RetrievalSignal.EXACT,
                 RetrievalSignal.LEXICAL,
                 RetrievalSignal.FUZZY,
+                RetrievalSignal.DENSE,
             )
             if signal in available
         )
-        weights = self._weights(purpose, selected)
+        max_graph_hops = self._graph_hops(purpose) if RetrievalSignal.GRAPH in available else 0
+        selected = primary | (
+            frozenset({RetrievalSignal.GRAPH}) if max_graph_hops > 0 else frozenset()
+        )
+        weights = self._weights(purpose, intent, selected)
         base_budget = min(2000, max(32, query.limit * 8))
         budgets = {
             RetrievalSignal.EXACT.value: min(2000, max(32, query.limit * 4)),
             RetrievalSignal.LEXICAL.value: base_budget,
             RetrievalSignal.FUZZY.value: min(2000, max(24, query.limit * 5)),
+            # The compatibility embedding port and public recall limit are
+            # both bounded at 100.  Scope branches may over-fetch internally,
+            # but the fused dense lane remains deliberately small.
+            RetrievalSignal.DENSE.value: min(100, max(32, query.limit * 8)),
+            RetrievalSignal.GRAPH.value: min(200, max(16, query.limit * 4)),
         }
+        graph_budget = budgets[RetrievalSignal.GRAPH.value]
         selected_seeds = tuple(dict.fromkeys((*seed_memory_ids, *sorted(query.memory_ids))))
         return RetrievalPlan(
             purpose=purpose,
-            intent=self._intent(query),
+            intent=intent,
             domain_lanes=self._domain_lanes(purpose),
             signal_lanes=selected,
             world_at=query.world_at,
@@ -95,7 +108,11 @@ class RetrievalPlanner:
             lane_budgets={signal.value: budgets[signal.value] for signal in selected},
             lane_weights=weights,
             seed_memory_ids=selected_seeds,
-            max_graph_hops=0,
+            max_graph_hops=max_graph_hops,
+            graph_seed_limit=min(16, max(4, query.limit)) if max_graph_hops else 0,
+            graph_max_fanout=8 if max_graph_hops else 0,
+            graph_edge_budget=(min(2000, max(64, graph_budget * 4)) if max_graph_hops else 0),
+            graph_link_types=GRAPH_LINK_TYPES if max_graph_hops else frozenset(),
             rerank=False,
             diversify=purpose in {RetrievalPurpose.PLANNING, RetrievalPurpose.TASK_BOOTSTRAP},
         )
@@ -118,6 +135,7 @@ class RetrievalPlanner:
     @staticmethod
     def _weights(
         purpose: RetrievalPurpose,
+        intent: str,
         signals: frozenset[RetrievalSignal],
     ) -> dict[str, float]:
         if purpose is RetrievalPurpose.TASK_BOOTSTRAP:
@@ -125,20 +143,45 @@ class RetrievalPlanner:
                 RetrievalSignal.EXACT: 6.0,
                 RetrievalSignal.LEXICAL: 3.0,
                 RetrievalSignal.FUZZY: 1.0,
+                RetrievalSignal.DENSE: 3.0,
+                RetrievalSignal.GRAPH: 1.5,
             }
         elif purpose is RetrievalPurpose.HISTORICAL_AUDIT:
             configured = {
                 RetrievalSignal.EXACT: 5.0,
                 RetrievalSignal.LEXICAL: 4.0,
                 RetrievalSignal.FUZZY: 0.75,
+                RetrievalSignal.DENSE: 2.0,
+                RetrievalSignal.GRAPH: 1.25,
             }
         else:
             configured = {
                 RetrievalSignal.EXACT: 5.0,
                 RetrievalSignal.LEXICAL: 3.0,
                 RetrievalSignal.FUZZY: 1.0,
+                RetrievalSignal.DENSE: 4.0,
+                RetrievalSignal.GRAPH: (
+                    2.5 if purpose is RetrievalPurpose.CONFLICT_REVIEW else 1.75
+                ),
             }
+        # Literal identifiers are better served by exact and fuzzy indexes;
+        # dense still contributes for mixed natural-language/code queries but
+        # cannot displace a direct lookup merely because its ANN rank is high.
+        if intent in {"identifier", "code_lookup"}:
+            configured[RetrievalSignal.DENSE] = 1.0
+            configured[RetrievalSignal.GRAPH] = min(configured[RetrievalSignal.GRAPH], 1.25)
         return {signal.value: configured[signal] for signal in signals}
+
+    @staticmethod
+    def _graph_hops(purpose: RetrievalPurpose) -> int:
+        if purpose in {
+            RetrievalPurpose.TASK_BOOTSTRAP,
+            RetrievalPurpose.HANDOFF_RECOVERY,
+            RetrievalPurpose.PLANNING,
+            RetrievalPurpose.CONFLICT_REVIEW,
+        }:
+            return 2
+        return 1
 
     @staticmethod
     def _domain_lanes(purpose: RetrievalPurpose) -> frozenset[str]:

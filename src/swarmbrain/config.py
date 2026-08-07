@@ -91,6 +91,8 @@ class ApiSettings:
     embeddings: EmbeddingsKind = EmbeddingsKind.NONE
     embeddings_model: str | None = None
     embeddings_dimensions: int = 1024
+    retrieval_dense_min_similarity: float = 0.0
+    retrieval_dense_ann_beam_size: int = 32
     aws_region: str | None = None
     ingest_trust: SourceTrust = SourceTrust.UNKNOWN
     ingest_use_provider: bool = False
@@ -110,6 +112,10 @@ class ApiSettings:
             raise ValueError("embeddings model must contain between 1 and 255 characters")
         if self.embeddings_dimensions < 2:
             raise ValueError("embeddings dimensions must be at least 2")
+        if not 0.0 <= self.retrieval_dense_min_similarity <= 1.0:
+            raise ValueError("dense retrieval minimum similarity must be between 0 and 1")
+        if not 1 <= self.retrieval_dense_ann_beam_size <= 1024:
+            raise ValueError("dense retrieval ANN beam size must be between 1 and 1024")
         if (
             backend is BackendKind.COCKROACH
             and embeddings is not EmbeddingsKind.NONE
@@ -162,6 +168,14 @@ class ApiSettings:
                 embeddings_model=_env("SWARMBRAIN_EMBEDDINGS_MODEL"),
                 embeddings_dimensions=_integer_env(
                     "SWARMBRAIN_EMBEDDINGS_DIMENSIONS", default=1024
+                ),
+                retrieval_dense_min_similarity=_float_env(
+                    "SWARMBRAIN_RETRIEVAL_DENSE_MIN_SIMILARITY",
+                    default=0.0,
+                ),
+                retrieval_dense_ann_beam_size=_integer_env(
+                    "SWARMBRAIN_RETRIEVAL_DENSE_ANN_BEAM_SIZE",
+                    default=32,
                 ),
                 aws_region=_env("SWARMBRAIN_AWS_REGION"),
                 ingest_trust=_source_trust(

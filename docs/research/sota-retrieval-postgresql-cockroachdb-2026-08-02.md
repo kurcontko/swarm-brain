@@ -1,6 +1,6 @@
 # SOTA retrieval dla PostgreSQL i CockroachDB
 
-Data researchu: 2026-08-02
+Data researchu: 2026-08-02; aktualizacja źródeł: 2026-08-06
 
 Zakres: retrieval dla pamięci agentowej i systemów RAG, ze szczególnym
 uwzględnieniem architektury Sen. Dokument opisuje techniki, retrieval lanes,
@@ -13,7 +13,7 @@ ograniczenia baz danych oraz rekomendowaną kolejność wdrożeń.
 Swarm Brain jest obecnie osobnym projektem. Sposób zastosowania tego researchu
 oraz aktualny stan exact/FTS/trigram/RRF opisują
 [architektura standalone](../retrieval-architecture.md) i
-[status retrieval v1](../retrieval-status.md).
+[status retrieval v2](../retrieval-status.md).
 
 ## Executive summary
 
@@ -56,6 +56,57 @@ oparty o PostgreSQL i pgvector łączy równoległy dense, lexical, graph i
 temporal retrieval. Autorzy raportują 83,6% na LongMemEval z modelem 20B
 oraz 91,4% z Gemini-3 Pro. Jest to mocny przykład architektoniczny, ale nadal
 wynik jednego systemu i konfiguracji, a nie uniwersalny ranking baz danych.
+
+## Aktualizacja 2026-08-06: wnioski dla dense v2
+
+Ponowne sprawdzenie źródeł pierwotnych nie zmienia ogólnej architektury, ale
+doprecyzowuje pięć decyzji implementacyjnych.
+
+1. **Filtered ANN wymaga projektowania indeksu, nie tylko `WHERE`.** Oficjalna
+   dokumentacja [CockroachDB v26.2 vector indexes](https://www.cockroachlabs.com/docs/v26.2/vector-indexes)
+   mówi, że vector index z prefix columns jest używany tylko wtedy, gdy każdy
+   prefix ma konkretną wartość equality albo kompletny tuple `IN`. Filtry inne
+   niż prefix nie mają akceleracji vector indexu. Dla Swarm Brain oznacza to
+   osobne equality-bound branches dla `repository:*`, `run:*` i `task:*`, a
+   nie globalny ANN z post-filterem widoczności.
+2. **Beam jest parametrem jakości, nie stałą poprawności.** CockroachDB podaje
+   domyślny `vector_search_beam_size=32`; większy beam bada więcej partycji,
+   podnosząc recall kosztem CPU i latency. Musi być konfigurowalny i mierzony
+   względem exact oracle na każdym bucketcie selectivity.
+3. **PostgreSQL potrzebuje innej polityki filtered ANN.** Oficjalny
+   [pgvector](https://github.com/pgvector/pgvector) wykonuje domyślnie exact
+   nearest-neighbor search. HNSW zwykle daje lepszy speed/recall trade-off niż
+   IVFFlat, ale zwykłe filtry są nakładane po skanie approximate indexu.
+   Iterative scans od 0.8.0 ograniczają underfill; bardzo selektywne filtry
+   nadal często wygrywają przez B-tree/partycję i exact vector sort.
+4. **RRF jest baseline'em, nie końcem optymalizacji.** Analiza
+   [Bruch, Gai i Ingber](https://arxiv.org/abs/2210.11934) pokazuje wrażliwość
+   RRF na parametry oraz przewagę uczonej convex combination w ich testach.
+   Dlatego Swarm Brain zachowuje audytowalne contribution-level RRF bez zbioru
+   treningowego, ale wersjonuje weights i wymaga lane ablations; learned fusion
+   ma sens dopiero po zebraniu reprezentatywnych judgments.
+5. **Następny skok jakości jest strukturalny.** [Hindsight](https://aclanthology.org/2026.acl-demo.27/)
+   łączy vector, keyword, graph i temporal retrieval;
+   [APEX-MEM](https://aclanthology.org/2026.acl-long.749/) zachowuje append-only
+   temporal evolution w entity-centric property graph; a
+   [MRAgent](https://arxiv.org/abs/2606.06036) aktywnie eksploruje i przycina
+   Cue–Tag–Content graph. Po poprawnym hybrid dense v2 większy potencjał ma
+   bounded source/graph/temporal expansion niż kolejna niezmierzona zmiana
+   samego ANN.
+
+[BEIR](https://arxiv.org/abs/2104.08663) pozostaje ostrzeżeniem przed
+optymalizacją do jednego rodzaju zapytań: benchmark obejmuje heterogeniczne
+domeny i pokazuje istotne różnice generalizacji retrieverów. Produktowy raport
+Swarm Brain musi więc osobno mierzyć identifier/code lookup, konceptualne
+parafrazy, task bootstrap, temporal/contradiction, multi-evidence i no-answer.
+
+Wynikająca kolejność: signed current vector projection → equality-bound
+auth/visibility/projection prefix → ANN → canonical validation w tym samym
+snapshotcie z bounded adaptive widening → exact oracle filtrujący eligible set
+przed exact sort → dense/lexical/hybrid ablations → dopiero potem learned
+fusion, reranker oraz bounded graph. Samo wdrożenie tej architektury nie jest
+twierdzeniem o SOTA; takie twierdzenie wymaga reprezentatywnego,
+wersjonowanego benchmarku.
 
 ## Dwie osie lane'ów
 
@@ -480,6 +531,57 @@ Traversal powinien:
 - kończyć się po 1–2 hops;
 - stosować ACL, tenant i time predicates na każdym hopie;
 - unikać dużego fan-out przez regiony.
+
+#### Wynik implementacyjny Swarm Brain, 2026-08-06
+
+Po dense v2 wdrożony został pierwszy mierzony structural slice:
+`memory_links` jako second-stage lane seedowany wynikiem direct RRF. Nie jest to
+pełny GraphRAG ani PPR. To fixed-depth spreading activation z jednym hopem dla
+interactive/historical/orientation i dwoma dla
+bootstrap/handoff/planning/conflict review.
+
+Decyzja SQL jest świadoma różnic między systemami:
+
+- [PostgreSQL 18 `WITH RECURSIVE`](https://www.postgresql.org/docs/current/queries-with.html)
+  dokumentuje depth/path arrays, `SEARCH` i `CYCLE`, ale podkreśla, że kolejność
+  odwiedzania jest implementation-dependent i zaleca jawne sortowanie;
+- [CockroachDB 26.2 recursive CTE](https://www.cockroachlabs.com/docs/v26.2/common-table-expressions)
+  wymaga jawnego warunku końca, odradza poleganie na outer `LIMIT` w produkcji i
+  zaznacza, że część recursive CTE nie jest jeszcze zoptymalizowana;
+- dlatego critical path używa jawnej pętli 1–2 hopów w jednym retrieval
+  snapshotcie, batched `LATERAL` scans i osobnych covering indexes
+  `(source_memory_id, link_type, created_at DESC, id)` oraz symetrycznego
+  target indexu.
+
+Per-node raw scan ma stały cap równy maksymalnie czterem fan-outom. Endpointy
+są następnie walidowane canonicalnie; dopiero eligible node otrzymuje jeden z
+ośmiu fan-out slots. To uniknęło dwóch złych planów sprawdzonych live na
+CockroachDB 26.2.1: złożony trust predicate wewnątrz wymuszonego `LOOKUP JOIN`
+nie dawał legalnego planu, a zwykły join został zhashowany nad szerokim skanem
+`memories`. Dwufazowy bounded edge scan → primary-ID validation zachowuje oba
+directional indexes, brak full scan i pełną politykę auth/trust/time przed
+przejściem do następnego frontieru.
+
+Scoring czerpie z aktualnych wyników graph-memory research, ale pozostaje
+deterministyczny. [HippoRAG 2](https://arxiv.org/abs/2502.14802) pokazuje wartość
+graph propagation/PPR dla factual, sense-making i associative memory, jednak
+globalne PPR nie należy do synchronicznego critical path. Nowsze
+[Query-Aware Spreading Activation](https://arxiv.org/abs/2606.30133) raportuje
+korzyść z fixed-iteration, per-step query gate względem query-blind traversal.
+Swarm Brain stosuje więc seed activation z direct hybrid, relation/direction
+weight, `0.85` step decay i bounded lexical query gate z floorem `0.60`.
+Semantic dense gate dla target node pozostaje hipotezą do ablation, nie
+niezmierzoną zależnością runtime.
+
+Każdy kandydat zapisuje pełny edge/node path, relation sequence, hop count i
+cumulative activation; path-local node set blokuje cykle. Graph lane ma niższy
+RRF weight niż direct evidence (z wyjątkiem umiarkowanego boostu conflict
+review), degraduje się niezależnie i nie omija final canonical hydration.
+
+To jest SOTA-informed architecture, nie dowód SOTA jakości. Release evidence
+musi porównać direct-only z direct+graph na reprezentatywnych factual,
+associative, multi-hop i no-answer judgments oraz wykonać sweep hop/fan-out,
+seed/edge budget, relation decay, gate floor i graph RRF weight.
 
 ### Multi-region
 

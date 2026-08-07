@@ -21,6 +21,8 @@ API_ENVIRONMENT = (
     "SWARMBRAIN_DATABASE_URL",
     "SWARMBRAIN_DATABASE_POOL_MIN_SIZE",
     "SWARMBRAIN_DATABASE_POOL_MAX_SIZE",
+    "SWARMBRAIN_RETRIEVAL_DENSE_MIN_SIMILARITY",
+    "SWARMBRAIN_RETRIEVAL_DENSE_ANN_BEAM_SIZE",
     "SWARMBRAIN_HOST",
     "SWARMBRAIN_PORT",
 )
@@ -52,6 +54,8 @@ def test_api_settings_accept_an_explicit_memory_backend(
     assert settings.database_url is None
     assert settings.database_pool_min_size == 1
     assert settings.database_pool_max_size == 12
+    assert settings.retrieval_dense_min_similarity == pytest.approx(0.0)
+    assert settings.retrieval_dense_ann_beam_size == 32
 
 
 @pytest.mark.parametrize(
@@ -81,6 +85,20 @@ def test_api_settings_accept_an_explicit_memory_backend(
                 "SWARMBRAIN_DATABASE_POOL_MAX_SIZE": "4",
             },
             "pool minimum",
+        ),
+        (
+            {
+                "SWARMBRAIN_BACKEND": "memory",
+                "SWARMBRAIN_RETRIEVAL_DENSE_MIN_SIMILARITY": "1.1",
+            },
+            "minimum similarity",
+        ),
+        (
+            {
+                "SWARMBRAIN_BACKEND": "memory",
+                "SWARMBRAIN_RETRIEVAL_DENSE_ANN_BEAM_SIZE": "0",
+            },
+            "beam size",
         ),
     ],
 )

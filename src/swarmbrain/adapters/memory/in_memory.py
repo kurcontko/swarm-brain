@@ -804,6 +804,19 @@ class InMemoryKernel:
         async with self._lock:
             return tuple(self._recallable_memories_locked(actor, query, self._now()))
 
+    async def recallable_memory_graph(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+    ) -> tuple[tuple[Memory, ...], tuple[MemoryLink, ...]]:
+        """Return one canonically filtered node/edge view for graph retrieval."""
+
+        snapshot_now = self._retrieval_snapshot_now.get()
+        if snapshot_now is not None:
+            return self._recallable_memory_graph_locked(actor, query, snapshot_now)
+        async with self._lock:
+            return self._recallable_memory_graph_locked(actor, query, self._now())
+
     async def hydrate_recallable(
         self,
         actor: ActorContext,
@@ -990,6 +1003,7 @@ class InMemoryKernel:
         model: str,
         limit: int = 10,
         min_score: float = 0.0,
+        candidate_ids: Sequence[MemoryId] = (),
     ) -> tuple[EmbeddingMatch, ...]:
         if self._retrieval_snapshot_now.get() is not None:
             return self._search_embeddings_locked(
@@ -998,6 +1012,7 @@ class InMemoryKernel:
                 model=model,
                 limit=limit,
                 min_score=min_score,
+                candidate_ids=candidate_ids,
             )
         async with self._lock:
             return self._search_embeddings_locked(
@@ -1006,6 +1021,7 @@ class InMemoryKernel:
                 model=model,
                 limit=limit,
                 min_score=min_score,
+                candidate_ids=candidate_ids,
             )
 
     def _search_embeddings_locked(
@@ -1016,10 +1032,12 @@ class InMemoryKernel:
         model: str,
         limit: int,
         min_score: float,
+        candidate_ids: Sequence[MemoryId] = (),
     ) -> tuple[EmbeddingMatch, ...]:
         matches: list[EmbeddingMatch] = []
+        allowed = frozenset(candidate_ids)
         for (memory_id, vector_model), vector in self.memory_embeddings.items():
-            if vector_model != model:
+            if vector_model != model or (allowed and memory_id not in allowed):
                 continue
             memory = self.memories.get(memory_id)
             if memory is None or (
@@ -1590,6 +1608,29 @@ class InMemoryKernel:
             elif query.include_refuted:
                 candidates.append(memory.model_copy(update={"evidence": ()}))
         return candidates
+
+    def _recallable_memory_graph_locked(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        now: datetime,
+    ) -> tuple[tuple[Memory, ...], tuple[MemoryLink, ...]]:
+        memories = tuple(self._recallable_memories_locked(actor, query, now))
+        eligible_ids = frozenset(memory.memory_id for memory in memories)
+        recorded_at = query.recorded_at or now
+        links = tuple(
+            sorted(
+                (
+                    link
+                    for link in self.memory_links.values()
+                    if link.created_at <= recorded_at
+                    and link.source_memory_id in eligible_ids
+                    and link.target_memory_id in eligible_ids
+                ),
+                key=lambda link: (link.created_at, link.link_id),
+            )
+        )
+        return memories, links
 
     def _memory_target(
         self,

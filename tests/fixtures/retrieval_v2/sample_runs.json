@@ -1,0 +1,35 @@
+{
+  "corpus_version": "evaluator-smoke-v1",
+  "cases": [
+    {
+      "case_id": "semantic",
+      "relevant_ids": ["dense-hit"],
+      "rankings": {
+        "exact": [],
+        "lexical": [],
+        "dense": ["dense-hit", "decoy"],
+        "fused": ["dense-hit", "decoy"]
+      }
+    },
+    {
+      "case_id": "identifier",
+      "relevant_ids": ["exact-hit"],
+      "rankings": {
+        "exact": ["exact-hit"],
+        "lexical": ["exact-hit"],
+        "dense": [],
+        "fused": ["exact-hit"]
+      }
+    },
+    {
+      "case_id": "no-answer",
+      "relevant_ids": [],
+      "rankings": {
+        "exact": [],
+        "lexical": [],
+        "dense": [],
+        "fused": []
+      }
+    }
+  ]
+}

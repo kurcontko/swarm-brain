@@ -11,7 +11,12 @@ from .memory_store import (
     MemoryReviewStore,
     MemoryStore,
 )
-from .retrieval import CanonicalMemoryReader, RetrievalGateway, RetrievalTraceSink
+from .retrieval import (
+    CanonicalMemoryReader,
+    GraphExpansionGateway,
+    RetrievalGateway,
+    RetrievalTraceSink,
+)
 
 __all__ = [
     "ArtifactReader",
@@ -31,6 +36,7 @@ __all__ = [
     "MemoryStore",
     "MetricsReader",
     "OutboxStore",
+    "GraphExpansionGateway",
     "RetrievalGateway",
     "RetrievalTraceSink",
 ]

@@ -430,37 +430,67 @@ class CoordinationService:
     async def add_task(self, task: Task) -> Task: ...  # administrative seam
     async def claim(self, actor: ActorContext, command: ClaimTaskCommand) -> ClaimTaskResult: ...
     async def renew(self, actor: ActorContext, command: RenewLeaseCommand) -> RenewLeaseResult: ...
-    async def checkpoint(self, actor: ActorContext, command: CheckpointCommand) -> CheckpointResult: ...
-    async def complete(self, actor: ActorContext, command: CompleteTaskCommand) -> CompletionResult: ...
+    async def checkpoint(
+        self, actor: ActorContext, command: CheckpointCommand
+    ) -> CheckpointResult: ...
+    async def complete(
+        self, actor: ActorContext, command: CompleteTaskCommand
+    ) -> CompletionResult: ...
     async def release(self, actor: ActorContext, command: ReleaseTaskCommand) -> ReleaseResult: ...
-    async def events(self, actor: ActorContext, *, cursor: str | None = None, limit: int = 100) -> EventPage: ...
+    async def events(
+        self, actor: ActorContext, *, cursor: str | None = None, limit: int = 100
+    ) -> EventPage: ...
     async def metrics(self, actor: ActorContext) -> RunMetrics: ...
 
+
 class HandoffService:
-    async def checkpoint(self, actor: ActorContext, command: CheckpointCommand) -> CheckpointResult: ...
+    async def checkpoint(
+        self, actor: ActorContext, command: CheckpointCommand
+    ) -> CheckpointResult: ...
+
 
 class MemoryService:
     async def publish(self, actor: ActorContext, command: RememberCommand) -> RememberResult: ...
     async def recall(self, actor: ActorContext, query: RecallQuery) -> RecallBundle: ...
     async def lineage(self, actor: ActorContext, memory_id: MemoryId) -> MemoryLineage: ...
-    async def review(self, actor: ActorContext, command: ReviewMemoryCommand) -> ReviewMemoryResult: ...
-    async def reject_source(self, actor: ActorContext, command: RejectSourceCommand) -> SourceRejectionResult: ...
+    async def review(
+        self, actor: ActorContext, command: ReviewMemoryCommand
+    ) -> ReviewMemoryResult: ...
+    async def reject_source(
+        self, actor: ActorContext, command: RejectSourceCommand
+    ) -> SourceRejectionResult: ...
+
 
 class EvidenceService:
-    async def register_source(self, actor: ActorContext, command: RegisterEvidenceSourceCommand) -> EvidenceSource: ...
+    async def register_source(
+        self, actor: ActorContext, command: RegisterEvidenceSourceCommand
+    ) -> EvidenceSource: ...
     async def add_evidence(self, actor: ActorContext, command: AddEvidenceCommand) -> Evidence: ...
-    async def review_source(self, actor: ActorContext, command: ReviewSourceCommand) -> EvidenceSource: ...
+    async def review_source(
+        self, actor: ActorContext, command: ReviewSourceCommand
+    ) -> EvidenceSource: ...
+
 
 class ExtractionService:
-    async def ingest(self, actor: ActorContext, command: IngestRawSourceCommand) -> SourceIngestResult: ...
+    async def ingest(
+        self, actor: ActorContext, command: IngestRawSourceCommand
+    ) -> SourceIngestResult: ...
     async def status(self, actor: ActorContext, source_id: str) -> SourceExtractionStatus: ...
 
+
 class ConflictService:
-    async def report(self, actor: ActorContext, command: ReportConflictCommand) -> ReportConflictResult: ...
-    async def resolve(self, actor: ActorContext, command: ResolveConflictCommand) -> ResolveConflictResult: ...
+    async def report(
+        self, actor: ActorContext, command: ReportConflictCommand
+    ) -> ReportConflictResult: ...
+    async def resolve(
+        self, actor: ActorContext, command: ResolveConflictCommand
+    ) -> ResolveConflictResult: ...
+
 
 class AuditService:
-    async def list_events(self, actor: ActorContext, *, cursor: str | None = None, limit: int = 100) -> EventPage: ...
+    async def list_events(
+        self, actor: ActorContext, *, cursor: str | None = None, limit: int = 100
+    ) -> EventPage: ...
     async def metrics(self, actor: ActorContext) -> RunMetrics: ...
 ```
 
@@ -561,18 +591,51 @@ next claim cycle terminalizes it as `failed` with `lease_expired` instead of
 leaving an unclaimable leased row.
 
 `SWARMBRAIN_EMBEDDINGS=none|deterministic|bedrock` controls the optional dense
-lane. CockroachDB uses an additive, fully scope-prefixed `VECTOR(1024)` index;
-structured content is embedded through its canonical deterministic text
-projection. `deterministic` is credential-free and intended for tests/local
-flow verification. Bedrock is a lazy optional integration and runs outside
-database transactions. The source-ingest transaction persists the resolved
-embedding model on extraction work. Fenced extraction apply atomically creates
-one deduplicated `embed_memory` child per materialized memory, so a rolling
-deploy cannot silently switch models. The provider computes a vector outside
-the transaction; vector UPSERT and work completion then commit together behind
-the current lease fence. A stale worker therefore cannot create or overwrite a
-vector. Dense-provider or ANN-index failure degrades recall to its already
-computed lexical bundle.
+lane. CockroachDB schema v8 uses an additive `retrieval_vectors_1024`
+projection with canonical resource version/content digest, repository/run/task
+scope key, domain lane, and a signature covering renderer, current mode,
+cosine metric, provider normalization/truncation, model, and dimensions. Its
+vector index prefix is `(tenant, project, repository, resource_type,
+projection_id, signature, scope_key)`; every ANN query binds the complete
+prefix. CockroachDB cannot accelerate arbitrary non-prefix filters, so the
+gateway validates lifecycle, bitemporal, kind, version/digest, and source trust
+against canonical memory in the same snapshot, geometrically widening an
+under-filled ANN window up to a bounded cap. Structured content is embedded
+through its canonical deterministic text projection. `deterministic` is
+credential-free and intended for tests/local flow verification. Bedrock is a
+lazy optional integration and runs outside database transactions.
+
+The source-ingest transaction persists the resolved embedding model on
+extraction work. Fenced extraction apply atomically creates one deduplicated
+`embed_memory` child per materialized memory, so a rolling deploy cannot
+silently switch models. The provider computes a vector before the retrieval or
+writer transaction; legacy vector UPSERT, signed v2 projection UPSERT, and work
+completion then commit together behind the current lease fence. A stale worker
+therefore cannot create or overwrite either vector representation. Query-time
+dense candidates participate in the same weighted RRF and trace as exact, FTS,
+and trigram candidates. Dense-provider or ANN-index failure is recorded as a
+degraded lane and the other lanes still complete. Current-only dense is skipped
+for explicit historical/refuted/superseded recall.
+
+`SWARMBRAIN_RETRIEVAL_DENSE_MIN_SIMILARITY` sets an optional raw cosine floor
+before fusion. Its default is `0.0` because a universal cutoff is not calibrated
+across embedding models; zero/negative contributions are still excluded by
+fusion. `SWARMBRAIN_RETRIEVAL_DENSE_ANN_BEAM_SIZE` is applied with `SET LOCAL`
+for the CockroachDB ANN branch. Both are operator policy, not public recall
+fields, and should be tuned against the exact vector oracle.
+
+The runtime also enables an internal second-stage graph lane over
+`memory_links`; this does not add fields to `RecallQuery` or `RecallBundle`.
+Exact/FTS/trigram/dense candidates fuse first and seed a purpose-owned bounded
+expansion. Interactive, historical, and repository-orientation recall use one
+hop; task bootstrap, handoff recovery, planning, and conflict review use two.
+The plan records seed, fan-out, edge, relation, and candidate budgets. Every
+endpoint is rechecked for tenant/project/repository, visibility, run/task,
+state, kind, bitemporal eligibility, and source trust before it can consume an
+eligible fan-out slot, and final hydration repeats those predicates. Candidate
+traces retain the exact edge/node path and relation sequence; public hits only
+receive bounded graph reasons. A graph failure is a degraded lane and does not
+discard valid direct results.
 
 ### Idempotency behavior
 

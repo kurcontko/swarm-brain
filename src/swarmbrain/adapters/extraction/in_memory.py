@@ -702,18 +702,25 @@ class InMemoryWorkStore:
         model: str,
         limit: int = 10,
         min_score: float = 0.0,
+        candidate_ids: Sequence[str] = (),
     ) -> tuple[EmbeddingMatch, ...]:
         async with self._lock:
             matches: list[EmbeddingMatch] = []
+            allowed = frozenset(candidate_ids)
             for (memory_id, vector_model), stored in self.memory_embeddings.items():
-                if vector_model != model or (
-                    stored.tenant_id,
-                    stored.project_id,
-                    stored.repository_id,
-                ) != (
-                    actor.tenant_id,
-                    actor.project_id,
-                    actor.repository_id,
+                if (
+                    vector_model != model
+                    or (allowed and memory_id not in allowed)
+                    or (
+                        stored.tenant_id,
+                        stored.project_id,
+                        stored.repository_id,
+                    )
+                    != (
+                        actor.tenant_id,
+                        actor.project_id,
+                        actor.repository_id,
+                    )
                 ):
                     continue
                 if len(stored.vector.values) != len(query_vector):

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from swarmbrain.domain.agents import ActorContext
-from swarmbrain.domain.common import IdempotencyKey
+from swarmbrain.domain.common import IdempotencyKey, MemoryId
 from swarmbrain.domain.memory import EmbeddingMatch, EmbeddingVector
 
 
@@ -43,6 +43,7 @@ class EmbeddingIndex(Protocol):
         model: str,
         limit: int = 10,
         min_score: float = 0.0,
+        candidate_ids: Sequence[MemoryId] = (),
     ) -> tuple[EmbeddingMatch, ...]: ...
 
 

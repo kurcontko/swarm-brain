@@ -7,9 +7,9 @@ The server owns purpose selection, lane budgets, fusion, and full traces.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import AwareDatetime, Field, FiniteFloat
+from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
 from .common import (
     ContractModel,
@@ -57,8 +57,34 @@ class RetrievalScope(ContractModel):
     visibilities: frozenset[Visibility]
 
 
+class DenseQuery(ContractModel):
+    """Internal query embedding or an observable provider degradation.
+
+    Query vectors never become part of the public recall contract or the
+    persisted retrieval trace.  The model and dimensions are retained even
+    when generation fails so the dense lane can report a useful degraded
+    batch while the remaining lanes continue.
+    """
+
+    model: SemanticLabel
+    dimensions: int = Field(ge=1)
+    values: tuple[FiniteFloat, ...] | None = Field(default=None, min_length=1)
+    unavailable_reason: SemanticLabel | None = None
+
+    @model_validator(mode="after")
+    def vector_or_failure(self) -> Self:
+        if (self.values is None) == (self.unavailable_reason is None):
+            raise ValueError("dense query requires exactly one of values or unavailable_reason")
+        if self.values is not None and len(self.values) != self.dimensions:
+            raise ValueError("dense query dimensions must equal the vector length")
+        return self
+
+
 LaneBudget = Annotated[int, Field(ge=1, le=2000)]
 LaneWeight = Annotated[FiniteFloat, Field(gt=0.0, le=100.0)]
+GraphSeedLimit = Annotated[int, Field(ge=0, le=64)]
+GraphFanout = Annotated[int, Field(ge=0, le=64)]
+GraphEdgeBudget = Annotated[int, Field(ge=0, le=10000)]
 
 
 class RetrievalPlan(ContractModel):
@@ -73,9 +99,32 @@ class RetrievalPlan(ContractModel):
     lane_weights: dict[str, LaneWeight]
     seed_memory_ids: tuple[MemoryId, ...] = ()
     max_graph_hops: int = Field(default=0, ge=0, le=4)
+    graph_seed_limit: GraphSeedLimit = 0
+    graph_max_fanout: GraphFanout = 0
+    graph_edge_budget: GraphEdgeBudget = 0
+    graph_link_types: frozenset[SemanticLabel] = frozenset()
     rerank: bool = False
     diversify: bool = False
     token_budget: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def graph_lane_is_fully_bounded(self) -> Self:
+        enabled = RetrievalSignal.GRAPH in self.signal_lanes
+        configured = (
+            self.max_graph_hops > 0
+            and self.graph_seed_limit > 0
+            and self.graph_max_fanout > 0
+            and self.graph_edge_budget > 0
+            and bool(self.graph_link_types)
+        )
+        if enabled != configured:
+            raise ValueError("graph lane selection and graph bounds must be configured together")
+        if enabled and (
+            RetrievalSignal.GRAPH.value not in self.lane_budgets
+            or RetrievalSignal.GRAPH.value not in self.lane_weights
+        ):
+            raise ValueError("graph lane requires a candidate budget and fusion weight")
+        return self
 
 
 class Candidate(ContractModel):
@@ -151,6 +200,7 @@ class RetrievalTrace(ContractModel):
 __all__ = [
     "Candidate",
     "CandidateBatch",
+    "DenseQuery",
     "FusedCandidate",
     "FusionContribution",
     "HydrationRejection",

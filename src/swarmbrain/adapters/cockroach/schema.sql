@@ -500,6 +500,103 @@ CREATE VECTOR INDEX IF NOT EXISTS memory_vector_embeddings_ann
         tenant_id, project_id, repository_id, model, embedding vector_cosine_ops
     );
 
+-- v8 gives dense retrieval the same versioned, scope-keyed projection model
+-- as lexical retrieval.  The v6 table above remains a compatibility surface;
+-- new retrieval plans use this table and never reinterpret an old row under a
+-- different renderer/model signature.
+CREATE TABLE IF NOT EXISTS retrieval_vectors_1024 (
+    tenant_id STRING NOT NULL,
+    project_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
+    projection_id STRING NOT NULL,
+    projection_signature STRING NOT NULL,
+    scope_key STRING NOT NULL,
+    resource_type STRING NOT NULL,
+    resource_id UUID NOT NULL,
+    resource_version INT8 NOT NULL,
+    canonical_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
+    domain_lane STRING NOT NULL,
+    content_sha256 BYTES NOT NULL,
+    model STRING(255) NOT NULL,
+    dimensions INT8 NOT NULL,
+    embedding VECTOR(1024) NOT NULL,
+    indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT retrieval_vectors_1024_dimensions_check CHECK (dimensions = 1024),
+    CONSTRAINT retrieval_vectors_1024_version_check CHECK (resource_version > 0),
+    PRIMARY KEY (
+        tenant_id, project_id, repository_id, projection_signature, scope_key,
+        resource_type, resource_id
+    )
+);
+
+CREATE INDEX IF NOT EXISTS retrieval_vectors_1024_by_canonical
+    ON retrieval_vectors_1024 (canonical_id, projection_signature)
+    STORING (resource_version, content_sha256, indexed_at);
+
+-- Existing v6 vectors used the same deterministic canonical-content renderer.
+-- Copy only current, ordinary-recall memories and stamp every semantic choice
+-- into the v2 signature.  Historical semantic recall deliberately uses a
+-- separate future policy rather than overloading this current projection.
+INSERT INTO retrieval_vectors_1024 (
+    tenant_id, project_id, repository_id, projection_id, projection_signature,
+    scope_key, resource_type, resource_id, resource_version, canonical_id,
+    domain_lane, content_sha256, model, dimensions, embedding, indexed_at
+)
+SELECT
+    v.tenant_id,
+    v.project_id,
+    v.repository_id,
+    'memory-content-v1:current:cosine',
+    concat(
+        'dense-v2|memory-content-v1:current:cosine|normalization=provider|',
+        'truncation=provider|dimensions=',
+        v.dimensions::STRING,
+        '|model=',
+        btrim(v.model)
+    ),
+    CASE m.visibility
+        WHEN 'repository' THEN concat('repository:', m.repository_id)
+        WHEN 'run' THEN concat('run:', m.run_id)
+        ELSE concat('task:', m.task_id::STRING)
+    END,
+    'memory',
+    m.id,
+    m.version,
+    m.id,
+    CASE m.kind
+        WHEN 'procedure' THEN 'playbook'
+        WHEN 'warning' THEN 'playbook'
+        WHEN 'attempt' THEN 'execution_history'
+        WHEN 'outcome' THEN 'execution_history'
+        WHEN 'handoff' THEN 'handoff'
+        ELSE 'knowledge'
+    END,
+    m.normalized_sha256,
+    btrim(v.model),
+    v.dimensions,
+    v.embedding,
+    v.created_at
+FROM memory_vector_embeddings AS v
+JOIN memories AS m ON m.id = v.memory_id
+WHERE v.dimensions = 1024
+  AND length(btrim(v.model)) BETWEEN 1 AND 255
+  AND m.recorded_to IS NULL
+  AND m.state IN ('tentative', 'confirmed')
+ON CONFLICT DO NOTHING;
+
+-- Build the ANN structure after the compatibility backfill. CockroachDB warns
+-- against large batch inserts into tables that already have vector indexes.
+-- All seven prefix columns are equality-bound by each dense scope branch: the
+-- authenticated scope, resource family, projection, and model signature select
+-- one ANN tree before distance work. Canonical lifecycle/trust filters are
+-- applied in the same snapshot with adaptive widening because Cockroach vector
+-- indexes currently accelerate only their prefix filters.
+CREATE VECTOR INDEX IF NOT EXISTS retrieval_vectors_1024_ann_v2
+    ON retrieval_vectors_1024 (
+        tenant_id, project_id, repository_id, resource_type, projection_id,
+        projection_signature, scope_key, embedding vector_cosine_ops
+    );
+
 CREATE TABLE IF NOT EXISTS evidence (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id STRING NOT NULL,
@@ -554,6 +651,17 @@ CREATE INDEX IF NOT EXISTS memory_links_from
 CREATE INDEX IF NOT EXISTS memory_links_to
     ON memory_links (target_memory_id, created_at, id)
     STORING (source_memory_id, link_type, reason, metadata);
+
+-- Synchronous graph retrieval always binds a node plus a server allowlist of
+-- relation types. These covering prefixes keep each bounded directional hop
+-- off the primary table and preserve deterministic newest-edge ordering.
+CREATE INDEX IF NOT EXISTS memory_links_from_type
+    ON memory_links (source_memory_id, link_type, created_at DESC, id)
+    STORING (target_memory_id, reason, metadata);
+
+CREATE INDEX IF NOT EXISTS memory_links_to_type
+    ON memory_links (target_memory_id, link_type, created_at DESC, id)
+    STORING (source_memory_id, reason, metadata);
 
 CREATE TABLE IF NOT EXISTS memory_conflicts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

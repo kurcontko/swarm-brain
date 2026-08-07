@@ -3,13 +3,15 @@
 Start here:
 
 - [Retrieval status](retrieval-status.md) — what is implemented, verified, and
-  still open as of 2026-08-05.
+  still open as of 2026-08-06.
 - [Standalone retrieval architecture](retrieval-architecture.md) — target
   boundary, contracts, lanes, projections, migration phases, and evaluation.
 - [SOTA retrieval research](research/sota-retrieval-postgresql-cockroachdb-2026-08-02.md)
   — PostgreSQL/CockroachDB techniques, trade-offs, and primary sources.
+- [Retrieval evaluation](retrieval-evaluation.md) — saved-run format, lane
+  ablations, ANN exact-oracle checks, and release evidence.
 - [API contracts](api.md) — public HTTP/MCP/domain boundary.
-- [CockroachDB schema](cockroach-schema.md) — current v7 addendum plus the
+- [CockroachDB schema](cockroach-schema.md) — current v8 addendum plus the
   historical table inventory.
 - [Restart demo](restart-demo.md) — local durability/restart acceptance flow.
 - [Extraction history](history/sen-extraction-map.md) — original Sen commits

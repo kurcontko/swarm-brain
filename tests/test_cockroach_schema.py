@@ -17,6 +17,7 @@ REQUIRED_TABLES = {
     "memories",
     "memory_embeddings",
     "memory_vector_embeddings",
+    "retrieval_vectors_1024",
     "evidence",
     "memory_evidence",
     "memory_links",
@@ -33,7 +34,7 @@ REQUIRED_TABLES = {
 
 def _create_table_blocks(schema: str) -> dict[str, str]:
     pattern = re.compile(
-        r"CREATE TABLE IF NOT EXISTS\s+(?P<name>[a-z_]+)\s*\((?P<body>.*?)\n\);",
+        r"CREATE TABLE IF NOT EXISTS\s+(?P<name>[a-z0-9_]+)\s*\((?P<body>.*?)\n\);",
         flags=re.DOTALL | re.IGNORECASE,
     )
     return {match.group("name").lower(): match.group("body") for match in pattern.finditer(schema)}
@@ -77,6 +78,21 @@ def test_memory_schema_keeps_lifecycle_strict_but_semantics_open() -> None:
     assert "CREATE UNIQUE INDEX IF NOT EXISTS memories_current_fingerprint" not in schema
 
 
+def test_graph_retrieval_has_relation_prefixed_directional_covering_indexes() -> None:
+    normalized = " ".join(read_schema().split())
+
+    assert (
+        "CREATE INDEX IF NOT EXISTS memory_links_from_type ON memory_links "
+        "(source_memory_id, link_type, created_at DESC, id) "
+        "STORING (target_memory_id, reason, metadata)"
+    ) in normalized
+    assert (
+        "CREATE INDEX IF NOT EXISTS memory_links_to_type ON memory_links "
+        "(target_memory_id, link_type, created_at DESC, id) "
+        "STORING (source_memory_id, reason, metadata)"
+    ) in normalized
+
+
 def test_vector_schema_is_additive_fixed_width_and_fully_scope_prefixed() -> None:
     schema = read_schema()
     blocks = _create_table_blocks(schema)
@@ -93,6 +109,34 @@ def test_vector_schema_is_additive_fixed_width_and_fully_scope_prefixed() -> Non
     assert "tenant_id, project_id, repository_id, model, embedding vector_cosine_ops" in " ".join(
         schema.split()
     )
+
+
+def test_retrieval_v8_dense_projection_is_versioned_signed_and_scope_keyed() -> None:
+    schema = read_schema()
+    vectors = _create_table_blocks(schema)["retrieval_vectors_1024"]
+    normalized = " ".join(schema.split())
+
+    for field in (
+        "projection_id STRING NOT NULL",
+        "projection_signature STRING NOT NULL",
+        "scope_key STRING NOT NULL",
+        "resource_version INT8 NOT NULL",
+        "canonical_id UUID NOT NULL",
+        "domain_lane STRING NOT NULL",
+        "content_sha256 BYTES NOT NULL",
+        "model STRING(255) NOT NULL",
+        "embedding VECTOR(1024) NOT NULL",
+    ):
+        assert field in vectors
+    assert "CHECK (dimensions = 1024)" in vectors
+    assert "CREATE VECTOR INDEX IF NOT EXISTS retrieval_vectors_1024_ann_v2" in schema
+    assert (
+        "tenant_id, project_id, repository_id, resource_type, projection_id, "
+        "projection_signature, scope_key, embedding vector_cosine_ops"
+    ) in normalized
+    assert "memory-content-v1:current:cosine" in schema
+    assert "dense-v2|memory-content-v1:current:cosine|normalization=provider|" in schema
+    assert "truncation=provider|dimensions=" in schema
 
 
 def test_retrieval_v7_has_scoped_simple_fts_trigram_and_exact_projections() -> None:
@@ -139,6 +183,18 @@ def test_retrieval_verifier_rejects_same_named_wrong_index_definition() -> None:
             "retrieval_exact_terms USING btree (tenant_id, project_id, repository_id, "
             "projection_id, scope_key, resource_type, resource_id)",
         },
+        {
+            "indexname": "memory_links_from_type",
+            "indexdef": "CREATE INDEX memory_links_from_type ON memory_links USING btree "
+            "(source_memory_id, link_type, created_at DESC, id) "
+            "STORING (target_memory_id, reason, metadata)",
+        },
+        {
+            "indexname": "memory_links_to_type",
+            "indexdef": "CREATE INDEX memory_links_to_type ON memory_links USING btree "
+            "(target_memory_id, link_type, created_at DESC, id) "
+            "STORING (source_memory_id, reason, metadata)",
+        },
     ]
     ddl = """
         CREATE TABLE retrieval_documents (
@@ -155,6 +211,45 @@ def test_retrieval_verifier_rejects_same_named_wrong_index_definition() -> None:
 
     assert incompatible_retrieval_schema_objects(index_rows, ddl) == (
         "retrieval_documents_lookup_trgm",
+    )
+
+    wrong_graph = {
+        "indexname": "memory_links_from_type",
+        "indexdef": "CREATE INDEX memory_links_from_type ON memory_links USING btree "
+        "(source_memory_id, created_at, link_type, id)",
+    }
+    graph_rows = [
+        wrong_graph if row["indexname"] == "memory_links_from_type" else row for row in index_rows
+    ]
+    assert incompatible_retrieval_schema_objects(graph_rows, ddl) == (
+        "retrieval_documents_lookup_trgm",
+        "memory_links_from_type",
+    )
+
+    dense_ddl = """
+        CREATE TABLE retrieval_vectors_1024 (
+            tenant_id STRING NOT NULL, project_id STRING NOT NULL,
+            repository_id STRING NOT NULL, projection_id STRING NOT NULL,
+            projection_signature STRING NOT NULL, scope_key STRING NOT NULL,
+            resource_type STRING NOT NULL, resource_id UUID NOT NULL,
+            resource_version INT8 NOT NULL, content_sha256 BYTES NOT NULL,
+            embedding VECTOR(1024) NOT NULL,
+            PRIMARY KEY (tenant_id, project_id, repository_id, projection_signature,
+                         scope_key, resource_type, resource_id)
+        )
+    """
+    wrong_dense = {
+        "indexname": "retrieval_vectors_1024_ann_v2",
+        "indexdef": "CREATE INDEX retrieval_vectors_1024_ann_v2 ON retrieval_vectors_1024 "
+        "USING btree (tenant_id, embedding)",
+    }
+    assert incompatible_retrieval_schema_objects(
+        [*index_rows, wrong_dense],
+        ddl,
+        dense_ddl,
+    ) == (
+        "retrieval_documents_lookup_trgm",
+        "retrieval_vectors_1024_ann_v2",
     )
 
 

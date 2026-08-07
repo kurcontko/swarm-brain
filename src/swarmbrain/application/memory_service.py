@@ -19,7 +19,7 @@ from swarmbrain.domain.memory import (
     ReviewMemoryCommand,
     ReviewMemoryResult,
 )
-from swarmbrain.domain.retrieval import RetrievalPurpose
+from swarmbrain.domain.retrieval import DenseQuery, RetrievalPurpose, RetrievalSignal
 from swarmbrain.domain.work import EnqueueWorkCommand, WorkKind
 from swarmbrain.ports.embeddings import EmbeddingIndex, EmbeddingProvider
 from swarmbrain.ports.memory_store import MemoryOperationPolicy, MemoryReviewStore, MemoryStore
@@ -105,6 +105,7 @@ class MemoryService:
             bundle = await self._merge_semantic_if_eligible(actor, query, bundle)
         else:
             query_vector: Sequence[float] | None = None
+            dense_query: DenseQuery | None = None
             if (
                 self._semantic_eligible(query)
                 and self.embeddings is not None
@@ -112,17 +113,36 @@ class MemoryService:
             ):
                 # Provider calls stay outside the CockroachDB read transaction;
                 # only ANN lookup and canonical hydration join the snapshot.
-                with suppress(Exception):
+                try:
                     query_vector = await self.embeddings.embed_query(query.text)
+                    dense_query = DenseQuery(
+                        model=self.embeddings.model_name,
+                        dimensions=self.embeddings.dimensions,
+                        values=tuple(query_vector),
+                    )
+                except Exception as exc:
+                    if self.retrieval.has_signal(RetrievalSignal.DENSE):
+                        dense_query = DenseQuery(
+                            model=self.embeddings.model_name,
+                            dimensions=self.embeddings.dimensions,
+                            unavailable_reason=exc.__class__.__name__,
+                        )
             async with self.retrieval.snapshot():
                 execution = await self.retrieval.execute(
                     actor,
                     query,
                     purpose=purpose,
                     seed_memory_ids=seed_memory_ids,
+                    dense_query=dense_query,
                 )
                 bundle = execution.bundle
-                if query_vector is not None:
+                # Transitional compatibility for callers that compose a v1
+                # RetrievalService without a dense CandidateBatch gateway.
+                # Production runtimes install the v2 lane and therefore fuse
+                # dense through the same trace and weighted RRF as all signals.
+                if query_vector is not None and not self.retrieval.has_signal(
+                    RetrievalSignal.DENSE
+                ):
                     with suppress(Exception):
                         bundle = await self._merge_semantic(
                             actor,

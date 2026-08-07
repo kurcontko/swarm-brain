@@ -88,7 +88,7 @@ def split_sql_statements(script: str) -> tuple[str, ...]:
 
 
 async def install_schema(database_url: str) -> int:
-    """Apply schema with pre-v7 writers quiesced as an explicit operator action."""
+    """Apply schema with pre-v8 writers quiesced as an explicit operator action."""
 
     from psycopg import AsyncConnection
     from psycopg.rows import dict_row
@@ -119,10 +119,10 @@ async def install_schema(database_url: str) -> int:
         # application projector makes pre-v7 rows byte-for-byte equivalent to
         # new writes (NFKC/casefold, metadata identifiers, and bounded lookup).
         # One SERIALIZABLE transaction gives the scan, per-memory replacement,
-        # and stale-row sweep a common snapshot. Concurrent v7 writes either
+        # and stale-row sweep a common snapshot. Concurrent v8 writes either
         # keep their synchronous projection or force a bounded full retry.
-        # Pre-v7 writers do not maintain this projection and must be quiesced
-        # for the deployment barrier documented in README and schema docs.
+        # Pre-v8 writers do not maintain every current projection and must be
+        # quiesced for the deployment barrier documented in README and schema docs.
         async def rebuild_projection() -> None:
             last_id = None
             while True:
@@ -249,9 +249,13 @@ async def install_schema(database_url: str) -> int:
         create_cursor = await connection.execute("SHOW CREATE TABLE retrieval_documents")
         create_row = await create_cursor.fetchone()
         retrieval_ddl = "" if create_row is None else str(create_row["create_statement"])
+        dense_create_cursor = await connection.execute("SHOW CREATE TABLE retrieval_vectors_1024")
+        dense_create_row = await dense_create_cursor.fetchone()
+        dense_ddl = "" if dense_create_row is None else str(dense_create_row["create_statement"])
         incompatible_objects = incompatible_retrieval_schema_objects(
             index_rows,
             retrieval_ddl,
+            dense_ddl,
         )
         if incompatible_objects:
             raise RuntimeError(
@@ -267,7 +271,7 @@ async def install_schema(database_url: str) -> int:
             """,
             (
                 SCHEMA_VERSION,
-                "Swarm Brain v7 exact, FTS simple, trigram, and scoped vector retrieval",
+                "Swarm Brain v8 dense, lexical, fuzzy, exact, and bounded graph retrieval",
                 digest,
             ),
         )

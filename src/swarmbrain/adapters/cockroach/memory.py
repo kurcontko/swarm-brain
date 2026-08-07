@@ -55,7 +55,7 @@ from swarmbrain.domain.memory import (
     ReviewMemoryCommand,
     ReviewMemoryResult,
 )
-from swarmbrain.domain.retrieval import RetrievalPurpose
+from swarmbrain.domain.retrieval import RetrievalPurpose, RetrievalSignal
 from swarmbrain.ports.memory_store import MemoryOperationPolicy
 from swarmbrain.retrieval import RetrievalPlanner, weighted_rrf
 
@@ -76,7 +76,11 @@ from .retrieval import (
     cockroach_retrieval_snapshot,
     upsert_memory_retrieval_projection,
 )
-from .vector import COCKROACH_VECTOR_DIMENSIONS, vector_literal
+from .vector import (
+    COCKROACH_VECTOR_DIMENSIONS,
+    upsert_memory_dense_projection,
+    vector_literal,
+)
 
 SOURCE_COLUMNS = """
     id, tenant_id, project_id, repository_id, swarm_id, run_id, task_id,
@@ -461,6 +465,15 @@ class CockroachMemoryStore:
                 )
                 if cursor.rowcount != 1:
                     raise ResourceNotFound("memory", vector.memory_id)
+                projected = await upsert_memory_dense_projection(
+                    connection,
+                    vector,
+                    tenant_id=actor.tenant_id,
+                    project_id=actor.project_id,
+                    repository_id=actor.repository_id,
+                )
+                if not projected:
+                    raise ResourceNotFound("memory", vector.memory_id)
 
     async def search_embeddings(
         self,
@@ -470,6 +483,7 @@ class CockroachMemoryStore:
         model: str,
         limit: int = 10,
         min_score: float = 0.0,
+        candidate_ids: Sequence[str] = (),
     ) -> tuple[EmbeddingMatch, ...]:
         """Return scoped ANN ids; callers must re-fetch through ``recall``."""
 
@@ -479,16 +493,24 @@ class CockroachMemoryStore:
             raise ValueError("limit must be between 1 and 100")
         if not 0.0 <= min_score <= 1.0:
             raise ValueError("min_score must be between 0 and 1")
+        if len(candidate_ids) > 2000:
+            raise ValueError("candidate_ids cannot contain more than 2000 values")
         literal = vector_literal(query_vector)
+        candidate_clause = ""
+        candidate_parameters: tuple[Any, ...] = ()
+        if candidate_ids:
+            candidate_clause = "AND memory_id = ANY(%s::UUID[])"
+            candidate_parameters = (_uuid_array(tuple(dict.fromkeys(candidate_ids))),)
         async with cockroach_retrieval_connection(self.database) as connection:
             cursor = await connection.execute(
-                """
+                f"""
                 SELECT memory_id, embedding <=> %s::VECTOR AS distance
                 FROM memory_vector_embeddings
                 WHERE tenant_id = %s
                   AND project_id = %s
                   AND repository_id = %s
                   AND model = %s
+                  {candidate_clause}
                 ORDER BY embedding <=> %s::VECTOR
                 LIMIT %s
                 """,
@@ -498,6 +520,7 @@ class CockroachMemoryStore:
                     actor.project_id,
                     actor.repository_id,
                     model,
+                    *candidate_parameters,
                     literal,
                     limit,
                 ),
@@ -802,8 +825,16 @@ class CockroachMemoryStore:
                 purpose=RetrievalPurpose.INTERACTIVE_RECALL,
                 available_signals=(gateway.signal for gateway in gateways),
             )
-            batches = tuple([await gateway.retrieve(actor, plan, query) for gateway in gateways])
-            fused = weighted_rrf(batches, plan)
+            primary_gateways = tuple(
+                gateway for gateway in gateways if gateway.signal is not RetrievalSignal.GRAPH
+            )
+            batches = [await gateway.retrieve(actor, plan, query) for gateway in primary_gateways]
+            direct_fused = weighted_rrf(tuple(batches), plan)
+            graph_gateway = next(
+                gateway for gateway in gateways if gateway.signal is RetrievalSignal.GRAPH
+            )
+            batches.append(await graph_gateway.expand(actor, plan, query, direct_fused))
+            fused = weighted_rrf(tuple(batches), plan)
             hydrated = await self.hydrate_recallable(
                 actor,
                 query,

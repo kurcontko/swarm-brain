@@ -11,6 +11,7 @@ import pytest
 from swarmbrain.adapters.cockroach.database import CockroachDatabase
 from swarmbrain.adapters.cockroach.memory import CockroachMemoryStore
 from swarmbrain.adapters.cockroach.retrieval import (
+    CockroachGraphRetrievalGateway,
     CockroachRetrievalGateway,
     cockroach_retrieval_gateways,
 )
@@ -25,7 +26,13 @@ from swarmbrain.domain.evidence import (
     SourceTrust,
 )
 from swarmbrain.domain.memory import MemoryState, RecallQuery, RememberCommand, Visibility
-from swarmbrain.domain.retrieval import CandidateBatch, RetrievalSignal
+from swarmbrain.domain.retrieval import (
+    CandidateBatch,
+    FusedCandidate,
+    RetrievalPurpose,
+    RetrievalSignal,
+)
+from swarmbrain.retrieval import RetrievalPlanner
 from swarmbrain.retrieval.projection import normalize_term, trigram_similarity
 
 DATABASE_URL = os.getenv("SWARMBRAIN_TEST_DATABASE_URL")
@@ -200,6 +207,7 @@ async def test_live_exact_fts_trigram_rrf_abstention_and_explain(
         "exact",
         "lexical",
         "fuzzy",
+        "graph",
     }
     assert lexical.trace.fusion_version == "weighted-rrf-v1"
 
@@ -392,6 +400,105 @@ async def test_live_trust_before_limit_audit_sanitization_and_cross_run_parity(
         if item.memory.memory_id == published.memory.memory_id
     )
     assert cross_run_hit.memory.evidence == (trusted,)
+
+
+async def test_live_graph_lane_expands_related_memories_for_two_bounded_hops(
+    database: CockroachDatabase,
+) -> None:
+    actor = _actor()
+    await _insert_run(database, actor)
+    store = CockroachMemoryStore(database)
+    leaf = await store.remember(
+        actor,
+        RememberCommand(
+            idempotency_key=f"graph-leaf-{_id()}",
+            kind="outcome",
+            desired_state=MemoryState.CONFIRMED,
+            visibility=Visibility.REPOSITORY,
+            content="owner escalation destination",
+        ),
+        ConservativeMemoryPolicy(),
+    )
+    assert leaf.memory is not None
+    middle = await store.remember(
+        actor,
+        RememberCommand(
+            idempotency_key=f"graph-middle-{_id()}",
+            kind="procedure",
+            desired_state=MemoryState.CONFIRMED,
+            visibility=Visibility.REPOSITORY,
+            content="rollback checklist dependency",
+            related_memory_ids=(leaf.memory.memory_id,),
+        ),
+        ConservativeMemoryPolicy(),
+    )
+    assert middle.memory is not None
+    root = await store.remember(
+        actor,
+        RememberCommand(
+            idempotency_key=f"graph-root-{_id()}",
+            kind="warning",
+            desired_state=MemoryState.CONFIRMED,
+            visibility=Visibility.REPOSITORY,
+            content="live graph root qzv sentinel",
+            related_memory_ids=(middle.memory.memory_id,),
+        ),
+        ConservativeMemoryPolicy(),
+    )
+    assert root.memory is not None
+
+    query = RecallQuery(text="live graph root qzv sentinel", limit=10)
+    plan = RetrievalPlanner().plan(
+        actor,
+        query,
+        purpose=RetrievalPurpose.PLANNING,
+        available_signals=(RetrievalSignal.GRAPH,),
+    )
+    records: list[tuple[str, tuple[Any, ...] | None]] = []
+    recording_database = CockroachDatabase(
+        database.database_url,
+        pool=_RecordingPool(database.pool, records),
+    )
+    direct_graph = await CockroachGraphRetrievalGateway(recording_database).expand(
+        actor,
+        plan,
+        query,
+        (
+            FusedCandidate(
+                canonical_id=root.memory.memory_id,
+                raw_rrf=0.1,
+                normalized_score=1.0,
+                contributions=(),
+            ),
+        ),
+    )
+    assert direct_graph.degraded is False
+    edge_statement = _runtime_statement(records, "WITH frontier (node_id)")
+    edge_plan = await _explain_runtime_statement(database, edge_statement)
+    assert "memory_links_from_type" in edge_plan
+    assert "memory_links_to_type" in edge_plan
+    assert "FULL SCAN" not in edge_plan.upper()
+
+    execution = await RetrievalService(cockroach_retrieval_gateways(database), store).execute(
+        actor,
+        query,
+        purpose=RetrievalPurpose.PLANNING,
+    )
+
+    graph_batch = next(
+        batch for batch in execution.trace.batches if batch.lane is RetrievalSignal.GRAPH
+    )
+    assert graph_batch.degraded is False, graph_batch.degradation_reason
+    assert [candidate.canonical_id for candidate in graph_batch.candidates] == [
+        middle.memory.memory_id,
+        leaf.memory.memory_id,
+    ]
+    assert graph_batch.candidates[1].path[0] == f"memory:{root.memory.memory_id}"
+    assert graph_batch.candidates[1].path[-1] == f"memory:{leaf.memory.memory_id}"
+    assert len(graph_batch.candidates[1].path) == 5
+    assert {middle.memory.memory_id, leaf.memory.memory_id}.issubset(
+        {hit.memory.memory_id for hit in execution.bundle.hits}
+    )
 
 
 async def test_live_v7_install_rebuilds_legacy_projection_with_application_contract(

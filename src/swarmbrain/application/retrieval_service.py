@@ -8,6 +8,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 from dataclasses import dataclass
 from datetime import datetime
 from inspect import isawaitable
+from typing import cast
 from uuid import uuid4
 
 from swarmbrain.domain.agents import ActorContext
@@ -15,12 +16,15 @@ from swarmbrain.domain.common import MemoryId, utc_now
 from swarmbrain.domain.memory import RecallBundle, RecallHit, RecallQuery
 from swarmbrain.domain.retrieval import (
     CandidateBatch,
+    DenseQuery,
     HydrationRejection,
     RetrievalPurpose,
+    RetrievalSignal,
     RetrievalTrace,
 )
 from swarmbrain.ports.retrieval import (
     CanonicalMemoryReader,
+    GraphExpansionGateway,
     RetrievalGateway,
     RetrievalTraceSink,
 )
@@ -63,7 +67,7 @@ class RetrievalExecution:
 class RetrievalService:
     def __init__(
         self,
-        gateways: tuple[RetrievalGateway, ...],
+        gateways: tuple[RetrievalGateway | GraphExpansionGateway, ...],
         canonical_reader: CanonicalMemoryReader,
         *,
         planner: RetrievalPlanner | None = None,
@@ -72,10 +76,18 @@ class RetrievalService:
         signals = [gateway.signal for gateway in gateways]
         if len(signals) != len(set(signals)):
             raise ValueError("only one retrieval gateway may own a signal lane")
+        for gateway in gateways:
+            if gateway.signal is RetrievalSignal.GRAPH and not isinstance(
+                gateway, GraphExpansionGateway
+            ):
+                raise ValueError("the graph retrieval lane must implement expand()")
         self.gateways = gateways
         self.canonical_reader = canonical_reader
         self.planner = planner or RetrievalPlanner()
         self.trace_sink = trace_sink
+
+    def has_signal(self, signal: RetrievalSignal) -> bool:
+        return any(gateway.signal is signal for gateway in self.gateways)
 
     def snapshot(self) -> AbstractAsyncContextManager[None]:
         """Fence hybrid orchestration to the canonical reader's snapshot."""
@@ -89,25 +101,39 @@ class RetrievalService:
         *,
         purpose: RetrievalPurpose = RetrievalPurpose.INTERACTIVE_RECALL,
         seed_memory_ids: tuple[MemoryId, ...] = (),
+        dense_query: DenseQuery | None = None,
     ) -> RetrievalExecution:
         async with _retrieval_snapshot(self.canonical_reader):
             started_at = await _retrieval_now(self.canonical_reader)
+            available_signals = tuple(
+                gateway.signal
+                for gateway in self.gateways
+                if gateway.signal is not RetrievalSignal.DENSE or dense_query is not None
+            )
             plan = self.planner.plan(
                 actor,
                 query,
                 purpose=purpose,
-                available_signals=(gateway.signal for gateway in self.gateways),
+                available_signals=available_signals,
                 seed_memory_ids=seed_memory_ids,
             )
-            selected = tuple(
-                gateway for gateway in self.gateways if gateway.signal in plan.signal_lanes
+            selected_primary = tuple(
+                cast(RetrievalGateway, gateway)
+                for gateway in self.gateways
+                if gateway.signal in plan.signal_lanes
+                and gateway.signal is not RetrievalSignal.GRAPH
             )
             raw_batches = await asyncio.gather(
-                *(gateway.retrieve(actor, plan, query) for gateway in selected),
+                *(
+                    gateway.retrieve(actor, plan, query, dense_query)
+                    if gateway.signal is RetrievalSignal.DENSE
+                    else gateway.retrieve(actor, plan, query)
+                    for gateway in selected_primary
+                ),
                 return_exceptions=True,
             )
             batches: list[CandidateBatch] = []
-            for gateway, result in zip(selected, raw_batches, strict=True):
+            for gateway, result in zip(selected_primary, raw_batches, strict=True):
                 if isinstance(result, asyncio.CancelledError):
                     raise result
                 if isinstance(result, Exception):
@@ -124,6 +150,37 @@ class RetrievalService:
                     raise result
                 else:
                     batches.append(result)
+
+            direct_fused = weighted_rrf(tuple(batches), plan)
+            graph_gateway = next(
+                (
+                    cast(GraphExpansionGateway, gateway)
+                    for gateway in self.gateways
+                    if gateway.signal is RetrievalSignal.GRAPH
+                    and gateway.signal in plan.signal_lanes
+                ),
+                None,
+            )
+            if graph_gateway is not None:
+                try:
+                    graph_batch = await graph_gateway.expand(
+                        actor,
+                        plan,
+                        query,
+                        direct_fused,
+                        dense_query,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    graph_batch = CandidateBatch(
+                        lane=RetrievalSignal.GRAPH,
+                        examined_count=0,
+                        latency_ms=0.0,
+                        degraded=True,
+                        degradation_reason=exc.__class__.__name__,
+                    )
+                batches.append(graph_batch)
 
             fused = weighted_rrf(tuple(batches), plan)
             candidate_ids = tuple(candidate.canonical_id for candidate in fused)

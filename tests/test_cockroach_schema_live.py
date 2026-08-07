@@ -98,6 +98,27 @@ async def test_explain_accepts_every_critical_covering_index(
             """,
             (identifier, identifier, identifier, "deterministic-v0", VECTOR_1024),
         ),
+        "retrieval_vectors_1024_ann_v2": (
+            """
+            SELECT canonical_id
+            FROM retrieval_vectors_1024@retrieval_vectors_1024_ann_v2
+            WHERE tenant_id = %s AND project_id = %s AND repository_id = %s
+              AND resource_type = 'memory' AND projection_id = %s
+              AND projection_signature = %s AND scope_key = %s
+            ORDER BY embedding <=> %s::VECTOR
+            LIMIT 20
+            """,
+            (
+                identifier,
+                identifier,
+                identifier,
+                "memory-content-v1:current:cosine",
+                "dense-v2|memory-content-v1:current:cosine|normalization=provider|"
+                "truncation=provider|dimensions=1024|model=test",
+                f"repository:{identifier}",
+                VECTOR_1024,
+            ),
+        ),
         "evidence_source_lookup": (
             """
             SELECT id, tenant_id, kind, locator, content_sha256, excerpt,
@@ -116,6 +137,26 @@ async def test_explain_accepts_every_critical_covering_index(
             ORDER BY memory_id
             """,
             (identifier,),
+        ),
+        "memory_links_from_type": (
+            """
+            SELECT target_memory_id, link_type, created_at, id
+            FROM memory_links@memory_links_from_type
+            WHERE source_memory_id = %s AND link_type = %s
+            ORDER BY created_at DESC, id
+            LIMIT 9
+            """,
+            (identifier, "supports"),
+        ),
+        "memory_links_to_type": (
+            """
+            SELECT source_memory_id, link_type, created_at, id
+            FROM memory_links@memory_links_to_type
+            WHERE target_memory_id = %s AND link_type = %s
+            ORDER BY created_at DESC, id
+            LIMIT 9
+            """,
+            (identifier, "supports"),
         ),
         "outbox_events_unpublished": (
             """
@@ -171,3 +212,5 @@ async def test_explain_accepts_every_critical_covering_index(
                 str(value) for row in await cursor.fetchall() for value in row.values()
             )
             assert index_name in plan, plan
+            if index_name == "retrieval_vectors_1024_ann_v2":
+                assert "vector search" in plan.lower(), plan

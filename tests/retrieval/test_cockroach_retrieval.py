@@ -5,12 +5,14 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 
 from conftest import make_actor, new_id
 from swarmbrain.adapters.cockroach.memory import CockroachMemoryStore
 from swarmbrain.adapters.cockroach.retrieval import (
+    CockroachGraphRetrievalGateway,
     CockroachRetrievalGateway,
     cockroach_retrieval_gateways,
 )
@@ -18,7 +20,7 @@ from swarmbrain.application.memory_policy import ConservativeMemoryPolicy
 from swarmbrain.application.memory_service import MemoryService
 from swarmbrain.application.retrieval_service import RetrievalService
 from swarmbrain.domain.memory import RecallQuery
-from swarmbrain.domain.retrieval import RetrievalPurpose, RetrievalSignal
+from swarmbrain.domain.retrieval import FusedCandidate, RetrievalPurpose, RetrievalSignal
 from swarmbrain.retrieval import RetrievalPlanner
 
 
@@ -108,6 +110,87 @@ class _ExactCandidateConnection(_Connection):
                 }
             ]
         )
+
+
+class _GraphCandidateConnection(_Connection):
+    def __init__(
+        self,
+        now: datetime,
+        seed_id: str,
+        target_id: str,
+        *,
+        hidden_ids: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__(now)
+        self.seed_id = seed_id
+        self.target_id = target_id
+        self.hidden_ids = hidden_ids
+        self.edge_id = new_id()
+
+    def _memory_row(self, memory_id: str, content: str) -> dict[str, Any]:
+        return {
+            "id": memory_id,
+            "version": 1,
+            "kind": "observation",
+            "metadata": {},
+            "title": None,
+            "content": content,
+            "content_json": None,
+            "tags": [],
+            "recorded_from": self.now,
+        }
+
+    async def execute(self, statement: str, parameters: tuple[Any, ...] = ()) -> _Cursor:
+        cursor = await super().execute(statement, parameters)
+        if "FROM memories@primary AS m" in statement:
+            candidate_values = next(
+                (
+                    value
+                    for value in parameters
+                    if isinstance(value, list) and value and isinstance(value[0], UUID)
+                ),
+                [],
+            )
+            candidate_ids = {str(value) for value in candidate_values}
+            rows = []
+            if self.seed_id in candidate_ids:
+                rows.append(self._memory_row(self.seed_id, "graph database sentinel"))
+            if self.target_id in candidate_ids:
+                rows.append(self._memory_row(self.target_id, "linked mitigation context"))
+            return _Cursor(rows)
+        if "WITH frontier (node_id)" in statement:
+            frontier_ids = {str(value) for value in parameters[0]}
+            if self.seed_id not in frontier_ids:
+                return _Cursor([])
+            hidden_rows = [
+                {
+                    "frontier_id": self.seed_id,
+                    "id": new_id(),
+                    "source_memory_id": self.seed_id,
+                    "target_memory_id": hidden_id,
+                    "other_id": hidden_id,
+                    "link_type": "supports",
+                    "created_at": self.now,
+                    "reverse": False,
+                }
+                for hidden_id in self.hidden_ids
+            ]
+            return _Cursor(
+                [
+                    *hidden_rows,
+                    {
+                        "frontier_id": self.seed_id,
+                        "id": self.edge_id,
+                        "source_memory_id": self.seed_id,
+                        "target_memory_id": self.target_id,
+                        "other_id": self.target_id,
+                        "link_type": "supports",
+                        "created_at": self.now,
+                        "reverse": False,
+                    },
+                ]
+            )
+        return cursor
 
 
 @pytest.mark.asyncio
@@ -289,3 +372,65 @@ async def test_cockroach_store_exposes_one_snapshot_to_lanes_and_hydration(
     assert database.snapshot_entries == 1
     assert database.connection_uses == 5
     assert database.active is False
+
+
+@pytest.mark.asyncio
+async def test_cockroach_graph_lane_uses_directional_indexes_and_revalidates_each_hop(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    now = datetime(2026, 8, 6, 12, tzinfo=UTC)
+    seed_id, target_id = new_id(), new_id()
+    connection = _GraphCandidateConnection(
+        now,
+        seed_id,
+        target_id,
+        hidden_ids=tuple(new_id() for _ in range(8)),
+    )
+    database = SimpleNamespace(pool=_Pool(connection))
+    query = RecallQuery(text="graph database sentinel")
+    plan = RetrievalPlanner().plan(
+        actor,
+        query,
+        purpose=RetrievalPurpose.INTERACTIVE_RECALL,
+        available_signals=(RetrievalSignal.GRAPH,),
+    )
+    fused_seed = FusedCandidate(
+        canonical_id=seed_id,
+        raw_rrf=0.1,
+        normalized_score=0.9,
+        contributions=(),
+    )
+
+    batch = await CockroachGraphRetrievalGateway(database).expand(  # type: ignore[arg-type]
+        actor,
+        plan,
+        query,
+        (fused_seed,),
+    )
+
+    assert [candidate.canonical_id for candidate in batch.candidates] == [target_id]
+    assert batch.candidates[0].path == (
+        f"memory:{seed_id}",
+        f"edge:{connection.edge_id}:out:supports",
+        f"memory:{target_id}",
+    )
+    # Inaccessible raw edges are canonically rejected before the fanout slots
+    # are assigned, so the ninth edge can still produce the first neighbor.
+    assert batch.examined_count == 9
+    edge_sql = next(
+        statement for statement, _parameters in connection.calls if "WITH frontier" in statement
+    )
+    assert "memory_links@memory_links_from_type" in edge_sql
+    assert "memory_links@memory_links_to_type" in edge_sql
+    assert "ml.link_type = ANY(%s::STRING[])" in edge_sql
+    assert "ml.created_at <= %s" in edge_sql
+    node_sql = "\n".join(
+        statement
+        for statement, _parameters in connection.calls
+        if "FROM memories@primary AS m" in statement
+    )
+    assert node_sql.count("m.id = ANY(%s::UUID[])") == 2
+    assert "m.tenant_id = %s" in node_sql
+    assert "m.recorded_to IS NULL" in node_sql
+    assert "s1.review_state != 'rejected'" in node_sql

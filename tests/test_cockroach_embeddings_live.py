@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 from uuid import UUID
@@ -11,13 +12,23 @@ import pytest
 from conftest import make_actor, new_id
 from swarmbrain.adapters.cockroach.database import CockroachDatabase
 from swarmbrain.adapters.cockroach.memory import CockroachMemoryStore
+from swarmbrain.adapters.cockroach.retrieval import (
+    CockroachDenseRetrievalGateway,
+    cockroach_hybrid_retrieval_gateways,
+)
 from swarmbrain.adapters.cockroach.work_store import CockroachWorkStore
 from swarmbrain.adapters.embeddings.deterministic import DeterministicEmbeddingProvider
-from swarmbrain.application.memory_policy import ConservativeMemoryPolicy, memory_content_text
+from swarmbrain.application.memory_policy import (
+    ConservativeMemoryPolicy,
+    memory_content_text,
+    memory_text_sha256,
+)
 from swarmbrain.application.memory_service import SEMANTIC_MATCH_REASON, MemoryService
+from swarmbrain.application.retrieval_service import RetrievalService
 from swarmbrain.application.work import DurableWorkService
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.memory import EmbeddingVector, RecallQuery, RememberCommand, Visibility
+from swarmbrain.domain.retrieval import DenseQuery, RetrievalPurpose, RetrievalSignal
 from swarmbrain.domain.work import (
     ApplyEmbeddingWorkCommand,
     ClaimWorkCommand,
@@ -28,6 +39,12 @@ from swarmbrain.domain.work import (
     WorkStatus,
     embedding_vector_sha256,
 )
+from swarmbrain.retrieval import (
+    DENSE_PROJECTION_ID,
+    RetrievalPlanner,
+    dense_projection_signature,
+)
+from swarmbrain.retrieval.evaluation import ann_recall_at_k
 from swarmbrain.workers.durable import LeasedWorkWorker
 from swarmbrain.workers.embedding import EmbedMemoryHandler
 
@@ -165,6 +182,11 @@ async def test_structured_memory_embedding_and_semantic_recall_are_fully_scoped(
         embeddings=provider,
         embedding_index=memory_store,
         work=work_service,
+        retrieval=RetrievalService(
+            cockroach_hybrid_retrieval_gateways(database),
+            memory_store,
+        ),
+        canonical_reader=memory_store,
     )
 
     published: list[tuple[ActorContext, str, dict[str, object]]] = []
@@ -246,6 +268,19 @@ async def test_structured_memory_embedding_and_semantic_recall_are_fully_scoped(
             (memory_ids, MODEL_NAME),
         )
         vector_rows = await cursor.fetchall()
+        projection_cursor = await connection.execute(
+            """
+            SELECT canonical_id, tenant_id, project_id, repository_id,
+                   projection_id, projection_signature, scope_key,
+                   resource_version, content_sha256, model, dimensions
+            FROM retrieval_vectors_1024
+            WHERE canonical_id = ANY(%s::UUID[])
+              AND projection_signature = %s
+            ORDER BY canonical_id
+            """,
+            (memory_ids, dense_projection_signature(MODEL_NAME, 1024)),
+        )
+        projection_rows = await projection_cursor.fetchall()
 
     assert len(vector_rows) == len(published)
     rows_by_memory = {str(row["memory_id"]): row for row in vector_rows}
@@ -254,6 +289,20 @@ async def test_structured_memory_embedding_and_semantic_recall_are_fully_scoped(
         assert row["tenant_id"] == actor.tenant_id
         assert row["project_id"] == actor.project_id
         assert row["repository_id"] == actor.repository_id
+        assert row["model"] == MODEL_NAME
+        assert int(row["dimensions"]) == 1024
+    assert len(projection_rows) == len(published)
+    projections_by_memory = {str(row["canonical_id"]): row for row in projection_rows}
+    for actor, memory_id, content in published:
+        row = projections_by_memory[memory_id]
+        assert row["tenant_id"] == actor.tenant_id
+        assert row["project_id"] == actor.project_id
+        assert row["repository_id"] == actor.repository_id
+        assert row["projection_id"] == DENSE_PROJECTION_ID
+        assert row["projection_signature"] == dense_projection_signature(MODEL_NAME, 1024)
+        assert row["scope_key"] == f"repository:{actor.repository_id}"
+        assert int(row["resource_version"]) == 1
+        assert bytes(row["content_sha256"]) == bytes.fromhex(memory_text_sha256(content))
         assert row["model"] == MODEL_NAME
         assert int(row["dimensions"]) == 1024
 
@@ -268,6 +317,29 @@ async def test_structured_memory_embedding_and_semantic_recall_are_fully_scoped(
         )
         assert {match.memory_id for match in scoped_matches} == {expected_memory_id}
 
+        dense_query_for_actor = DenseQuery(
+            model=MODEL_NAME,
+            dimensions=1024,
+            values=tuple(query_vector),
+        )
+        dense_plan_for_actor = RetrievalPlanner().plan(
+            actor,
+            RecallQuery(text=SEMANTIC_QUERY, min_score=0.2, limit=10),
+            purpose=RetrievalPurpose.INTERACTIVE_RECALL,
+            available_signals=(RetrievalSignal.DENSE,),
+        )
+        async with memory_store.retrieval_snapshot():
+            dense_batch_for_actor = await CockroachDenseRetrievalGateway(database).retrieve(
+                actor,
+                dense_plan_for_actor,
+                RecallQuery(text=SEMANTIC_QUERY, min_score=0.2, limit=10),
+                dense_query_for_actor,
+            )
+        assert dense_batch_for_actor.degraded is False
+        assert {candidate.canonical_id for candidate in dense_batch_for_actor.candidates} == {
+            expected_memory_id
+        }
+
         recalled = await service.recall(
             actor,
             RecallQuery(text=SEMANTIC_QUERY, min_score=0.2, limit=10),
@@ -275,6 +347,38 @@ async def test_structured_memory_embedding_and_semantic_recall_are_fully_scoped(
         assert [hit.memory.memory_id for hit in recalled.hits] == [expected_memory_id]
         assert recalled.hits[0].memory.content == expected_content
         assert SEMANTIC_MATCH_REASON in recalled.hits[0].reasons
+        assert "signal:dense" in recalled.hits[0].reasons
+
+    dense_query = DenseQuery(
+        model=MODEL_NAME,
+        dimensions=1024,
+        values=tuple(query_vector),
+    )
+    dense_plan = RetrievalPlanner().plan(
+        actors[0],
+        RecallQuery(text=SEMANTIC_QUERY),
+        purpose=RetrievalPurpose.INTERACTIVE_RECALL,
+        available_signals=(RetrievalSignal.DENSE,),
+    )
+    dense_gateway = CockroachDenseRetrievalGateway(database)
+    async with memory_store.retrieval_snapshot():
+        ann = await dense_gateway.retrieve(
+            actors[0],
+            dense_plan,
+            RecallQuery(text=SEMANTIC_QUERY),
+            dense_query,
+        )
+        exact = await dense_gateway.retrieve_exact(
+            actors[0],
+            dense_plan,
+            RecallQuery(text=SEMANTIC_QUERY),
+            dense_query,
+        )
+    assert ann_recall_at_k(
+        tuple(candidate.canonical_id for candidate in ann.candidates),
+        tuple(candidate.canonical_id for candidate in exact.candidates),
+        k=10,
+    ) == pytest.approx(1.0)
 
 
 async def test_stale_embedding_lease_cannot_write_or_overwrite_a_vector(
@@ -331,8 +435,9 @@ async def test_stale_embedding_lease_cannot_write_or_overwrite_a_vector(
                 """,
                 (UUID(stale.item.work_id),),
             )
-        current = (
-            await work_store.claim_work(
+        current_batch = None
+        for _ in range(3):
+            current_batch = await work_store.claim_work(
                 ClaimWorkCommand(
                     worker_id="current-vector-b",
                     kinds=frozenset({WorkKind.EMBED_MEMORY}),
@@ -340,7 +445,14 @@ async def test_stale_embedding_lease_cannot_write_or_overwrite_a_vector(
                     lease_seconds=30,
                 )
             )
-        ).leases[0]
+            if current_batch.leases:
+                break
+            # Claim uses SKIP LOCKED, so a just-committed forced-expiry update
+            # may produce one transiently empty poll under live contention.
+            await asyncio.sleep(0.01)
+        assert current_batch is not None and len(current_batch.leases) == 1
+        current = current_batch.leases[0]
+        assert current.item.work_id == stale.item.work_id
 
         stale_values = tuple([1.0] + [0.0] * 1023)
         current_values = tuple([0.0, 1.0] + [0.0] * 1022)
@@ -357,7 +469,20 @@ async def test_stale_embedding_lease_cannot_write_or_overwrite_a_vector(
                 (UUID(published.memory.memory_id), model),
             )
             before = await cursor.fetchone()
+            projection_cursor = await connection.execute(
+                """
+                SELECT count(*) AS count
+                FROM retrieval_vectors_1024
+                WHERE canonical_id = %s AND projection_signature = %s
+                """,
+                (
+                    UUID(published.memory.memory_id),
+                    dense_projection_signature(model, 1024),
+                ),
+            )
+            projected_before = await projection_cursor.fetchone()
         assert before is not None and int(before["count"]) == 0
+        assert projected_before is not None and int(projected_before["count"]) == 0
 
         command = _apply_command(current, current_values)
         first = await work_store.apply_embedding(command)
@@ -379,7 +504,21 @@ async def test_stale_embedding_lease_cannot_write_or_overwrite_a_vector(
                 ),
             )
             stored = await cursor.fetchone()
+            projection_cursor = await connection.execute(
+                """
+                SELECT embedding = %s::VECTOR AS matches
+                FROM retrieval_vectors_1024
+                WHERE canonical_id = %s AND projection_signature = %s
+                """,
+                (
+                    "[" + ",".join(repr(value) for value in current_values) + "]",
+                    UUID(published.memory.memory_id),
+                    dense_projection_signature(model, 1024),
+                ),
+            )
+            projected = await projection_cursor.fetchone()
         assert stored is not None and bool(stored["matches"])
+        assert projected is not None and bool(projected["matches"])
     finally:
         async with database.pool.connection() as connection:
             await connection.execute(

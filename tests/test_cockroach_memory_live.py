@@ -363,13 +363,22 @@ async def test_concurrent_writers_cannot_create_divergent_successors(
         ),
         return_exceptions=True,
     )
-    successes = [item for item in outcomes if not isinstance(item, BaseException)]
-    failures = [item for item in outcomes if isinstance(item, BaseException)]
+    committed = [
+        item for item in outcomes if not isinstance(item, BaseException) and item.memory is not None
+    ]
+    losers = [item for item in outcomes if isinstance(item, BaseException) or item.memory is None]
 
-    assert len(successes) == 1
-    assert len(failures) == 1
-    assert isinstance(failures[0], InvalidState)
-    assert successes[0].memory is not None
+    assert len(committed) == 1
+    assert len(losers) == 1
+    loser = losers[0]
+    if isinstance(loser, BaseException):
+        assert isinstance(loser, InvalidState)
+    else:
+        # Both serializations preserve the invariant: a later policy read may
+        # observe the committed successor and return an explicit no-op instead
+        # of racing inside the transaction and raising InvalidState.
+        assert loser.operation is MemoryOperation.NOOP
+    assert committed[0].memory is not None
 
     async with database.pool.connection() as connection:
         cursor = await connection.execute(

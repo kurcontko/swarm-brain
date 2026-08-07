@@ -25,7 +25,7 @@ from .retry import AmbiguousTransactionResult, RetryPolicy, run_serializable
 ModelT = TypeVar("ModelT", bound=BaseModel)
 TransactionBody = Callable[[Any], Awaitable[ModelT]]
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 REQUIRED_TABLES = frozenset(
     {
         "runs",
@@ -44,6 +44,7 @@ REQUIRED_TABLES = frozenset(
         "retrieval_exact_terms",
         "memory_embeddings",
         "memory_vector_embeddings",
+        "retrieval_vectors_1024",
         "evidence",
         "memory_evidence",
         "memory_links",
@@ -132,6 +133,24 @@ REQUIRED_COLUMNS = {
         "model",
         "dimensions",
         "embedding",
+    },
+    "retrieval_vectors_1024": {
+        "tenant_id",
+        "project_id",
+        "repository_id",
+        "projection_id",
+        "projection_signature",
+        "scope_key",
+        "resource_type",
+        "resource_id",
+        "resource_version",
+        "canonical_id",
+        "domain_lane",
+        "content_sha256",
+        "model",
+        "dimensions",
+        "embedding",
+        "indexed_at",
     },
     "memory_evidence": {"memory_id", "evidence_id", "relation"},
     "memory_links": {
@@ -228,10 +247,14 @@ REQUIRED_INDEXES = frozenset(
         "retrieval_documents_lookup_trgm",
         "retrieval_exact_terms_by_resource",
         "memory_vector_embeddings_ann",
+        "retrieval_vectors_1024_ann_v2",
+        "retrieval_vectors_1024_by_canonical",
         "evidence_source_lookup",
         "memory_evidence_by_evidence",
         "memory_links_from",
+        "memory_links_from_type",
         "memory_links_to",
+        "memory_links_to_type",
         "idempotency_records_lookup",
         "outbox_events_unpublished",
         "source_extractions_scope",
@@ -300,14 +323,25 @@ REQUIRED_RETRIEVAL_INDEX_SHAPES: dict[str, tuple[str, tuple[str, ...], tuple[str
         ),
         (),
     ),
+    "memory_links_from_type": (
+        "using btree",
+        ("source_memory_id", "link_type", "created_at", "id"),
+        ("created_at desc",),
+    ),
+    "memory_links_to_type": (
+        "using btree",
+        ("target_memory_id", "link_type", "created_at", "id"),
+        ("created_at desc",),
+    ),
 }
 
 
 def incompatible_retrieval_schema_objects(
     index_rows: Sequence[dict[str, Any]],
     retrieval_documents_ddl: str,
+    dense_vectors_ddl: str | None = None,
 ) -> tuple[str, ...]:
-    """Return critical retrieval objects whose definitions are not v7-compatible."""
+    """Return critical retrieval objects whose definitions are not compatible."""
 
     definitions = {
         str(row["indexname"]): " ".join(str(row.get("indexdef") or "").lower().split())
@@ -358,6 +392,56 @@ def incompatible_retrieval_schema_objects(
             if primary_position < 0:
                 incompatible.append("retrieval_documents")
                 break
+
+    if dense_vectors_ddl is not None:
+        dense_ddl = " ".join(dense_vectors_ddl.lower().split())
+        dense_fragments = (
+            "projection_id string not null",
+            "projection_signature string not null",
+            "scope_key string not null",
+            "resource_version int8 not null",
+            "content_sha256 bytes not null",
+            "embedding vector(1024) not null",
+        )
+        dense_primary = (
+            "tenant_id",
+            "project_id",
+            "repository_id",
+            "projection_signature",
+            "scope_key",
+            "resource_type",
+            "resource_id",
+        )
+        dense_position = dense_ddl.find("primary key (")
+        if any(fragment not in dense_ddl for fragment in dense_fragments) or dense_position < 0:
+            incompatible.append("retrieval_vectors_1024")
+        else:
+            for column in dense_primary:
+                dense_position = dense_ddl.find(column, dense_position + 1)
+                if dense_position < 0:
+                    incompatible.append("retrieval_vectors_1024")
+                    break
+
+        vector_definition = definitions.get("retrieval_vectors_1024_ann_v2", "")
+        vector_position = 0
+        vector_columns = (
+            "tenant_id",
+            "project_id",
+            "repository_id",
+            "resource_type",
+            "projection_id",
+            "projection_signature",
+            "scope_key",
+            "embedding",
+        )
+        if "vector_cosine_ops" not in vector_definition:
+            incompatible.append("retrieval_vectors_1024_ann_v2")
+        else:
+            for column in vector_columns:
+                vector_position = vector_definition.find(column, vector_position + 1)
+                if vector_position < 0:
+                    incompatible.append("retrieval_vectors_1024_ann_v2")
+                    break
     return tuple(dict.fromkeys(incompatible))
 
 
@@ -531,6 +615,10 @@ class CockroachDatabase:
                 index_rows = await indexes_cursor.fetchall()
                 create_cursor = await connection.execute("SHOW CREATE TABLE retrieval_documents")
                 create_row = await create_cursor.fetchone()
+                dense_create_cursor = await connection.execute(
+                    "SHOW CREATE TABLE retrieval_vectors_1024"
+                )
+                dense_create_row = await dense_create_cursor.fetchone()
         except Exception as exc:
             if getattr(exc, "sqlstate", None) == "42P01":
                 raise SchemaNotInstalled(
@@ -549,9 +637,11 @@ class CockroachDatabase:
         present_indexes = {str(row["indexname"]) for row in index_rows}
         missing_indexes = sorted(REQUIRED_INDEXES - present_indexes)
         retrieval_ddl = "" if create_row is None else str(create_row["create_statement"])
+        dense_ddl = "" if dense_create_row is None else str(dense_create_row["create_statement"])
         incompatible_objects = incompatible_retrieval_schema_objects(
             index_rows,
             retrieval_ddl,
+            dense_ddl,
         )
         checksum_matches = (
             version_row is not None and bytes(version_row["schema_sha256"]) == expected_digest

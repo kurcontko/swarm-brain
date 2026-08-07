@@ -1,9 +1,9 @@
 # Swarm Brain standalone retrieval architecture
 
-Status: standalone architecture; phases 0–1 implemented, phase 2 code delivered
-with its lexical-only benchmark exit still open on `feat/retrieval-v1`
-Research snapshot: 2026-08-03
-Implementation snapshot: 2026-08-05
+Status: standalone architecture; phases 0–3 code delivered, with representative
+lexical/dense/hybrid benchmark exits still open
+Research snapshot: 2026-08-06
+Implementation snapshot: 2026-08-06
 
 This document defines how retrieval should work in Swarm Brain as a standalone
 project. It combines the current Swarm Brain implementation audit with the
@@ -320,8 +320,10 @@ The schema already contains retrieval-relevant data:
 - completions;
 - durable work effects.
 
-Current ordinary recall searches only memories. These resources should become
-candidate or expansion lanes.
+Current ordinary recall searches canonical memories and now uses
+`memory_links` as a bounded second-stage expansion lane. Source chunks,
+conflicts, task dependencies, checkpoints, completions, and durable work
+effects remain future candidate or expansion lanes.
 
 ### Lineage is not bounded graph retrieval
 
@@ -339,7 +341,23 @@ Graph retrieval needs a different contract:
 - maximum fan-out and total node budget;
 - path provenance.
 
-### Dense compatibility remains short of the final lane contract
+That contract is now implemented for `memory_links`. Direct lanes fuse first;
+their strongest candidates (plus explicit private seeds) drive a fixed one- or
+two-hop expansion. The plan records seed count, per-node fan-out, total edge
+budget, relation allowlist, and graph candidate budget. Path-local visited-node
+sets prevent cycles. Relation, direction, hop, and bounded query-text overlap
+produce the graph rank; graph rank then contributes through weighted RRF like
+every other signal.
+
+The CockroachDB adapter does not use the existing unbounded lineage recursive
+CTE on the query critical path. It batches covering scans over separate
+source/type and target/type indexes, over-fetches at most four times fan-out,
+canonically validates those endpoints, and assigns the eight fan-out slots
+only to eligible nodes. Every next frontier therefore already satisfies scope,
+lifecycle, bitemporal, and trust policy. The complete edge/node sequence stays
+in `Candidate.path`, while final hydration remains authoritative.
+
+### Dense compatibility was short of the final lane contract (historical)
 
 An isolated P2 implementation adds:
 
@@ -375,8 +393,11 @@ Remaining problems before dense becomes a first-class v1 lane:
   retry to repair a crash window;
 - it needs reconciliation with flexible JSON memory and open semantic labels.
 
-The evidence/lifecycle and fixed-width vector work has been preserved. Dense
-must move behind the same candidate/version/trace contract before joining RRF.
+The evidence/lifecycle and fixed-width compatibility work was preserved. Schema
+v8 now supplies the separate signed, versioned, scope-keyed dense projection
+described later in this document; dense participates in the same
+candidate/version/trace/RRF contract. This subsection remains the baseline that
+motivated v2, not the current runtime state.
 
 ## Target package architecture
 
@@ -466,6 +487,10 @@ class RetrievalPlan:
     hard_scope: RetrievalScope
     lane_budgets: Mapping[str, int]
     max_graph_hops: int
+    graph_seed_limit: int
+    graph_max_fanout: int
+    graph_edge_budget: int
+    graph_link_types: frozenset[str]
     rerank: bool
     diversify: bool
     token_budget: int | None
@@ -518,6 +543,20 @@ class RetrievalGateway(Protocol):
         actor: ActorContext,
         plan: RetrievalPlan,
         query: RecallQuery,
+    ) -> CandidateBatch: ...
+```
+
+Graph expansion has a separate staged port because it consumes the first RRF
+result rather than running independently beside the direct lanes:
+
+```python
+class GraphExpansionGateway(Protocol):
+    async def expand(
+        self,
+        actor: ActorContext,
+        plan: RetrievalPlan,
+        query: RecallQuery,
+        seeds: Sequence[FusedCandidate],
     ) -> CandidateBatch: ...
 ```
 
@@ -640,11 +679,12 @@ Default flow:
 1. exact identifiers;
 2. lexical and dense in parallel;
 3. temporal lane when time language is present;
-4. graph/source expansion when justified;
-5. RRF;
-6. canonical hydration;
-7. optional reranker;
-8. evidence-aware packing.
+4. first RRF over direct lanes;
+5. graph/source expansion when justified;
+6. final RRF including staged expansion;
+7. canonical hydration;
+8. optional reranker;
+9. evidence-aware packing.
 
 ### Task bootstrap
 
@@ -845,8 +885,11 @@ Recommended vector index prefix:
 
 ```text
 tenant_id,
+project_id,
 repository_id,
+resource_type,
 projection_id,
+projection_signature,
 scope_key,
 embedding vector_cosine_ops
 ```
@@ -874,6 +917,14 @@ complete tuples corresponding to:
 
 This pushes visibility before ANN rather than relying entirely on post-filter
 hydration.
+
+CockroachDB does not accelerate arbitrary non-prefix predicates on a vector
+index. Current runtime therefore validates lifecycle, bitemporal, kind,
+version/digest, and trust against canonical memory in the same snapshot after
+the prefix-scoped ANN result. It geometrically widens an under-filled candidate
+window to a bounded cap. The exact oracle applies that canonical eligibility
+before exact vector sorting; comparing ANN with this oracle measures the recall
+cost of both approximation and post-filter underfill.
 
 If the deployment uses multiple regions, scope/locality design must also keep
 retrieval close to the owning tenant or repository. Cross-region global recall
@@ -976,7 +1027,8 @@ Evidence search does not bypass source trust/review state.
 
 ### Graph lane
 
-Use existing memory links and task dependencies as seeds.
+The implemented slice uses existing memory links. Task dependencies remain a
+future structural lane.
 
 Recommended graph candidate contract includes:
 
@@ -997,6 +1049,29 @@ Default limits:
 
 Large PPR/community processing belongs in asynchronous projections, not the
 critical query path.
+
+Current policy is deliberately small and reproducible:
+
+- explicit seeds first, then top direct fused hits; at most 16 seeds;
+- one hop for interactive/historical/orientation, two for
+  bootstrap/handoff/planning/conflict review;
+- eight canonically eligible neighbors per node;
+- at most four-times-fan-out raw edge over-fetch per node and a separate total
+  edge budget;
+- only built-in `supports`, `supersedes`, `derived_from`, `merged_from`,
+  `contradicts`, `duplicate_of`, and `related_to` relations;
+- relation-specific weight, `0.85` step decay, reverse-direction penalty for
+  asymmetric relations, and a bounded query-overlap gate with a `0.60` floor;
+- best deterministic path per canonical target and full path provenance;
+- graph RRF weight below direct exact/lexical/dense evidence, except for a
+  modest conflict-review increase.
+
+The in-memory and CockroachDB adapters share the scoring contract. CockroachDB
+uses fixed-depth application iteration because it exposes fan-out and total
+budgets directly and keeps both directional index scans auditable. PostgreSQL
+recursive `CYCLE`/path arrays remain useful for offline lineage; CockroachDB's
+own documentation warns that some recursive CTEs are not yet optimized, so an
+unbounded connected-component query is not used for synchronous recall.
 
 ### Summary/hierarchy lane
 
@@ -1437,7 +1512,7 @@ Deliverables:
 - no zero-score relevance hits;
 - purpose-specific task bootstrap;
 - one canonical adapter snapshot across candidate generation and hydration,
-  including the current CockroachDB compatibility ANN lookup;
+  including CockroachDB dense v2 ANN lookup;
 - per-lane CockroachDB savepoints so one SQL failure remains a degraded signal
   instead of aborting the shared snapshot;
 - gold retrieval fixture suite.
@@ -1478,6 +1553,15 @@ Exit criteria:
 
 ### Phase 3 — vector projection
 
+Status: implementation delivered as CockroachDB schema v8 plus an exact
+in-memory reference lane. The signed current projection, equality-bound
+repository/run/task ANN branches, same-snapshot canonical validation with
+bounded adaptive widening, RRF/trace integration, durable fenced dual-write,
+configurable cosine floor/beam, and exact primary-index oracle have focused
+tests. A small live correctness gate is not a representative
+quality/performance benchmark, so the measured exit criteria below remain
+open.
+
 Deliverables:
 
 - fixed-dimension vector projection;
@@ -1499,6 +1583,12 @@ Exit criteria:
 - dense-only and hybrid results are benchmarked.
 
 ### Phase 4 — source, evidence, temporal, and graph
+
+Status: the bounded `memory_links` graph slice is implemented with in-memory
+and CockroachDB parity, staged RRF, path provenance, same-snapshot canonical
+checks, directional covering indexes, and live `EXPLAIN` gates. Source/evidence,
+historical dense, checkpoint/handoff, task-dependency, and conflict projections
+remain open.
 
 Deliverables:
 
@@ -1717,9 +1807,11 @@ truncation.
 ## Recommended next sequence after retrieval v1
 
 1. Add resource version/content digest/projection signature to the vector row.
-2. Bring dense behind `CandidateBatch`, canonical prefiltering, RRF, and trace.
+2. Bring dense behind `CandidateBatch`, canonical eligibility validation, RRF,
+   and trace.
 3. Measure ANN Recall@k against an exact vector oracle.
-4. Add source/handoff/temporal/graph lanes in measured slices.
+4. Measure the delivered memory-link graph slice, then add
+   source/handoff/temporal/task-dependency lanes in measured slices.
 5. Persist bounded audited traces and lane latency/underfill/freshness metrics.
 6. Add reranking only after lane ablations.
 7. Consider an external Sen provider only after a measured local gap.
@@ -1760,9 +1852,13 @@ seam for an optional external candidate provider.
 - [CockroachDB vector indexes](https://www.cockroachlabs.com/docs/v26.2/vector-indexes)
 - [CockroachDB full-text search](https://www.cockroachlabs.com/docs/v26.2/full-text-search)
 - [CockroachDB trigram indexes](https://www.cockroachlabs.com/docs/v26.2/trigram-indexes)
+- [CockroachDB recursive CTEs](https://www.cockroachlabs.com/docs/v26.2/common-table-expressions)
+- [PostgreSQL recursive search and cycle detection](https://www.postgresql.org/docs/current/queries-with.html)
 - [CockroachDB table localities](https://www.cockroachlabs.com/docs/v26.2/table-localities)
 - [SPLADE v2](https://arxiv.org/abs/2109.10086)
 - [ColBERTv2](https://aclanthology.org/2022.naacl-main.272/)
 - [RAPTOR](https://proceedings.iclr.cc/paper_files/paper/2024/hash/8a2acd174940dbca361a6398a4f9df91-Abstract-Conference.html)
 - [GraphRAG](https://arxiv.org/abs/2404.16130)
+- [HippoRAG 2](https://arxiv.org/abs/2502.14802)
+- [Query-Aware Spreading Activation](https://arxiv.org/abs/2606.30133)
 - [Adaptive-RAG](https://aclanthology.org/2024.naacl-long.389/)

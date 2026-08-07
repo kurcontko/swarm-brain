@@ -1,21 +1,24 @@
-# Retrieval v1 — aktualny stan
+# Retrieval v2 — aktualny stan
 
-Stan na: 2026-08-05
+Stan na: 2026-08-06
 Repozytorium: standalone `swarm-brain`
-Gałąź implementacyjna: `feat/retrieval-v1`
 
 ## Wynik
 
-Swarm Brain ma działający, provider-neutral retrieval v1 dla pamięci:
+Swarm Brain ma działający, provider-neutral hybrid retrieval v2 dla pamięci:
 
 ```text
 RecallQuery + ActorContext
           ↓
 server-owned purpose + planner
           ↓
-exact ─ FTS simple ─ trigram
+exact ─ FTS simple ─ trigram ─ dense current
           ↓
-weighted RRF (k=60)
+direct weighted RRF (k=60)
+          ↓
+bounded memory-link graph (1–2 hops)
+          ↓
+final weighted RRF (k=60)
           ↓
 private canonical hydration
           ↓
@@ -33,11 +36,19 @@ lokalnym retrievalu.
 
 - `RetrievalPurpose`, `RetrievalPlan`, `Candidate`, `CandidateBatch`,
   `RetrievalTrace` i contribution-level weighted RRF;
-- osobne porty `RetrievalGateway` i `CanonicalMemoryReader`;
+- osobne porty `RetrievalGateway`, `GraphExpansionGateway` i
+  `CanonicalMemoryReader`;
 - pełny trace pozostaje wewnętrzny i nie zmienia publicznego `RecallBundle`;
 - stabilna normalizacja publicznego score do zakresu `[0,1]`;
-- exact/lexical/fuzzy collapse po canonical memory ID;
+- exact/lexical/fuzzy/dense/graph collapse po canonical memory ID;
 - awaria pojedynczego lane'u jest oznaczona jako degraded, a nie ukryta.
+
+Query embedding powstaje przed snapshotem bazy. Udany dense lookup jest
+`CandidateBatch` z raw cosine score, rankiem, projection signature i wkładem do
+weighted RRF; awaria providera albo mismatch wymiaru jest widoczna w trace jako
+degraded dense lane. Stary semantic max-score merge pozostaje wyłącznie
+compatibility fallbackiem dla ręcznie złożonego `RetrievalService` bez gatewaya
+dense; runtime produkcyjny i lokalny składają v2 lane.
 
 ### Correctness i bezpieczeństwo
 
@@ -74,7 +85,7 @@ Publiczny v1 nadal zwraca płaski `RecallBundle`; sekcje są oznaczane reasons
 (`section:handoff`, `section:playbook`, `section:prior_attempts`,
 `section:knowledge`). Strukturalne sekcje wymagają wersjonowanego response v2.
 
-### CockroachDB schema v7
+### CockroachDB schema v8
 
 `retrieval_documents` przechowuje:
 
@@ -114,6 +125,85 @@ Verifier sprawdza metodę krytycznych indeksów, opclass, kolejność scope pref
 primary key exact terms, computed `TSVECTOR` oraz kształt projection primary
 key — nie tylko nazwy obiektów.
 
+`retrieval_vectors_1024` jest nową projekcją dense, oddzieloną od legacy
+`memory_vector_embeddings`. Każdy row zapisuje:
+
+- canonical resource ID i wersję;
+- content SHA-256;
+- `scope_key` repository/run/task i `domain_lane`;
+- input renderer, current/history mode, cosine metric, provider
+  normalization/truncation policy, model i dimensions w
+  `projection_signature`;
+- fixed-width `VECTOR(1024)` oraz `indexed_at`.
+
+Vector index ma pełny prefix `(tenant, project, repository, resource_type,
+projection_id, signature, scope_key)`. Gateway uruchamia osobną equality-bound
+gałąź ANN dla każdego dozwolonego scope. Ponieważ Cockroach przyspiesza tylko
+filtry z pełnego prefixu, state/currentness, kind, bitemporal, version/digest i
+source trust/review są walidowane na canonical rows w tym samym snapshotcie po
+ANN. Gdy filtracja nie wypełnia lane budget, okno ANN rośnie geometrycznie do
+twardego limitu. Final hydration powtarza wszystkie predykaty. Current-only
+dense nie jest uruchamiany dla explicit historical, refuted ani superseded
+query.
+
+Fenced worker zapisuje legacy vector, projekcję v2 i completion w jednej
+transakcji; utracony lease nie może opublikować żadnego z nich. Installer kopiuje
+zgodne istniejące wektory do jawnie podpisanej projekcji v2. Schema verifier
+sprawdza wymagane kolumny, primary-key shape, kolejność pełnego vector prefixu i
+`vector_cosine_ops`.
+
+Cockroach dense gateway udostępnia ANN przez
+`retrieval_vectors_1024_ann_v2` z adaptive canonical validation oraz exact
+oracle wymuszony przez `@primary`, który filtruje eligible set przed exact
+sortem. `vector_search_beam_size` i raw cosine floor są operator-owned settings.
+Wspólny evaluator liczy ANN Recall@k, Recall@k, MRR, nDCG oraz no-answer
+precision/recall dla zapisanych lane ablations.
+
+Raw cosine floor domyślnie wynosi `0.0`: nie istnieje jeden poprawny cutoff dla
+wszystkich modeli, a niezmierzony `0.2` powodował regresję na istniejącym live
+gate z długim query. Zero/ujemne wkłady i tak są odrzucane przez fusion; dodatni
+floor wymaga pomiaru na docelowym modelu i korpusie.
+
+### Bounded graph lane
+
+`memory_links` jest teraz drugim etapem retrievalu, a nie równoległym,
+niezaseedowanym skanem. Najpierw exact/FTS/trigram/dense tworzą direct RRF;
+najsilniejsze wyniki i jawne prywatne seedy uruchamiają graph expansion, po czym
+wszystkie lane'y przechodzą finalny RRF.
+
+Plan zapisuje pełną politykę ograniczeń:
+
+- maksymalnie 16 seedów;
+- jeden hop dla interactive/historical/orientation i dwa dla
+  bootstrap/handoff/planning/conflict review;
+- osiem eligible sąsiadów na node;
+- osobny candidate budget i całkowity edge-examination budget;
+- allowlistę siedmiu wbudowanych relacji;
+- fail-safe degraded lane przy błędzie.
+
+Ranking graph stosuje typed-relation weight, karę dla odwrotnego przejścia po
+relacji asymetrycznej, decay `0.85` na krok i bounded query-text gate z floorem
+`0.60`. To score wewnątrz lane'u; contribution do wspólnego rankingu nadal
+jest audytowalnym weighted RRF. Najlepsza deterministyczna ścieżka przechowuje
+każdy memory ID, edge ID, kierunek i relation type w `Candidate.path`.
+
+Adapter CockroachDB wykonuje stałą liczbę iteracji nad covering indexes
+`memory_links_from_type` i `memory_links_to_type`. Bounded `LATERAL` scan może
+pobrać najwyżej czterokrotność fan-out na frontier node; dopiero canonical
+validation nadaje sloty fan-out, więc hidden/stale/refuted/untrusted endpoint
+nie wypiera poprawnego sąsiada. Target musi przejść tenant/project/repository,
+visibility, run/task, state, kind, valid/recorded time i trust/review przed
+wejściem do następnego frontieru, a final hydration sprawdza wszystko ponownie.
+Edge `created_at` jest ograniczony przez `recorded_at` albo snapshot `now()`.
+Całość działa w tym samym retrieval snapshotcie co direct lanes.
+
+Nie używamy recursive lineage CTE na critical path. PostgreSQL daje path arrays
+i `CYCLE`, ale kolejność wykonania nie jest kontraktem; CockroachDB wymaga
+jawnego warunku końca i ostrzega, że część recursive CTE nie jest jeszcze
+optymalizowana. Fixed-depth application traversal daje jawny hop/fan-out/edge
+budget i łatwy `EXPLAIN` obu kierunków. Duże PPR/community graph pozostaje
+asynchroniczną projekcją przyszłości.
+
 ## Publiczna kompatybilność
 
 Bez zmian pozostają:
@@ -133,9 +223,10 @@ Nie dodano do publicznego request/response:
 - pełnego trace;
 - tenant/repository/agent identity.
 
-## Weryfikacja wykonana w tej gałęzi
+## Weryfikacja
 
-- fresh schema v7 install i verify na izolowanym CockroachDB v26.2;
+- pełna macierz na świeżym CockroachDB 26.2.1: `185 passed`;
+- fresh schema v8 install i verify na izolowanym CockroachDB v26.2;
 - istniejący live memory gate po transactional projection write;
 - live exact, FTS, trigram, RRF, abstention i `EXPLAIN` dokładnego SQL
   JOIN/filter/ranking emitowanego przez runtime;
@@ -152,6 +243,21 @@ Nie dodano do publicznego request/response:
 - regresja transakcyjnego migracyjnego rebuild i stale-row sweep dla
   znormalizowanego title, tag, path, alias i command;
 - focused matrix path/symbol/test/command/hash/error/alias.
+- dense v2 unit gate: pełny equality prefix ANN, same-snapshot canonical
+  validation, bounded adaptive widening, signature/version/digest propagation,
+  ANN/exact routing, RRF contribution, provider degradation i publiczny v1
+  compatibility snapshot;
+- schema v8 static gate dla oddzielnej signed projection, vector opclass i
+  prefix order;
+- deterministyczny evaluator smoke dla lane ablations i ANN exact-oracle
+  overlap. Fixture smoke nie jest reprezentatywnym benchmarkiem jakości.
+- graph unit gate: staged direct→graph→final RRF, one/two-hop policy, cycle
+  prevention, relation allowlist, query/relation/hop decay, historical edge
+  cutoff, canonical-before-fan-out, hard fan-out/edge budget, path provenance i
+  degraded-lane fallback;
+- live CockroachDB graph gate: dwa hop'y przez rzeczywiste `memory_links`,
+  oba directional covering indexes, brak full scan w runtime `EXPLAIN`,
+  canonical validation i schema index `EXPLAIN`.
 
 Pełne końcowe wyniki komend są raportowane w handoffie gałęzi; ten dokument nie
 jest automatycznym substytutem CI evidence.
@@ -168,31 +274,32 @@ benchmarkiem jakości. Przed oznaczeniem phase 2 jako benchmark-complete trzeba
 opublikować Recall@k, MRR, no-answer precision, percentyle latency, wersję
 korpusu oraz ablation exact vs FTS vs trigram vs fused.
 
-### P3 — poprawna integracja dense
+### P3 — dług ewaluacyjny dense
 
-Istniejący current-only `VECTOR(1024)` plane nadal jest compatibility path po
-lexical bundle. Nie jest jeszcze pełnoprawnym `CandidateBatch`, ponieważ vector
-projection nie zapisuje canonical resource version, content digest ani
-projection signature. W konsekwencji semantic compatibility merge nadal nie
-jest częścią weighted RRF.
+Implementacja dense v2 i exact oracle są domknięte, ale mały deterministic/live
+gate nie dowodzi jakości ani skali. Phase 3 nie jest benchmark-complete, dopóki
+nie powstanie reprezentatywny corpus coding-agent memory z wynikami:
 
-Następny slice powinien:
+- dense-only, lexical-only i hybrid Recall@k/MRR/nDCG/no-answer;
+- filtered ANN Recall@k względem exact w bucketach scope selectivity i
+  filter–vector correlation;
+- p50/p95/p99, CPU, rows/bytes, storage, projection lag i stale rate;
+- sweep beam, cosine floor, overfetch i RRF weights;
+- osobne wyniki dla świeżych/starych rekordów oraz identifier, conceptual i
+  task-bootstrap intent.
 
-1. dodać resource version/content SHA/projection signature do vector row;
-2. filtrować visibility/run/task/state/trust/time przed ANN lane limit albo
-   stosować temporal prefilter + exact vector ranking;
-3. mierzyć ANN Recall@k względem exact vector oracle;
-4. włączyć dense do tego samego RRF i trace;
-5. zachować current/historical projections jako osobne polityki.
+Historical dense nadal wymaga bitemporalnego relational prefilteru + exact
+ranking albo osobnej signed historical projection. Current ANN nie jest w tym
+celu rozszerzany post-filterem.
 
-### Operacyjny dług v1
+### Operacyjny dług v2
 
 - `schema install` celowo wykonuje pełny `O(N)` rebuild projekcji jako ścieżkę
   migracji i naprawy; przed dużym wdrożeniem potrzebuje osobnego resumable joba,
   progress telemetry i kontrolowanego rate limitu;
-- upgrade pre-v7 → v7 wymaga writer barrier: zatrzymania starych publisherów,
-  wykonania `schema install` + `verify`, a dopiero potem uruchomienia v7; mixed
-  pre-v7/v7 online writes podczas backfillu nie są wspierane;
+- upgrade pre-v8 → v8 wymaga writer barrier: zatrzymania starych publisherów i
+  embedding workers, wykonania `schema install` + `verify`, a dopiero potem
+  uruchomienia v8; mixed-version writes podczas backfillu nie są wspierane;
 - lokalny adapter zlicza `memories_reused`, ale CockroachDB nie ma jeszcze
   trwałego licznika reuse; potrzebny jest audytowalny retrieval event/metric
   zapisywany poza read-only snapshotem;
@@ -203,13 +310,23 @@ Następny slice powinien:
 
 - source chunks i evidence expansion;
 - latest handoff/checkpoint jako deterministic context;
-- bounded graph/lineage i open conflicts;
+- task-dependency graph i open-conflict expansion;
 - temporal/entity routing;
 - diversity/context packing;
 - reranker dopiero po lane ablations;
 - trwały, audytowany trace sink i metryki latency/underfill/freshness.
 
-## Definition of done dla retrieval v1
+### P4 — dług ewaluacyjny graph
+
+Bounded memory-link graph jest correctness-complete, ale nie jest jeszcze
+benchmark-complete. Reprezentatywny corpus musi zmierzyć direct-only vs
+direct+graph Recall@k/MRR/nDCG/no-answer, osobno dla associative/multi-hop,
+conflict i zwykłych factual queries. Należy też wykonać sweep hopów, seedów,
+fan-out, edge budget, query-gate floor, relation decay oraz graph RRF weight,
+raportując p50/p95/p99, rows read i odsetek truncation/underfill. Bez tego nie
+ma podstaw do twierdzenia o SOTA jakości.
+
+## Definition of done dla implementacji retrieval v2
 
 Ten slice jest gotowy do merge, gdy przechodzą:
 
@@ -228,5 +345,10 @@ oraz na izolowanym CockroachDB:
 SWARMBRAIN_TEST_DATABASE_URL=... \
   uv run --extra dev python -m pytest \
   tests/test_cockroach_retrieval_live.py \
+  tests/test_cockroach_embeddings_live.py \
   tests/test_cockroach_memory_live.py -q
 ```
+
+Benchmark-complete pozostaje osobnym exit criterion opisanym w
+[retrieval evaluation](retrieval-evaluation.md); zielone testy correctness nie
+są jego substytutem.

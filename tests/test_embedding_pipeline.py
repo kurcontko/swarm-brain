@@ -19,6 +19,7 @@ from swarmbrain.adapters.extraction.in_memory import InMemoryWorkStore
 from swarmbrain.adapters.memory import InMemoryKernel
 from swarmbrain.application.memory_policy import ConservativeMemoryPolicy, memory_content_text
 from swarmbrain.application.memory_service import SEMANTIC_MATCH_REASON, MemoryService
+from swarmbrain.application.runtime import build_in_memory_runtime
 from swarmbrain.application.work import DurableWorkService
 from swarmbrain.domain.memory import (
     EmbeddingMatch,
@@ -68,6 +69,39 @@ class FixedEmbeddingIndex:
         self, *_args: object, **_kwargs: object
     ) -> tuple[EmbeddingMatch, ...]:
         return self.matches
+
+
+@pytest.mark.asyncio
+async def test_runtime_composes_dense_v2_as_a_fused_candidate_lane(
+    scope_ids: dict[str, str],
+) -> None:
+    provider = MappedProvider(
+        {
+            "opaque stored memory": (1.0, 0.0, 0.0, 0.0),
+            "conceptual lookup": (1.0, 0.0, 0.0, 0.0),
+        }
+    )
+    runtime = build_in_memory_runtime(
+        "0123456789abcdef-test-secret",
+        embeddings=provider,
+    )
+    actor = make_actor(scope_ids)
+    published = await runtime.memory.publish(
+        actor,
+        RememberCommand(
+            idempotency_key="runtime-dense-v2",
+            kind="observation",
+            content="opaque stored memory",
+        ),
+    )
+    assert published.memory is not None
+    assert len(await runtime.embedding_worker().run_once("runtime-dense-v2-worker")) == 1
+
+    recalled = await runtime.memory.recall(actor, RecallQuery(text="conceptual lookup"))
+
+    assert [hit.memory.memory_id for hit in recalled.hits] == [published.memory.memory_id]
+    assert "signal:dense" in recalled.hits[0].reasons
+    assert SEMANTIC_MATCH_REASON in recalled.hits[0].reasons
 
 
 def test_memory_content_text_is_stable_json_projection_and_preserves_strings() -> None:

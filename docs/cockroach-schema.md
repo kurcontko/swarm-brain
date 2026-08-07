@@ -1,15 +1,22 @@
 # Swarm Brain CockroachDB schema
 
-## Current v7 retrieval addendum
+## Current v8 retrieval addendum
 
-Schema v7 adds two rebuildable search projections while `memories` remains the
-canonical source of truth:
+Schema v8 retains the two v7 lexical projections and adds a separate versioned
+dense projection while `memories` remains the canonical source of truth:
 
 - `retrieval_documents`: deterministic `search_text`, bounded `lookup_text`, a
   stored `to_tsvector('simple', search_text)`, a fully scope-prefixed inverted
   FTS index, and a fully scope-prefixed trigram index;
 - `retrieval_exact_terms`: normalized IDs, digests, titles, tags, paths,
-  symbols, tests, commands, commits, and error identifiers under a B-tree key.
+  symbols, tests, commands, commits, and error identifiers under a B-tree key;
+- `retrieval_vectors_1024`: current-memory vectors with resource version,
+  content digest, domain lane, stable scope key, and a signature covering the
+  complete embedding representation;
+- `memory_links`: open semantic links plus covering
+  `(source_memory_id, link_type, created_at DESC, id)` and
+  `(target_memory_id, link_type, created_at DESC, id)` indexes for bounded
+  bidirectional expansion.
 
 Projected exact-term lookups start at the scope-prefixed exact B-tree; FTS and
 trigram lookups start at their scope-prefixed inverted indexes. Each uses a
@@ -20,24 +27,58 @@ repeats the canonical predicates without a recency limit. Projection writes for
 publish/merge are in the same transaction as canonical memory; the installer
 rebuilds pre-v7 rows through the same application projector used by new writes.
 That rebuild is one retryable SERIALIZABLE transaction with a stale scope/version
-sweep.
+sweep. Existing compatible legacy vectors are copied into the explicit v2
+projection during the v8 operator migration; the legacy table remains intact.
 
-An upgrade from pre-v7 requires an explicit writer barrier: stop all old API
-and worker processes that can publish memory, run `schema install` and `schema
-verify`, and only then start v7 writers. A pre-v7 writer does not dual-write the
-new projection and can otherwise commit a memory after the rebuild snapshot.
-Concurrent v7 writers are protected by the shared schema/projection contract,
-but mixed-version online writes are unsupported. The rebuild is `O(N)` and a
-single transaction, so production operators must rehearse duration and
-contention on a representative copy before scheduling the maintenance window.
+The v8 vector index prefix is `(tenant_id, project_id, repository_id,
+resource_type, projection_id, projection_signature, scope_key)`. Runtime
+executes one equality-bound ANN query per allowed repository/run/task scope.
+CockroachDB only accelerates filters represented by the complete vector prefix,
+so lifecycle, bitemporal, kind, version/digest, and trust checks run against
+canonical `memories` in the same snapshot after ANN. The candidate window
+doubles when those checks under-fill the lane, up to a hard bound. The exact
+oracle instead forces `@primary` and applies canonical eligibility before the
+exact vector sort. `EXPLAIN` verifies vector-index selection; ANN Recall@k
+against that oracle verifies search accuracy.
+
+The graph lane is a second stage, not an unseeded table scan. Direct
+exact/FTS/trigram/dense results are fused first; a purpose-owned plan selects at
+most 16 seeds, one or two hops, eight eligible neighbors per node, an explicit
+relation allowlist, and a total edge-examination budget. CockroachDB executes
+batched `LATERAL` scans over both directional link indexes. It over-fetches a
+small, fixed multiple of fan-out, canonically validates target IDs under the
+same retrieval snapshot, and only then assigns fan-out slots. Thus an
+out-of-scope, stale, refuted, or untrusted endpoint is neither traversed nor
+allowed to displace an eligible neighbor. Each target is canonically validated
+before it can take a fan-out slot; final hydration repeats the same predicates.
+Edge `created_at` is bounded by the requested recorded time (or the snapshot
+clock); node validity uses the normal bitemporal predicates.
+
+This deliberately avoids a production recursive CTE. The application loop has
+an explicit hop terminator, path-local cycle prevention, deterministic
+relation/query/hop decay, a hard total budget, and complete edge/node path
+provenance. `EXPLAIN` gates verify both directional link indexes and reject
+full scans for the emitted hop SQL.
+
+An upgrade from pre-v8 requires an explicit writer barrier: stop all old API
+and worker processes that can publish memory or embeddings, run `schema
+install` and `schema verify`, and only then start v8 writers. A pre-v8 writer
+does not maintain every v8 projection and can otherwise commit memory or an
+embedding after the migration snapshot. Concurrent v8 writers are protected by
+the shared schema/projection contract, but mixed-version online writes are
+unsupported. The lexical rebuild is `O(N)` and a single transaction, so
+production operators must rehearse duration and contention on a representative
+copy before scheduling the maintenance window.
 
 Startup verification checks the critical index methods, ordered prefixes,
-`gin_trgm_ops`, exact-term key, and stored `to_tsvector('simple', ...)`
-definition in addition to names, columns, schema version, and checksum.
+graph direction/relation/time ordering (including descending edge time),
+`gin_trgm_ops`, `vector_cosine_ops`, exact-term key, signed vector projection
+shape, and stored `to_tsvector('simple', ...)` definition in addition to names,
+columns, schema version, and checksum.
 
 The authoritative implementation is
 [schema.sql](../src/swarmbrain/adapters/cockroach/schema.sql); the operational
-status and remaining vector limitations are in
+status and remaining benchmark limitations are in
 [retrieval-status.md](retrieval-status.md).
 
 > **Historical pre-v6 inventory.** The detailed table notes below preserve the
@@ -51,7 +92,7 @@ status and remaining vector limitations are in
 The paragraphs and inventory below describe the historical v0/P0 starting
 point, not the current runtime. At that point the executable API used only
 `InMemoryKernel`, and Cockroach repositories were future P1 work. Today the
-authoritative v7 DDL remains an explicit operator action (API startup never
+authoritative v8 DDL remains an explicit operator action (API startup never
 runs migrations), while durable Cockroach repositories, runtime composition,
 projection maintenance, schema verification, and live retrieval gates are
 implemented. Use the addendum above and `schema.sql` for current facts.
