@@ -917,16 +917,13 @@ class DemoRunner:
                 "instead of re-executed",
             )
         )
-        # Cross-vendor reuse itself is asserted by the shared-discovery beat;
-        # the durable backend does not yet persist a reuse counter from its
-        # read-only recall snapshot, so that metric stays informational here.
         beat.checks.append(
             BeatCheck(
-                "memories_published",
-                metrics["memories_published"] >= 2,
+                "memories_published_and_reused",
+                metrics["memories_published"] >= 2 and metrics["memories_reused"] >= 1,
                 f"{metrics['memories_published']} memories published "
-                "(supersessions counted separately); reuse counter reports "
-                f"{metrics['memories_reused']}",
+                "(supersessions counted separately), "
+                f"{metrics['memories_reused']} reuses recorded durably",
             )
         )
         beat.checks.append(

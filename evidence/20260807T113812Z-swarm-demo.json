@@ -1,0 +1,449 @@
+{
+  "beats": [
+    {
+      "checks": [
+        {
+          "detail": "14 agents joined across providers ['anthropic', 'google', 'openai', 'qwen']",
+          "name": "all_agents_joined",
+          "ok": true
+        }
+      ],
+      "data": {
+        "joined": 14
+      },
+      "key": "join",
+      "ok": true,
+      "title": "Fourteen agents join the run"
+    },
+    {
+      "checks": [
+        {
+          "detail": "4 claims won 4 distinct tasks with 4 distinct leases",
+          "name": "exactly_four_wins",
+          "ok": true
+        },
+        {
+          "detail": "8 losing claims all returned no_task_available",
+          "name": "eight_losers_told_no_task",
+          "ok": true
+        },
+        {
+          "detail": "the dependency-blocked fix task was not claimable",
+          "name": "blocked_task_not_claimed",
+          "ok": true
+        }
+      ],
+      "data": {
+        "owners": {
+          "duplicate-charge": {
+            "agent": "worker-01-claude-code",
+            "provider": "anthropic"
+          },
+          "flaky-test": {
+            "agent": "worker-12-opencode",
+            "provider": "qwen"
+          },
+          "pool-exhaustion": {
+            "agent": "worker-08-opencode",
+            "provider": "qwen"
+          },
+          "replay-regression-test": {
+            "agent": "worker-07-gemini-cli",
+            "provider": "google"
+          }
+        }
+      },
+      "key": "claim_race",
+      "ok": true,
+      "title": "Twelve workers race four ready tasks \u2014 exactly four leases"
+    },
+    {
+      "checks": [
+        {
+          "detail": "worker-01-claude-code published the confirmed invariant with evidence",
+          "name": "discovery_published",
+          "ok": true
+        },
+        {
+          "detail": "recalled with evidence by ['worker-07-gemini-cli', 'worker-08-opencode']",
+          "name": "cross_vendor_recall",
+          "ok": true
+        }
+      ],
+      "data": {
+        "publisher": {
+          "agent": "worker-01-claude-code",
+          "provider": "anthropic"
+        },
+        "recalled_by": [
+          {
+            "agent": "worker-07-gemini-cli",
+            "evidence_count": 1,
+            "provider": "google",
+            "score": 0.8000000000000002
+          },
+          {
+            "agent": "worker-08-opencode",
+            "evidence_count": 1,
+            "provider": "qwen",
+            "score": 0.8000000000000002
+          }
+        ]
+      },
+      "key": "shared_discovery",
+      "ok": true,
+      "title": "One agent's evidence-backed discovery is recalled by other vendors"
+    },
+    {
+      "checks": [
+        {
+          "detail": "ordinary recall returns the correction and hides the superseded claim",
+          "name": "current_recall_returns_correction_only",
+          "ok": true
+        },
+        {
+          "detail": "historical recall retains the wrong claim and the correction",
+          "name": "history_keeps_both",
+          "ok": true
+        },
+        {
+          "detail": "lineage holds both versions; the superseded one is not current",
+          "name": "lineage_links_two_versions",
+          "ok": true
+        },
+        {
+          "detail": "an unsupported tentative supersession of confirmed evidence is a noop",
+          "name": "poisoning_rejected",
+          "ok": true
+        },
+        {
+          "detail": "the evidence-backed correction is still the current answer",
+          "name": "confirmed_memory_still_current",
+          "ok": true
+        }
+      ],
+      "data": {
+        "correction_memory_id": "5d580ed1-395a-4c07-ae44-4de5891714c2",
+        "wrong_memory_id": "6bbbe287-5a7c-47e1-bae9-9f15e907d347"
+      },
+      "key": "supersession_poisoning",
+      "ok": true,
+      "title": "An evidence-backed correction supersedes; a poisoning attempt bounces"
+    },
+    {
+      "checks": [
+        {
+          "detail": "worker-01-claude-code completed 'Trace the duplicate charge on webhook replay'",
+          "name": "completed_duplicate-charge",
+          "ok": true
+        },
+        {
+          "detail": "the retried completion returned the stored result, not a second event",
+          "name": "duplicate_completion_replayed",
+          "ok": true
+        },
+        {
+          "detail": "worker-08-opencode completed 'Profile connection pool exhaustion under load'",
+          "name": "completed_pool-exhaustion",
+          "ok": true
+        },
+        {
+          "detail": "worker-07-gemini-cli completed 'Add regression coverage for idempotent webhook replay'",
+          "name": "completed_replay-regression-test",
+          "ok": true
+        }
+      ],
+      "data": {},
+      "key": "complete_replay",
+      "ok": true,
+      "title": "Three tasks complete; a duplicated completion replays exactly once"
+    },
+    {
+      "checks": [
+        {
+          "detail": "worker-12-opencode checkpointed then stopped renewing (simulated crash)",
+          "name": "checkpoint_written",
+          "ok": true
+        },
+        {
+          "detail": "worker-02-codex-cli (openai) received worker-12-opencode's (qwen) checkpoint, discoveries, and remaining work",
+          "name": "successor_resumes_with_checkpoint",
+          "ok": true
+        },
+        {
+          "detail": "the claim response carried the checkpointed swarm memory as context",
+          "name": "bootstrap_memory_included",
+          "ok": true
+        },
+        {
+          "detail": "the crashed worker's stale lease was fenced (lease_lost)",
+          "name": "dead_worker_fenced",
+          "ok": true
+        },
+        {
+          "detail": "worker-02-codex-cli finished the task the crashed worker started",
+          "name": "successor_completed",
+          "ok": true
+        }
+      ],
+      "data": {
+        "crashed": {
+          "agent": "worker-12-opencode",
+          "provider": "qwen"
+        },
+        "successor": {
+          "agent": "worker-02-codex-cli",
+          "provider": "openai"
+        }
+      },
+      "key": "crash_handoff",
+      "ok": true,
+      "title": "A worker dies mid-task; another vendor resumes from its checkpoint"
+    },
+    {
+      "checks": [
+        {
+          "detail": "the dependency-blocked task became the next claim after its dependency completed",
+          "name": "fix_task_now_claimable",
+          "ok": true
+        },
+        {
+          "detail": "worker-02-codex-cli completed the final task in the DAG",
+          "name": "all_tasks_completed",
+          "ok": true
+        }
+      ],
+      "data": {},
+      "key": "dag_unblock",
+      "ok": true,
+      "title": "Completing the root cause unblocks the dependent fix task"
+    },
+    {
+      "checks": [
+        {
+          "detail": "5/5 tasks completed",
+          "name": "five_tasks_completed",
+          "ok": true
+        },
+        {
+          "detail": "every lease was completed, fenced, or expired",
+          "name": "no_lease_left_behind",
+          "ok": true
+        },
+        {
+          "detail": "1 crash handoff recorded by the store",
+          "name": "crash_handoff_counted",
+          "ok": true
+        },
+        {
+          "detail": "1 duplicate mutations replayed instead of re-executed",
+          "name": "idempotent_replay_counted",
+          "ok": true
+        },
+        {
+          "detail": "2 memories published (supersessions counted separately), 13 reuses recorded durably",
+          "name": "memories_published_and_reused",
+          "ok": true
+        },
+        {
+          "detail": "33 durable swarm events available to the dashboard",
+          "name": "event_timeline_present",
+          "ok": true
+        }
+      ],
+      "data": {
+        "event_count": 33,
+        "event_types": [
+          "agent.joined",
+          "evidence.added",
+          "memory.added",
+          "memory.superseded",
+          "source.registered",
+          "task.checkpointed",
+          "task.claimed",
+          "task.completed"
+        ],
+        "metrics": {
+          "active_leases": 0,
+          "checkpoints": 1,
+          "conflicts_open": 0,
+          "conflicts_resolved": 0,
+          "crash_handoffs": 1,
+          "custom": {},
+          "duplicate_claims_prevented": 0,
+          "duplicate_mutations_replayed": 1,
+          "measured_at": "2026-08-07T11:38:12.287577Z",
+          "memories_published": 2,
+          "memories_reused": 13,
+          "run_id": "3805aa3f-894b-443d-934b-aa6a6fda02ef",
+          "tasks_claimed": 0,
+          "tasks_completed": 5,
+          "tasks_failed": 0,
+          "tasks_total": 5
+        }
+      },
+      "key": "telemetry",
+      "ok": true,
+      "title": "The run's events and metrics tell the whole story from the database"
+    }
+  ],
+  "finished_at": "2026-08-07T11:38:12.306118+00:00",
+  "metrics": {
+    "active_leases": 0,
+    "checkpoints": 1,
+    "conflicts_open": 0,
+    "conflicts_resolved": 0,
+    "crash_handoffs": 1,
+    "custom": {},
+    "duplicate_claims_prevented": 0,
+    "duplicate_mutations_replayed": 1,
+    "measured_at": "2026-08-07T11:38:12.287577Z",
+    "memories_published": 2,
+    "memories_reused": 13,
+    "run_id": "3805aa3f-894b-443d-934b-aa6a6fda02ef",
+    "tasks_claimed": 0,
+    "tasks_completed": 5,
+    "tasks_failed": 0,
+    "tasks_total": 5
+  },
+  "ok": true,
+  "scenario": {
+    "agents": [
+      {
+        "agent_id": "7821722f-c369-4b67-b6ba-1e39f1476f3d",
+        "harness": "claude-code",
+        "model": "claude-fable-5",
+        "name": "lead-claude-code",
+        "provider": "anthropic"
+      },
+      {
+        "agent_id": "1f3bf98a-5dee-49ec-8958-954d46cb1238",
+        "harness": "opencode",
+        "model": "qwen3-coder-27b",
+        "name": "scout-untrusted",
+        "provider": "qwen"
+      },
+      {
+        "agent_id": "24bb40c2-1ab5-4899-ace1-0a40c0e913b8",
+        "harness": "claude-code",
+        "model": "claude-sonnet-5",
+        "name": "worker-01-claude-code",
+        "provider": "anthropic"
+      },
+      {
+        "agent_id": "8a9409ee-85db-4973-92d2-bb36c075f03f",
+        "harness": "codex-cli",
+        "model": "gpt-5-codex",
+        "name": "worker-02-codex-cli",
+        "provider": "openai"
+      },
+      {
+        "agent_id": "c953bed9-f684-4b49-9053-4c7bd21f64fd",
+        "harness": "gemini-cli",
+        "model": "gemini-3-pro",
+        "name": "worker-03-gemini-cli",
+        "provider": "google"
+      },
+      {
+        "agent_id": "89da9c9b-0f40-4718-8818-0eba4288d7d4",
+        "harness": "opencode",
+        "model": "qwen3-coder-27b",
+        "name": "worker-04-opencode",
+        "provider": "qwen"
+      },
+      {
+        "agent_id": "7414d25d-7695-445a-8603-6da6904a052d",
+        "harness": "claude-code",
+        "model": "claude-sonnet-5",
+        "name": "worker-05-claude-code",
+        "provider": "anthropic"
+      },
+      {
+        "agent_id": "94211713-7cb1-4292-858f-dbf5f66f4f6f",
+        "harness": "codex-cli",
+        "model": "gpt-5-codex",
+        "name": "worker-06-codex-cli",
+        "provider": "openai"
+      },
+      {
+        "agent_id": "937198ae-89b5-4298-8bd1-79f18069d457",
+        "harness": "gemini-cli",
+        "model": "gemini-3-pro",
+        "name": "worker-07-gemini-cli",
+        "provider": "google"
+      },
+      {
+        "agent_id": "c7f34731-4a96-4ce7-b0e8-1e663da5bdf7",
+        "harness": "opencode",
+        "model": "qwen3-coder-27b",
+        "name": "worker-08-opencode",
+        "provider": "qwen"
+      },
+      {
+        "agent_id": "113b950b-5500-4687-9a0c-d857f6bb27e2",
+        "harness": "claude-code",
+        "model": "claude-sonnet-5",
+        "name": "worker-09-claude-code",
+        "provider": "anthropic"
+      },
+      {
+        "agent_id": "5c13cb0f-3c5f-4178-9d98-656497064f44",
+        "harness": "codex-cli",
+        "model": "gpt-5-codex",
+        "name": "worker-10-codex-cli",
+        "provider": "openai"
+      },
+      {
+        "agent_id": "e6f14d5a-062b-4ade-974a-d832f5f45c13",
+        "harness": "gemini-cli",
+        "model": "gemini-3-pro",
+        "name": "worker-11-gemini-cli",
+        "provider": "google"
+      },
+      {
+        "agent_id": "de78f242-dc98-4df8-9dfa-bcd371c25ffd",
+        "harness": "opencode",
+        "model": "qwen3-coder-27b",
+        "name": "worker-12-opencode",
+        "provider": "qwen"
+      }
+    ],
+    "repository_id": "1856f5c9-f65b-4b7c-a060-aacfbe593b05",
+    "run_id": "3805aa3f-894b-443d-934b-aa6a6fda02ef",
+    "tasks": [
+      {
+        "depends_on": [],
+        "key": "flaky-test",
+        "task_id": "6f60d807-cc61-4e85-beb0-c045aa65f565",
+        "title": "Reproduce the flaky checkout retry test"
+      },
+      {
+        "depends_on": [],
+        "key": "duplicate-charge",
+        "task_id": "8db40785-15f0-416f-bb96-9160f109a76d",
+        "title": "Trace the duplicate charge on webhook replay"
+      },
+      {
+        "depends_on": [],
+        "key": "pool-exhaustion",
+        "task_id": "698896b5-598a-4682-a2c0-f7483ed0948a",
+        "title": "Profile connection pool exhaustion under load"
+      },
+      {
+        "depends_on": [],
+        "key": "replay-regression-test",
+        "task_id": "2c507138-8e5e-45e9-8372-f66514555cc3",
+        "title": "Add regression coverage for idempotent webhook replay"
+      },
+      {
+        "depends_on": [
+          "duplicate-charge"
+        ],
+        "key": "apply-fix",
+        "task_id": "9a71b648-2208-4b24-a72c-5e3c0f39fae9",
+        "title": "Apply the duplicate-charge fix behind a flag"
+      }
+    ]
+  },
+  "started_at": "2026-08-07T11:37:50.340541+00:00"
+}
