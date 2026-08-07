@@ -1,0 +1,348 @@
+{
+  "artifact": "node-kill-resilience",
+  "assertions": [
+    {
+      "detail": "node 3 SIGKILLed after beat 5; 3 beats completed afterwards",
+      "name": "node_killed_mid_run",
+      "ok": true
+    },
+    {
+      "detail": "swarmbrain-demo exit code 0 after 23.23s",
+      "name": "demo_exited_zero",
+      "ok": true
+    },
+    {
+      "detail": "8 beats reported, all ok",
+      "name": "every_beat_green",
+      "ok": true
+    },
+    {
+      "detail": "demo evidence report ok=True",
+      "name": "report_ok",
+      "ok": true
+    },
+    {
+      "detail": "2 live nodes, 1 dead node(s) per `cockroach node status`",
+      "name": "one_node_dead_cluster_serving",
+      "ok": true
+    },
+    {
+      "detail": "every surviving node reports ranges_unavailable=0",
+      "name": "no_unavailable_ranges",
+      "ok": true
+    },
+    {
+      "detail": "identical counts read from ['node1@localhost:26260', 'node2@localhost:26261']",
+      "name": "surviving_nodes_agree",
+      "ok": true
+    },
+    {
+      "detail": "5/5 tasks completed in the database; demo metrics report tasks_total=5",
+      "name": "all_tasks_still_completed",
+      "ok": true
+    },
+    {
+      "detail": "6 leases persisted, 0 still active",
+      "name": "no_lease_left_active",
+      "ok": true
+    },
+    {
+      "detail": "3 memories and 33 swarm events readable from the surviving quorum",
+      "name": "memories_and_events_readable",
+      "ok": true
+    }
+  ],
+  "cluster": {
+    "cockroach_binary": "~/.local/bin/cockroach",
+    "cockroach_version": "v26.2.1",
+    "database": "swarmbrain_resilience",
+    "database_url": "postgresql://root@localhost:26260/swarmbrain_resilience?sslmode=disable",
+    "gateway_node_index": 1,
+    "mode": "insecure, single host, three processes",
+    "nodes": [
+      {
+        "cockroach_node_id": "1",
+        "http_addr": "localhost:8290",
+        "index": 1,
+        "killed_at": null,
+        "pid": 88193,
+        "sql_addr": "localhost:26260",
+        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-2nbsnij4/n1"
+      },
+      {
+        "cockroach_node_id": "3",
+        "http_addr": "localhost:8291",
+        "index": 2,
+        "killed_at": null,
+        "pid": 88194,
+        "sql_addr": "localhost:26261",
+        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-2nbsnij4/n2"
+      },
+      {
+        "cockroach_node_id": "2",
+        "http_addr": "localhost:8292",
+        "index": 3,
+        "killed_at": "2026-08-07T12:56:39.305262Z",
+        "pid": 88195,
+        "sql_addr": "localhost:26262",
+        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-2nbsnij4/n3"
+      }
+    ],
+    "replication_before_kill": {
+      "total_ranges": 82,
+      "under_replicated_ranges": 0,
+      "waited_seconds": 28.8
+    },
+    "schema": {
+      "install": "installed and verified Swarm Brain schema (79 statements)",
+      "verify": "Swarm Brain schema is installed and current"
+    },
+    "store_root": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-2nbsnij4"
+  },
+  "cluster_after_kill": {
+    "dead_nodes": 1,
+    "live_nodes": 2,
+    "node_status": [
+      {
+        "address": "localhost:26260",
+        "id": "1",
+        "is_available": "true",
+        "is_live": "true",
+        "ranges": "153",
+        "ranges_unavailable": "0",
+        "ranges_underreplicated": "81"
+      },
+      {
+        "address": "localhost:26262",
+        "id": "2",
+        "is_available": "false",
+        "is_live": "false",
+        "ranges": "151",
+        "ranges_unavailable": "0",
+        "ranges_underreplicated": "0"
+      },
+      {
+        "address": "localhost:26261",
+        "id": "3",
+        "is_available": "true",
+        "is_live": "true",
+        "ranges": "153",
+        "ranges_unavailable": "0",
+        "ranges_underreplicated": "72"
+      }
+    ],
+    "queries_served_from": [
+      "localhost:26260",
+      "localhost:26261"
+    ],
+    "ranges": {
+      "ranges_with_quorum": "153",
+      "total_ranges": "153"
+    }
+  },
+  "data_state": {
+    "counts": {
+      "node1@localhost:26260": {
+        "agents": 14,
+        "checkpoints": 1,
+        "leases": 6,
+        "leases_active": 0,
+        "leases_completed": 5,
+        "memories": 3,
+        "memories_current": 2,
+        "outbox_events": 33,
+        "swarm_events": 33,
+        "task_completions": 5,
+        "tasks": 5,
+        "tasks_completed": 5
+      },
+      "node2@localhost:26261": {
+        "agents": 14,
+        "checkpoints": 1,
+        "leases": 6,
+        "leases_active": 0,
+        "leases_completed": 5,
+        "memories": 3,
+        "memories_current": 2,
+        "outbox_events": 33,
+        "swarm_events": 33,
+        "task_completions": 5,
+        "tasks": 5,
+        "tasks_completed": 5
+      }
+    },
+    "read_from": [
+      "node1@localhost:26260",
+      "node2@localhost:26261"
+    ],
+    "swarm_event_types": {
+      "agent.joined": 14,
+      "evidence.added": 2,
+      "memory.added": 2,
+      "memory.superseded": 1,
+      "source.registered": 2,
+      "task.checkpointed": 1,
+      "task.claimed": 6,
+      "task.completed": 5
+    }
+  },
+  "demo": {
+    "beats": [
+      {
+        "checks_passed": 1,
+        "checks_total": 1,
+        "key": "join",
+        "ok": true,
+        "title": "Fourteen agents join the run"
+      },
+      {
+        "checks_passed": 3,
+        "checks_total": 3,
+        "key": "claim_race",
+        "ok": true,
+        "title": "Twelve workers race four ready tasks \u2014 exactly four leases"
+      },
+      {
+        "checks_passed": 2,
+        "checks_total": 2,
+        "key": "shared_discovery",
+        "ok": true,
+        "title": "One agent's evidence-backed discovery is recalled by other vendors"
+      },
+      {
+        "checks_passed": 5,
+        "checks_total": 5,
+        "key": "supersession_poisoning",
+        "ok": true,
+        "title": "An evidence-backed correction supersedes; a poisoning attempt bounces"
+      },
+      {
+        "checks_passed": 4,
+        "checks_total": 4,
+        "key": "complete_replay",
+        "ok": true,
+        "title": "Three tasks complete; a duplicated completion replays exactly once"
+      },
+      {
+        "checks_passed": 5,
+        "checks_total": 5,
+        "key": "crash_handoff",
+        "ok": true,
+        "title": "A worker dies mid-task; another vendor resumes from its checkpoint"
+      },
+      {
+        "checks_passed": 2,
+        "checks_total": 2,
+        "key": "dag_unblock",
+        "ok": true,
+        "title": "Completing the root cause unblocks the dependent fix task"
+      },
+      {
+        "checks_passed": 6,
+        "checks_total": 6,
+        "key": "telemetry",
+        "ok": true,
+        "title": "The run's events and metrics tell the whole story from the database"
+      }
+    ],
+    "command": [
+      "uv",
+      "run",
+      "--extra",
+      "serve",
+      "--extra",
+      "crdb",
+      "swarmbrain-demo",
+      "--lease-seconds",
+      "20",
+      "--evidence-dir",
+      "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-2nbsnij4/demo-evidence"
+    ],
+    "duration_seconds": 23.23,
+    "exit_code": 0,
+    "failure_mode": null,
+    "lease_seconds": 20,
+    "metrics": {
+      "active_leases": 0,
+      "checkpoints": 1,
+      "conflicts_open": 0,
+      "conflicts_resolved": 0,
+      "crash_handoffs": 1,
+      "custom": {},
+      "duplicate_claims_prevented": 0,
+      "duplicate_mutations_replayed": 1,
+      "measured_at": "2026-08-07T12:56:58.631760Z",
+      "memories_published": 2,
+      "memories_reused": 13,
+      "run_id": "05f3cfa8-6486-48f9-81f8-e3dc83577783",
+      "tasks_claimed": 0,
+      "tasks_completed": 5,
+      "tasks_failed": 0,
+      "tasks_total": 5
+    },
+    "narration_tail": [
+      "[ok] Completing the root cause unblocks the dependent fix task",
+      "    \u2713 fix_task_now_claimable: the dependency-blocked task became the next claim after its dependency completed",
+      "    \u2713 all_tasks_completed: worker-02-codex-cli completed the final task in the DAG",
+      "[ok] The run's events and metrics tell the whole story from the database",
+      "    \u2713 five_tasks_completed: 5/5 tasks completed",
+      "    \u2713 no_lease_left_behind: every lease was completed, fenced, or expired",
+      "    \u2713 crash_handoff_counted: 1 crash handoff recorded by the store",
+      "    \u2713 idempotent_replay_counted: 1 duplicate mutations replayed instead of re-executed",
+      "    \u2713 memories_published_and_reused: 2 memories published (supersessions counted separately), 13 reuses recorded durably",
+      "    \u2713 event_timeline_present: 33 durable swarm events available to the dashboard",
+      "",
+      "demo PASSED; evidence written to /var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-2nbsnij4/demo-evidence/20260807T125658Z-swarm-demo.json"
+    ],
+    "run_id": "05f3cfa8-6486-48f9-81f8-e3dc83577783",
+    "timed_out": false,
+    "verdict": "PASSED"
+  },
+  "does_not_prove": [
+    "gateway failover: the API pool holds SQL connections to node 1 only, so killing node 1 would break the client's own sockets. Production puts a load balancer or a multi-host connection string in front of the SQL layer.",
+    "multi-region or cross-AZ behaviour: all three nodes run on one host.",
+    "disk loss or corruption: the node is SIGKILLed, its store is left intact.",
+    "client-side retry of an ambiguous commit: when the kill lands on a range whose leaseholder was the dying node, the kernel correctly answers 503 ambiguous_commit with retryable=true (it refuses to guess whether COMMIT took effect, and its 0.5s idempotency-record poll is far shorter than lease recovery). swarmbrain-demo does not implement that retry, so such a run aborts even though nothing was lost. failure_mode names it."
+  ],
+  "duration_seconds": 151.9,
+  "finished_at": "2026-08-07T12:56:59.817204Z",
+  "kill": {
+    "after_beat": {
+      "ordinal": 5,
+      "status": "idle",
+      "title": "the crash-handoff beat's real-time lease wait",
+      "trigger_line": "waiting 19s for the crashed worker's lease to expire..."
+    },
+    "at": "2026-08-07T12:56:39.305262Z",
+    "beats_completed_after_kill": [
+      {
+        "ordinal": 6,
+        "seconds_after_demo_start": 22.76,
+        "status": "ok",
+        "title": "A worker dies mid-task; another vendor resumes from its checkpoint"
+      },
+      {
+        "ordinal": 7,
+        "seconds_after_demo_start": 23.04,
+        "status": "ok",
+        "title": "Completing the root cause unblocks the dependent fix task"
+      },
+      {
+        "ordinal": 8,
+        "seconds_after_demo_start": 23.17,
+        "status": "ok",
+        "title": "The run's events and metrics tell the whole story from the database"
+      }
+    ],
+    "cockroach_node_id": "2",
+    "is_gateway": false,
+    "node_index": 3,
+    "pid": 88195,
+    "seconds_after_demo_start": 3.75,
+    "signal": "SIGKILL",
+    "sql_addr": "localhost:26262",
+    "trigger": "lease-wait"
+  },
+  "ok": true,
+  "started_at": "2026-08-07T12:54:27.905575Z"
+}
