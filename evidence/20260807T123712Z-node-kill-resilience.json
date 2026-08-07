@@ -67,7 +67,7 @@
         "killed_at": null,
         "pid": 75509,
         "sql_addr": "localhost:26260",
-        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-bf1qotb5/n1"
+        "store": "$TMPDIR/swarmbrain-resilience-bf1qotb5/n1"
       },
       {
         "cockroach_node_id": "3",
@@ -76,7 +76,7 @@
         "killed_at": null,
         "pid": 75510,
         "sql_addr": "localhost:26261",
-        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-bf1qotb5/n2"
+        "store": "$TMPDIR/swarmbrain-resilience-bf1qotb5/n2"
       },
       {
         "cockroach_node_id": "2",
@@ -85,7 +85,7 @@
         "killed_at": "2026-08-07T12:37:05.103613Z",
         "pid": 75511,
         "sql_addr": "localhost:26262",
-        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-bf1qotb5/n3"
+        "store": "$TMPDIR/swarmbrain-resilience-bf1qotb5/n3"
       }
     ],
     "replication_before_kill": {
@@ -97,7 +97,7 @@
       "install": "installed and verified Swarm Brain schema (79 statements)",
       "verify": "Swarm Brain schema is installed and current"
     },
-    "store_root": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-bf1qotb5"
+    "store_root": "$TMPDIR/swarmbrain-resilience-bf1qotb5"
   },
   "cluster_after_kill": {
     "dead_nodes": 1,
@@ -193,7 +193,7 @@
       "--lease-seconds",
       "20",
       "--evidence-dir",
-      "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-bf1qotb5/demo-evidence"
+      "$TMPDIR/swarmbrain-resilience-bf1qotb5/demo-evidence"
     ],
     "duration_seconds": 8.49,
     "exit_code": 1,
@@ -202,13 +202,13 @@
     "metrics": {},
     "narration_tail": [
       "                  ^^^^^^^^^^^^",
-      "  File \"/Users/qrc/repos/swarm-brain/src/swarmbrain/demo/runner.py\", line 361, in _beat_shared_discovery",
+      "  File \"src/swarmbrain/demo/runner.py\", line 361, in _beat_shared_discovery",
       "    source = await self._expect(",
       "             ^^^^^^^^^^^^^^^^^^^",
       "    ...<12 lines>...",
       "    )",
       "    ^",
-      "  File \"/Users/qrc/repos/swarm-brain/src/swarmbrain/demo/runner.py\", line 202, in _expect",
+      "  File \"src/swarmbrain/demo/runner.py\", line 202, in _expect",
       "    raise DemoAssertionError(",
       "    ...<2 lines>...",
       "    )",

@@ -22,6 +22,9 @@ Start here:
   overview, Devpost draft, video script, and CockroachDB tool feedback.
 - [Deployment](deploy.md) — container image, AWS templates, and the key-gated
   activation scripts; nothing applied without operator approval.
+- [Security review 2026-08-07](security-review-20260807.md) — pre-publication
+  sweep: console XSS, secrets and history, public API abuse posture, licensing,
+  and the pre-push and deploy-week checklists.
 
 Implementation context:
 

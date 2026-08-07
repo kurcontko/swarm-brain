@@ -102,6 +102,10 @@ class ApiSettings:
     # operator explicitly sets SWARMBRAIN_CONSOLE_DEMO=enabled. Any other
     # value (including unset, empty, or a typo) leaves the route absent.
     console_demo_enabled: bool = False
+    # Same fail-closed pattern for the anonymous OpenAPI surface: /docs,
+    # /redoc, and /openapi.json exist only under SWARMBRAIN_PUBLIC_DOCS=enabled
+    # (the hosted /docs pages also pull assets from third-party CDNs).
+    public_docs_enabled: bool = False
 
     def __post_init__(self) -> None:
         backend = _backend_kind(self.backend)
@@ -190,6 +194,9 @@ class ApiSettings:
                 ingest_priority=_integer_env("SWARMBRAIN_INGEST_PRIORITY", default=0),
                 console_demo_enabled=(
                     (_env("SWARMBRAIN_CONSOLE_DEMO", default="") or "").casefold() == "enabled"
+                ),
+                public_docs_enabled=(
+                    (_env("SWARMBRAIN_PUBLIC_DOCS", default="") or "").casefold() == "enabled"
                 ),
             )
         except ValueError as exc:

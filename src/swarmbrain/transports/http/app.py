@@ -145,7 +145,12 @@ ActorDependency = Annotated[ActorContext, Depends(_authenticated_actor)]
 IdempotencyHeader = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)]
 
 
-def create_app(runtime: SwarmBrainRuntime, *, console_demo: bool = False) -> FastAPI:
+def create_app(
+    runtime: SwarmBrainRuntime,
+    *,
+    console_demo: bool = False,
+    public_docs: bool = False,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runtime.start()
@@ -154,7 +159,16 @@ def create_app(runtime: SwarmBrainRuntime, *, console_demo: bool = False) -> Fas
         finally:
             await runtime.close()
 
-    app = FastAPI(title="Swarm Brain", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="Swarm Brain",
+        version="0.1.0",
+        lifespan=lifespan,
+        # The interactive docs pages load assets from third-party CDNs and the
+        # schema is served anonymously, so the whole surface is opt-in.
+        docs_url="/docs" if public_docs else None,
+        redoc_url="/redoc" if public_docs else None,
+        openapi_url="/openapi.json" if public_docs else None,
+    )
     app.state.runtime = runtime
     app.state.console_demo = console_demo
     demo_gate = _DemoGate()

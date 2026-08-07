@@ -3,6 +3,16 @@ name = "swarmbrain"
 version = "0.1.0"
 description = "Vendor-neutral temporal memory and coordination kernel for agent swarms"
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "kurcontko" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Framework :: FastAPI",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27,<1",

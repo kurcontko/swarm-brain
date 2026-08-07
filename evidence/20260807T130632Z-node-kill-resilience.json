@@ -67,7 +67,7 @@
         "killed_at": null,
         "pid": 93739,
         "sql_addr": "localhost:26260",
-        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-n9ret5ew/n1"
+        "store": "$TMPDIR/swarmbrain-resilience-n9ret5ew/n1"
       },
       {
         "cockroach_node_id": "2",
@@ -76,7 +76,7 @@
         "killed_at": null,
         "pid": 93740,
         "sql_addr": "localhost:26261",
-        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-n9ret5ew/n2"
+        "store": "$TMPDIR/swarmbrain-resilience-n9ret5ew/n2"
       },
       {
         "cockroach_node_id": "3",
@@ -85,7 +85,7 @@
         "killed_at": "2026-08-07T13:06:10.491487Z",
         "pid": 93741,
         "sql_addr": "localhost:26262",
-        "store": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-n9ret5ew/n3"
+        "store": "$TMPDIR/swarmbrain-resilience-n9ret5ew/n3"
       }
     ],
     "replication_before_kill": {
@@ -97,7 +97,7 @@
       "install": "installed and verified Swarm Brain schema (79 statements)",
       "verify": "Swarm Brain schema is installed and current"
     },
-    "store_root": "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-n9ret5ew"
+    "store_root": "$TMPDIR/swarmbrain-resilience-n9ret5ew"
   },
   "cluster_after_kill": {
     "dead_nodes": 1,
@@ -256,7 +256,7 @@
       "--lease-seconds",
       "20",
       "--evidence-dir",
-      "/var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-n9ret5ew/demo-evidence"
+      "$TMPDIR/swarmbrain-resilience-n9ret5ew/demo-evidence"
     ],
     "duration_seconds": 23.36,
     "exit_code": 0,
@@ -292,7 +292,7 @@
       "    \u2713 memories_published_and_reused: 2 memories published (supersessions counted separately), 13 reuses recorded durably",
       "    \u2713 event_timeline_present: 33 durable swarm events available to the dashboard",
       "",
-      "demo PASSED; evidence written to /var/folders/d6/yr0wwpzs18l0x80_gztbvht80000gn/T/swarmbrain-resilience-n9ret5ew/demo-evidence/20260807T130631Z-swarm-demo.json"
+      "demo PASSED; evidence written to $TMPDIR/swarmbrain-resilience-n9ret5ew/demo-evidence/20260807T130631Z-swarm-demo.json"
     ],
     "run_id": "12e832d8-676d-465c-a5b7-dd197afcf373",
     "timed_out": false,

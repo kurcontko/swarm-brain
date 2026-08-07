@@ -838,11 +838,50 @@
     busy: false,
   };
 
-  // -- helpers -------------------------------------------------------------
+  // -- markup --------------------------------------------------------------
+  //
+  // Everything this page draws is attacker-influenceable: any agent holding
+  // memory:publish can write the titles, contents, tags and payload values a
+  // public viewer's browser later renders, and error text comes back from a
+  // remote API. So markup is never assembled by hand. `html` is the only way
+  // to build it, `setHTML` is the only place it reaches the DOM, and every
+  // interpolated value is escaped unless it is itself an `html` result.
 
   const esc = (value) =>
     String(value ?? "").replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  const MARKUP = Symbol("markup");
+  const isMarkup = (value) =>
+    typeof value === "object" && value !== null && value[MARKUP] === true;
+
+  const interpolate = (value) => {
+    if (isMarkup(value)) return value.text;
+    if (Array.isArray(value)) return value.map(interpolate).join("");
+    return esc(value);
+  };
+
+  // Tagged template. Escaping covers text nodes and quoted attribute values
+  // alike (both quote styles are encoded), so no hole opens by moving a value
+  // from one context to the other. Nested html`` results and arrays of them
+  // compose without double-escaping.
+  const html = (strings, ...values) => {
+    let text = strings[0];
+    for (let i = 0; i < values.length; i += 1) {
+      text += interpolate(values[i]) + strings[i + 1];
+    }
+    return { [MARKUP]: true, text };
+  };
+
+  // The single markup sink. Anything not produced by html`` lands as text, so
+  // a forgotten tag degrades to visible escapes instead of an injection.
+  const setHTML = (node, value) => {
+    if (isMarkup(value)) node.innerHTML = value.text;
+    else if (Array.isArray(value) && value.every(isMarkup)) node.innerHTML = interpolate(value);
+    else node.textContent = String(value ?? "");
+  };
+
+  // -- helpers -------------------------------------------------------------
 
   const short = (id) => (id ? String(id).slice(0, 8) : "—");
 
@@ -882,11 +921,17 @@
   const agentLabel = (agentId) =>
     (agentId && state.agentLabels.get(agentId)) || short(agentId);
 
+  // The colour is chosen from a fixed palette, never from event data.
   const agentChip = (agentId) =>
-    `<span class="dot" style="background:${agentColor(agentId)}"></span>` +
-    `<span>${esc(agentLabel(agentId))}</span>`;
+    html`<span class="dot" style="background:${agentColor(agentId)}"></span><span>${
+      agentLabel(agentId)}</span>`;
 
   const family = (type) => String(type).split(".")[0];
+
+  // Own-property lookup only: an event type of "constructor" or "toString"
+  // must not resolve to something off Object.prototype.
+  const verbFor = (type) =>
+    (Object.prototype.hasOwnProperty.call(VERBS, type) ? VERBS[type] : type);
 
   // -- transport -----------------------------------------------------------
 
@@ -1055,18 +1100,19 @@
 
   function renderRunline() {
     if (!state.runId || !state.token) {
-      dom.runline.innerHTML = "<span>No run connected</span>";
+      setHTML(dom.runline, html`<span>No run connected</span>`);
       return;
     }
+    // The viewer token is never drawn: only the run id, the base and counters.
     const parts = [
-      `<span>run <b>${esc(short(state.runId))}</b></span>`,
-      `<span>api <b>${esc(state.base || "same origin")}</b></span>`,
-      `<span>events <b>${state.events.length}</b></span>`,
+      html`<span>run <b>${short(state.runId)}</b></span>`,
+      html`<span>api <b>${state.base || "same origin"}</b></span>`,
+      html`<span>events <b>${state.events.length}</b></span>`,
     ];
     if (state.lastPoll) {
-      parts.push(`<span>read <b>${esc(clock(state.lastPoll.toISOString()))}</b></span>`);
+      parts.push(html`<span>read <b>${clock(state.lastPoll.toISOString())}</b></span>`);
     }
-    dom.runline.innerHTML = parts.join("");
+    setHTML(dom.runline, parts);
   }
 
   function renderPulse() {
@@ -1080,40 +1126,42 @@
 
   function meter(label, value, note, tone) {
     const flat = Number(value) === 0 ? "zero" : tone;
-    return `<div class="meter" data-tone="${flat}">
-      <div class="meter-label">${esc(label)}</div>
+    return html`<div class="meter" data-tone="${flat}">
+      <div class="meter-label">${label}</div>
       <div class="meter-value">${value}</div>
-      <div class="meter-note">${esc(note)}</div>
+      <div class="meter-note">${note}</div>
     </div>`;
   }
 
   function renderMeters() {
     const m = state.metrics;
     if (!m) {
-      dom.meters.innerHTML = meter("Run", "—", "connect to read counters", "zero");
+      setHTML(dom.meters, meter("Run", "—", "connect to read counters", "zero"));
       return;
     }
-    const completed = `${m.tasks_completed}<small>/${m.tasks_total}</small>`;
-    dom.meters.innerHTML = [
-      `<div class="meter" data-tone="${m.tasks_completed ? "done" : "zero"}">
+    // Counters are integers server-side; they are still escaped, because the
+    // page must stay inert against whatever a remote API actually returns.
+    const completed = html`${m.tasks_completed}<small>/${m.tasks_total}</small>`;
+    setHTML(dom.meters, [
+      html`<div class="meter" data-tone="${m.tasks_completed ? "done" : "zero"}">
         <div class="meter-label">Tasks completed</div>
         <div class="meter-value">${completed}</div>
-        <div class="meter-note">${esc(`${m.tasks_claimed} claimed · ${m.tasks_failed} failed`)}</div>
+        <div class="meter-note">${`${m.tasks_claimed} claimed · ${m.tasks_failed} failed`}</div>
       </div>`,
       meter("Active leases", m.active_leases, "unexpired work leases", "live"),
       meter("Crash handoffs", m.crash_handoffs, "resumed from checkpoint", "fence"),
       meter("Duplicate replays", m.duplicate_mutations_replayed, "returned, not re-executed", "live"),
       meter("Memories published", m.memories_published, `${m.memories_reused} reused by peers`, "mem"),
       meter("Conflicts open", m.conflicts_open, `${m.conflicts_resolved} resolved`, "fence"),
-    ].join("");
+    ]);
   }
 
   function renderBoard(tasks) {
     if (!tasks.length) {
       dom.boardMeta.textContent = "";
-      dom.boardBody.innerHTML = state.runId
-        ? `<p class="empty">No task events in this run yet.</p>`
-        : `<p class="empty">Waiting for a run. Connect with a viewer token to read the board.</p>`;
+      setHTML(dom.boardBody, state.runId
+        ? html`<p class="empty">No task events in this run yet.</p>`
+        : html`<p class="empty">Waiting for a run. Connect with a viewer token to read the board.</p>`);
       return;
     }
     const rank = { claimed: 0, released: 1, completed: 2, ready: 3 };
@@ -1123,109 +1171,110 @@
     dom.boardMeta.textContent =
       `${ordered.length} tasks · ${handedOff} handed off`;
 
-    dom.boardBody.innerHTML = ordered.map((task) => {
+    setHTML(dom.boardBody, ordered.map((task) => {
       const tone = task.status === "completed" ? "done"
         : task.status === "claimed" ? "live" : "";
       const custody = task.custody.length
         ? task.custody.map((seg, index) => {
             const between = index < task.custody.length - 1;
-            const glyph = !between ? ""
+            const glyph = !between ? html``
               : seg.seam === "handoff"
-                ? `<div class="seam" data-kind="fenced"
+                ? html`<div class="seam" data-kind="fenced"
                      title="The lease expired mid-task; custody was fenced and handed off">
                    <span>⇥</span><small>fenced</small></div>`
-                : `<div class="seam" data-kind="clean"><span>›</span></div>`;
+                : html`<div class="seam" data-kind="clean"><span>›</span></div>`;
             const note = seg.closedAt
               ? `held ${span(seg.openedAt, seg.closedAt)}` +
                 (seg.checkpoints ? ` · ${seg.checkpoints} checkpoint${seg.checkpoints > 1 ? "s" : ""}` : "")
               : `holding since ${clock(seg.openedAt)}`;
-            return `<div class="custody-seg" data-open="${!seg.closedAt}">
+            return html`<div class="custody-seg" data-open="${!seg.closedAt}">
                 <div class="custody-agent">${agentChip(seg.agentId)}</div>
-                <div class="custody-note">${esc(note)}</div>
+                <div class="custody-note">${note}</div>
               </div>${glyph}`;
-          }).join("")
-        : `<div class="custody-seg"><div class="custody-agent">unclaimed</div>
+          })
+        : html`<div class="custody-seg"><div class="custody-agent">unclaimed</div>
              <div class="custody-note">no lease has been taken</div></div>`;
 
-      const badges = [`<span class="tag" data-tone="${tone}">${esc(task.status)}</span>`];
+      const badges = [html`<span class="tag" data-tone="${tone}">${task.status}</span>`];
       if (task.handoffs) {
-        badges.unshift(`<span class="tag" data-tone="fence">handoff ×${task.handoffs}</span>`);
+        badges.unshift(html`<span class="tag" data-tone="fence">handoff ×${task.handoffs}</span>`);
       }
 
       const foot = [
-        `<span>task <b>${esc(short(task.taskId))}</b></span>`,
-        `<span><b>${task.events}</b> events</span>`,
-        `<span><b>${task.checkpoints}</b> checkpoints</span>`,
-        task.outcome ? `<span>outcome <b>${esc(task.outcome)}</b></span>` : "",
-        `<span>last <b>${esc(clock(task.updatedAt))}</b></span>`,
-      ].filter(Boolean).join("");
+        html`<span>task <b>${short(task.taskId)}</b></span>`,
+        html`<span><b>${task.events}</b> events</span>`,
+        html`<span><b>${task.checkpoints}</b> checkpoints</span>`,
+        task.outcome ? html`<span>outcome <b>${task.outcome}</b></span>` : null,
+        html`<span>last <b>${clock(task.updatedAt)}</b></span>`,
+      ].filter(Boolean);
 
       // Titles arrive on the event payload; events written before that
       // enrichment existed still identify their task by its short id.
       const heading = task.title
-        ? `<div class="strip-title" title="${esc(task.taskId)}"><small>task</small>${esc(task.title)}</div>`
-        : `<div class="strip-id" title="${esc(task.taskId)}"><span>task</span> ${esc(short(task.taskId))}</div>`;
+        ? html`<div class="strip-title" title="${task.taskId}"><small>task</small>${task.title}</div>`
+        : html`<div class="strip-id" title="${task.taskId}"><span>task</span> ${short(task.taskId)}</div>`;
 
-      return `<article class="strip" data-status="${esc(task.status)}"
+      return html`<article class="strip" data-status="${task.status}"
                 data-handoff="${task.handoffs > 0}">
         <div class="strip-head">
           ${heading}
-          <div style="display:flex;gap:6px">${badges.join("")}</div>
+          <div style="display:flex;gap:6px">${badges}</div>
         </div>
         <div class="custody">${custody}</div>
         <div class="strip-foot">${foot}</div>
       </article>`;
-    }).join("");
+    }));
   }
 
   function renderRoster(agents) {
     dom.rosterMeta.textContent = agents.length ? `${agents.length} seen` : "";
-    dom.rosterBody.innerHTML = agents.length
-      ? `<div class="roster">${agents.map((agent) => {
+    setHTML(dom.rosterBody, agents.length
+      ? html`<div class="roster">${agents.map((agent) => {
           const detail = [agent.model, agent.agentId].filter(Boolean).join(" · ");
-          return `<span class="chip" title="${esc(detail || agent.agentId)}">` +
-            `${agentChip(agent.agentId)}</span>`;
-        }).join("")}</div>`
-      : `<p class="empty">No agents have joined yet.</p>`;
+          return html`<span class="chip" title="${detail || agent.agentId}">${
+            agentChip(agent.agentId)}</span>`;
+        })}</div>`
+      : html`<p class="empty">No agents have joined yet.</p>`);
   }
 
   function renderMemory(memories) {
     dom.memoryMeta.textContent = memories.length ? `${memories.length} in run` : "";
     if (state.lineageId) {
-      dom.memoryBody.innerHTML = renderLineage();
+      setHTML(dom.memoryBody, renderLineage());
       return;
     }
     if (!memories.length) {
-      dom.memoryBody.innerHTML =
-        `<p class="empty">Memories published during the run appear here. Open one to read its lineage.</p>`;
+      setHTML(dom.memoryBody, html`<p class="empty">Memories published during the run appear
+        here. Open one to read its lineage.</p>`);
       return;
     }
     const ordered = [...memories].sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
-    dom.memoryBody.innerHTML = ordered.map((memory) => {
+    setHTML(dom.memoryBody, ordered.map((memory) => {
       const tone = memory.lastType === "memory.refuted" ? "fence"
         : memory.lastType === "memory.superseded" ? "live"
         : memory.lastType === "memory.confirmed" ? "done" : "mem";
-      return `<button class="mem-row" type="button" data-memory="${esc(memory.memoryId)}">
+      return html`<button class="mem-row" type="button" data-memory="${memory.memoryId}">
         <span class="mem-row-top">
-          <span>${esc(short(memory.memoryId))}</span>
-          <span class="tag" data-tone="${tone}">${esc(memory.lastType || "memory")}</span>
+          <span>${short(memory.memoryId)}</span>
+          <span class="tag" data-tone="${tone}">${memory.lastType || "memory"}</span>
         </span>
-        <span class="mem-row-note">by ${esc(agentLabel(memory.agentId))} · ${esc(clock(memory.firstAt))}
-          · ${esc(memory.events.length)} event${memory.events.length > 1 ? "s" : ""}</span>
+        <span class="mem-row-note">by ${agentLabel(memory.agentId)} · ${clock(memory.firstAt)}
+          · ${memory.events.length} event${memory.events.length > 1 ? "s" : ""}</span>
       </button>`;
-    }).join("");
+    }));
   }
 
   function renderLineage() {
-    const head = `<div class="lineage-head">
+    const head = html`<div class="lineage-head">
       <button class="btn btn-ghost" type="button" id="lineage-back">← All memories</button>
-      <span class="panel-meta">${esc(short(state.lineageId))}</span>
+      <span class="panel-meta">${short(state.lineageId)}</span>
     </div>`;
     if (state.lineageError) {
-      return `${head}<p class="empty"><b>Lineage unavailable.</b> ${esc(state.lineageError)}</p>`;
+      // The message comes from a remote API; it is data, never markup.
+      return html`${head}<p class="empty"><b>Lineage unavailable.</b> ${state.lineageError}</p>`;
     }
     if (!state.lineage) {
-      return `${head}<p class="empty">Reading lineage…</p>`;
+      return html`${head}<p class="empty">Reading lineage…</p>`;
     }
     const lineage = state.lineage;
     const current = new Set(lineage.current_memory_ids || []);
@@ -1240,37 +1289,37 @@
             item.source_memory_id === memory.memory_id)
         : null;
       const rail = index > 0
-        ? `<div class="link-rail">${esc(link ? link.kind : "follows")}</div>`
-        : "";
+        ? html`<div class="link-rail">${link ? link.kind : "follows"}</div>`
+        : html``;
       // Untitled memories carry their claim in the body; a synthesised title would
       // only repeat the kind already shown above.
       const title = memory.title
-        ? `<h3 class="version-title">${esc(memory.title)}</h3>` : "";
+        ? html`<h3 class="version-title">${memory.title}</h3>` : html``;
       const meta = [
-        esc(memory.kind),
-        esc(memory.state),
+        memory.kind,
+        memory.state,
         `conf ${Number(memory.confidence).toFixed(2)}`,
         `v${memory.version}`,
       ].join(" · ");
       const evidence = (memory.evidence || []).length;
-      return `${rail}<article class="version" data-state="${esc(memory.state)}"
+      return html`${rail}<article class="version" data-state="${memory.state}"
           data-current="${current.has(memory.memory_id)}">
         <div class="version-top">
           <span>${meta}</span>
           <span>${current.has(memory.memory_id)
-            ? '<span class="tag" data-tone="done">current</span>' : ""}</span>
+            ? html`<span class="tag" data-tone="done">current</span>` : html``}</span>
         </div>
         ${title}
-        <p class="version-body">${esc(memory.content)}</p>
+        <p class="version-body">${memory.content}</p>
         <div class="version-foot">
-          <span>${esc(short(memory.memory_id))}</span>
-          <span>valid from ${esc(clock(memory.valid_from))}</span>
-          <span>by ${esc(short(memory.author_agent_id))}</span>
+          <span>${short(memory.memory_id)}</span>
+          <span>valid from ${clock(memory.valid_from)}</span>
+          <span>by ${short(memory.author_agent_id)}</span>
           <span>${evidence} evidence</span>
         </div>
       </article>`;
-    }).join("");
-    return head + body;
+    });
+    return html`${head}${body}`;
   }
 
   function renderLedger() {
@@ -1278,31 +1327,30 @@
       ? `${state.events.length} events · newest first`
       : "";
     if (!state.events.length) {
-      dom.ledgerBody.innerHTML =
-        `<p class="empty">Every row here is a row in the database, read back through ` +
-        `<code>GET /v1/runs/{run_id}/events</code>.</p>`;
+      setHTML(dom.ledgerBody, html`<p class="empty">Every row here is a row in the database,
+        read back through <code>GET /v1/runs/{run_id}/events</code>.</p>`);
       return;
     }
     const rows = [...state.events].reverse().slice(0, LEDGER_ROWS);
-    dom.ledgerBody.innerHTML = rows.map((event) => {
+    setHTML(dom.ledgerBody, rows.map((event) => {
       const type = String(event.event_type);
       const payload = event.payload || {};
       const keys = Object.keys(payload).filter((key) => !ENRICHMENT.has(key));
       const extra = keys.length
         ? keys.slice(0, 2).map((key) =>
-            `<em>${esc(key)}</em> ${esc(summarize(payload[key]))}`).join("  ")
-        : `<em>v</em>${event.aggregate_version}`;
+            html`<em>${key}</em> ${summarize(payload[key])}  `)
+        : html`<em>v</em>${event.aggregate_version}`;
       const subject = event.aggregate_type === "memory"
-        ? `<button class="row-link" type="button" data-memory="${esc(event.aggregate_id)}">
-             ${esc(short(event.aggregate_id))}</button>`
-        : esc(short(event.aggregate_id));
-      return `<div class="row${state.fresh.has(event.event_id) ? " is-new" : ""}">
-        <span class="row-time">${esc(clock(event.occurred_at))}</span>
-        <span class="row-type" data-family="${esc(family(type))}">${esc(type)}</span>
-        <span class="row-agent">${event.agent_id ? agentChip(event.agent_id) : "<span>—</span>"}</span>
+        ? html`<button class="row-link" type="button" data-memory="${event.aggregate_id}">${
+             short(event.aggregate_id)}</button>`
+        : html`${short(event.aggregate_id)}`;
+      return html`<div class="row${state.fresh.has(event.event_id) ? " is-new" : ""}">
+        <span class="row-time">${clock(event.occurred_at)}</span>
+        <span class="row-type" data-family="${family(type)}">${type}</span>
+        <span class="row-agent">${event.agent_id ? agentChip(event.agent_id) : html`<span>—</span>`}</span>
         <span class="row-detail">${sentence(event)} · ${subject} · ${extra}</span>
       </div>`;
-    }).join("");
+    }));
   }
 
   // "claude-code (anthropic) claimed “Trace the duplicate charge”" — and, for
@@ -1311,14 +1359,19 @@
     const type = String(event.event_type);
     const payload = event.payload || {};
     const who = payload.agent_display || (event.agent_id ? agentLabel(event.agent_id) : "");
-    const verb = VERBS[type] || type;
+    const verb = verbFor(type);
     const aboutTask = event.aggregate_type === "task" ||
       type.startsWith("task.") || type.startsWith("lease.");
-    const title = payload.task_title
-      ? `&#8220;${esc(payload.task_title)}&#8221;`
-      : (aboutTask && event.task_id ? esc(short(event.task_id)) : "");
-    const clause = [esc(who), esc(verb), title].filter(Boolean).join(" ");
-    return clause || `<em>aggregate</em> ${esc(short(event.aggregate_id))}`;
+    // The quote marks are the page's own punctuation, so they stay markup while
+    // the title inside them is escaped like any other payload value.
+    const subject = payload.task_title
+      ? html`&#8220;${payload.task_title}&#8221;`
+      : (aboutTask && event.task_id ? html`${short(event.task_id)}` : null);
+    const words = [who, verb].filter(Boolean).join(" ");
+    if (!words) {
+      return subject || html`<em>aggregate</em> ${short(event.aggregate_id)}`;
+    }
+    return subject ? html`${words} ${subject}` : html`${words}`;
   }
 
   function summarize(value) {

@@ -6,13 +6,22 @@ project; it does not import either donor project, `sen` or `mnemotree`, at runti
 Instead, it adapts their narrow, audited contracts and semantics behind new
 ports and CockroachDB-oriented transaction boundaries.
 
+> Swarm Brain adapts memory semantics and API patterns from our pre-existing
+> open-source projects **Sen** and **mnemotree** (disclosed; neither is a
+> runtime dependency, neither is imported, and neither co-owns the schema).
+> All Swarm Brain code — the domain and application layers, the CockroachDB
+> backend and schema, the retrieval engine, the HTTP API, the MCP bridge, the
+> demo application, and the AWS integration — was written during the submission
+> period, June 30 – August 18, 2026.
+
 The project was extracted from the Sen monorepo with its Swarm Brain commit
 history intact. See the [extraction map](docs/history/sen-extraction-map.md) for
 the original and rewritten commit IDs.
 
 See the [current retrieval status](docs/retrieval-status.md), the
-[standalone architecture](docs/retrieval-architecture.md), and the full
-[PostgreSQL/CockroachDB SOTA research dump](docs/research/sota-retrieval-postgresql-cockroachdb-2026-08-02.md).
+[standalone architecture](docs/retrieval-architecture.md), the full
+[PostgreSQL/CockroachDB SOTA research dump](docs/research/sota-retrieval-postgresql-cockroachdb-2026-08-02.md),
+and the [agent memory & retrieval SOTA research dump](docs/research/sota-agent-memory-retrieval-2026-08-07.md).
 
 ## What it includes
 
