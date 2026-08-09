@@ -45,6 +45,26 @@ shipped configuration's `final` lane, which is what makes them a clean A/B.
 **Do not quote the experiment files for headline numbers** — the canonical
 LongMemEval Recall@10 is 0.976, in `longmemeval-s-memory-openai-report.json`.
 
+## End-to-end QA artifacts (`longmemeval-s-qa-*`)
+
+`scripts/run_longmemeval_qa.py` adds the reader and judge stages the files
+above deliberately stop short of, and writes three files per run, tagged with
+the reader model and, for sampled runs, the sample size:
+
+| File | Contents |
+| --- | --- |
+| `longmemeval-s-qa-<reader>-hypotheses.jsonl` | Official hypothesis format — one `{"question_id", "hypothesis"}` object per line, exactly what LongMemEval's `src/evaluation/evaluate_qa.py` consumes |
+| `longmemeval-s-qa-<reader>-run.json` | Per question: retrieved session keys, calibrated relevance, hypothesis, reader/judge token counts, dev-judge label and raw verdict |
+| `longmemeval-s-qa-<reader>-report.json` | `dev_judge_accuracy` overall, per question type and per abstention slice, plus retrieval support, token totals and latency |
+
+**Every accuracy in those files is a development-judge accuracy.** The judge
+prompts are copied verbatim from `evaluate_qa.py`, but they are answered by
+whatever `--judge-model` names rather than by the official
+`gpt-4o-2024-08-06`, so the numbers are for iteration only. A publishable
+LongMemEval score comes from running the official script over the saved
+hypothesis file. That is why the hypothesis file is a first-class artifact:
+it is the input the official judge needs, and it is generated once.
+
 Runs use the saved-run format defined in `docs/retrieval-evaluation.md` and can
 be rescored directly:
 

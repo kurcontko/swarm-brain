@@ -63,7 +63,7 @@ packages = ["src/swarmbrain"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 asyncio_mode = "auto"
 addopts = "-ra"
 

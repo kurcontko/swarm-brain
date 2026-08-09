@@ -1,0 +1,171 @@
+{
+  "by_question_type": {
+    "knowledge-update": {
+      "dev_judge_accuracy": 0.7143,
+      "dev_judge_correct": 5,
+      "judged_questions": 7,
+      "questions": 7,
+      "unjudged_questions": 0
+    },
+    "multi-session": {
+      "dev_judge_accuracy": 0.7,
+      "dev_judge_correct": 7,
+      "judged_questions": 10,
+      "questions": 10,
+      "unjudged_questions": 0
+    },
+    "single-session-assistant": {
+      "dev_judge_accuracy": 1.0,
+      "dev_judge_correct": 11,
+      "judged_questions": 11,
+      "questions": 11,
+      "unjudged_questions": 0
+    },
+    "single-session-preference": {
+      "dev_judge_accuracy": 0.0,
+      "dev_judge_correct": 0,
+      "judged_questions": 2,
+      "questions": 2,
+      "unjudged_questions": 0
+    },
+    "single-session-user": {
+      "dev_judge_accuracy": 1.0,
+      "dev_judge_correct": 6,
+      "judged_questions": 6,
+      "questions": 6,
+      "unjudged_questions": 0
+    },
+    "temporal-reasoning": {
+      "dev_judge_accuracy": 1.0,
+      "dev_judge_correct": 14,
+      "judged_questions": 14,
+      "questions": 14,
+      "unjudged_questions": 0
+    }
+  },
+  "by_slice": {
+    "abstention_questions": {
+      "dev_judge_accuracy": 1.0,
+      "dev_judge_correct": 2,
+      "judged_questions": 2,
+      "questions": 2,
+      "unjudged_questions": 0
+    },
+    "answerable_questions": {
+      "dev_judge_accuracy": 0.8542,
+      "dev_judge_correct": 41,
+      "judged_questions": 48,
+      "questions": 48,
+      "unjudged_questions": 0
+    }
+  },
+  "dataset": {
+    "evaluated_questions": 50,
+    "name": "LongMemEval-S",
+    "sample_seed": 20260807,
+    "sha256": "08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894",
+    "source": "https://huggingface.co/datasets/xiaowu0162/longmemeval/resolve/main/longmemeval_s",
+    "total_questions": 500
+  },
+  "failures": {
+    "empty_hypotheses": 0,
+    "judge_failures": 0,
+    "reader_failures": 0,
+    "reader_retries": 2,
+    "reader_truncated": 0
+  },
+  "harness": "scripts/run_longmemeval_qa.py",
+  "hypotheses": "benchmarks/retrieval/longmemeval-s-qa-deepseek-v4-flash-sample50-hypotheses.jsonl",
+  "judge": {
+    "base_url": "https://api.deepseek.com",
+    "max_tokens": 1024,
+    "model": "deepseek-v4-flash",
+    "official_judge_command": "python src/evaluation/evaluate_qa.py gpt-4o <longmemeval-s-qa-deepseek-v4-flash-sample50-hypotheses.jsonl> <longmemeval_s.json>",
+    "official_judge_model": "gpt-4o-2024-08-06",
+    "prompts": "verbatim get_anscheck_prompt from https://github.com/xiaowu0162/LongMemEval/blob/main/src/evaluation/evaluate_qa.py",
+    "role": "DEVELOPMENT JUDGE \u2014 NOT the official LongMemEval judge",
+    "warning": "every accuracy in this file is a dev-judge accuracy and must never be reported as a LongMemEval score"
+  },
+  "judge_tokens": {
+    "completion_total": 2707,
+    "prompt_total": 13329
+  },
+  "latency_ms": {
+    "question_total": {
+      "max": 103821.328,
+      "p50": 14320.119,
+      "p95": 25650.445,
+      "p99": 103821.328
+    },
+    "reader": {
+      "max": 60634.666,
+      "p50": 2944.059,
+      "p95": 11605.135,
+      "p99": 60634.666
+    },
+    "retrieval": {
+      "max": 214.467,
+      "p50": 161.728,
+      "p95": 179.335,
+      "p99": 214.467
+    }
+  },
+  "overall": {
+    "dev_judge_accuracy": 0.86,
+    "dev_judge_correct": 43,
+    "judged_questions": 50,
+    "questions": 50,
+    "unjudged_questions": 0
+  },
+  "reader": {
+    "base_url": "https://api.deepseek.com",
+    "concurrency": 8,
+    "max_tokens": 4096,
+    "model": "deepseek-v4-flash",
+    "prompt_style": "swarm",
+    "prompt_template_source": "LongMemEval src/generation/run_generation.py, flat-session + nl, no CoT, plus one evidence-only sentence",
+    "temperature": 0.0
+  },
+  "reader_tokens": {
+    "completion_mean": 367.8,
+    "completion_percentiles": {
+      "max": 3510.0,
+      "p50": 202.0,
+      "p95": 1084.0,
+      "p99": 3510.0
+    },
+    "completion_total": 18391,
+    "prompt_mean": 28390.0,
+    "prompt_percentiles": {
+      "max": 33941.0,
+      "p50": 28247.0,
+      "p95": 33534.0,
+      "p99": 33941.0
+    },
+    "prompt_total": 1419502
+  },
+  "retrieval": {
+    "dense_lane_enabled": true,
+    "embedding": {
+      "dimensions": 1024,
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "note": "semantic model served over an OpenAI-compatible endpoint",
+      "provider": "OpenAICompatibleEmbeddingProvider"
+    },
+    "granularity": "one memory per haystack session",
+    "limit": 10,
+    "min_score": 0.0
+  },
+  "retrieval_support": {
+    "all_gold_in_bundle": 0.98,
+    "any_gold_in_bundle": 1.0,
+    "empty_bundles": 0,
+    "mean_bundle_size": 10.0,
+    "questions_with_gold": 50,
+    "recall_in_bundle": 0.99
+  },
+  "run": "benchmarks/retrieval/longmemeval-s-qa-deepseek-v4-flash-sample50-run.json",
+  "started_at": "2026-08-09T08:04:11.784560+00:00",
+  "task": "longmemeval-s end-to-end QA",
+  "wall_seconds": 142.482
+}
