@@ -39,7 +39,7 @@ from swarmbrain.domain.work import (
     WorkLeaseLost,
     WorkStatus,
 )
-from swarmbrain.workers import LeasedWorkWorker
+from swarmbrain.workers import ExtractionWorker, LeasedWorkWorker
 
 DATABASE_URL = os.getenv("SWARMBRAIN_TEST_DATABASE_URL")
 pytestmark = [
@@ -76,6 +76,64 @@ class _CountingProvider:
                     }
                 ],
             }
+        ]
+
+
+class _SemanticProvider:
+    prompt_sha256 = hashlib.sha256(b"semantic-live-test-prompt-v2").hexdigest()
+    descriptor = ProviderDescriptor(
+        provider="live-semantic-provider",
+        model="semantic-candidate-v2",
+        revision="2026-08-09",
+        prompt_id="semantic-live-test",
+        prompt_sha256=prompt_sha256,
+    )
+
+    async def extract(self, request: Any) -> list[dict[str, object]]:
+        failed_attempt = "Legacy cache warming failed."
+        successful_procedure = "Regional cache warming passed."
+        failed_start = request.raw_content.index(failed_attempt)
+        procedure_start = request.raw_content.index(successful_procedure)
+        return [
+            {
+                "candidate_key": "legacy-cache-attempt",
+                "kind": "attempt",
+                "content": failed_attempt,
+                "event_time": "2026-08-08T09:30:00+00:00",
+                "aliases": ["legacy warmup", "old cache warmup"],
+                "metadata": {"semantic": {"approach": "legacy-cache-warmup", "result": "failed"}},
+                "spans": [
+                    {
+                        "chunk_index": 0,
+                        "char_start": failed_start,
+                        "char_end": failed_start + len(failed_attempt),
+                        "excerpt": failed_attempt,
+                    }
+                ],
+            },
+            {
+                "candidate_key": "regional-cache-procedure",
+                "kind": "procedure",
+                "content": successful_procedure,
+                "event_time": "2026-08-08T10:45:00+00:00",
+                "aliases": ["regional warmup", "cache warmup procedure"],
+                "metadata": {"semantic": {"approach": "regional-cache-warmup", "result": "passed"}},
+                "relations": [
+                    {
+                        "target_candidate_key": "legacy-cache-attempt",
+                        "kind": "derived_from",
+                        "reason": "The successful procedure was adapted from the failed attempt.",
+                    }
+                ],
+                "spans": [
+                    {
+                        "chunk_index": 0,
+                        "char_start": procedure_start,
+                        "char_end": procedure_start + len(successful_procedure),
+                        "excerpt": successful_procedure,
+                    }
+                ],
+            },
         ]
 
 
@@ -560,6 +618,142 @@ async def test_durable_extraction_work_queue_and_plans(
             ingested.source.source_id,
             first.effects[0].resource_id,
         )
+    finally:
+        await _cleanup(database, actor)
+
+
+async def test_provider_candidate_semantics_are_persisted_atomically(
+    database: CockroachDatabase,
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    await _insert_run(database, actor)
+    store = CockroachWorkStore(database)
+    provider = _SemanticProvider()
+    service = ExtractionService(store, CodingRuleExtractor(), provider=provider)
+    raw_content = "Legacy cache warming failed.\nRegional cache warming passed.\n"
+    command = IngestRawSourceCommand(
+        idempotency_key=f"semantic-live-{_id()}",
+        kind=EvidenceKind.DOCUMENT,
+        content=raw_content,
+        observed_at=datetime(2026, 8, 9, 12, 0, tzinfo=UTC),
+        occurrence_key=f"cache-warming-retrospective@{_id()}",
+        use_provider=True,
+        chunk_chars=1024,
+    )
+    expected_event_times = {
+        "legacy-cache-attempt": datetime(2026, 8, 8, 9, 30, tzinfo=UTC),
+        "regional-cache-procedure": datetime(2026, 8, 8, 10, 45, tzinfo=UTC),
+    }
+
+    try:
+        ingested = await service.ingest(actor, command)
+        results = await ExtractionWorker(store, store, service).run_once(
+            "semantic-live-worker",
+            lease_seconds=30,
+        )
+
+        assert len(results) == 1
+        assert results[0].item.status is WorkStatus.COMPLETED
+        assert len(results[0].effects) == 2
+
+        async with database.pool.connection() as connection:
+            cursor = await connection.execute(
+                """
+                SELECT memory.id, memory.kind, memory.valid_from, memory.metadata
+                FROM outbox_work_effects AS effect
+                JOIN memories AS memory ON memory.id = effect.resource_id
+                WHERE effect.work_id = %s
+                ORDER BY memory.id
+                """,
+                (ingested.work_id,),
+            )
+            rows = await cursor.fetchall()
+            memories = {str(row["metadata"]["extraction"]["candidate_key"]): row for row in rows}
+
+            assert set(memories) == {
+                "legacy-cache-attempt",
+                "regional-cache-procedure",
+            }
+            expected_semantics = {
+                "legacy-cache-attempt": (
+                    "attempt",
+                    ["legacy warmup", "old cache warmup"],
+                    {"approach": "legacy-cache-warmup", "result": "failed"},
+                ),
+                "regional-cache-procedure": (
+                    "procedure",
+                    ["regional warmup", "cache warmup procedure"],
+                    {"approach": "regional-cache-warmup", "result": "passed"},
+                ),
+            }
+            for candidate_key, row in memories.items():
+                kind, aliases, semantic_metadata = expected_semantics[candidate_key]
+                event_time = expected_event_times[candidate_key]
+                metadata = row["metadata"]
+                extraction = metadata["extraction"]
+                provider_provenance = next(
+                    item for item in extraction["provenance"] if item["stage"] == "provider"
+                )
+
+                assert str(row["kind"]) == kind
+                assert row["valid_from"] == event_time
+                assert metadata["aliases"] == aliases
+                assert metadata["semantic"] == semantic_metadata
+                assert extraction["candidate_key"] == candidate_key
+                assert extraction["candidate_origin"] == "provider"
+                assert extraction["event_time"] == event_time.isoformat()
+                assert provider_provenance["provider"] == provider.descriptor.provider
+                assert provider_provenance["model"] == provider.descriptor.model
+                assert provider_provenance["revision"] == provider.descriptor.revision
+                assert provider_provenance["prompt_id"] == provider.descriptor.prompt_id
+                assert provider_provenance["prompt_sha256"] == provider.descriptor.prompt_sha256
+
+            cursor = await connection.execute(
+                """
+                SELECT provider, model, revision, prompt_id, prompt_sha256,
+                       outcome, candidate_count
+                FROM outbox_work_attempts
+                WHERE work_id = %s AND stage = 'provider'
+                """,
+                (ingested.work_id,),
+            )
+            attempt = await cursor.fetchone()
+            assert attempt is not None
+            assert str(attempt["provider"]) == provider.descriptor.provider
+            assert str(attempt["model"]) == provider.descriptor.model
+            assert str(attempt["revision"]) == provider.descriptor.revision
+            assert str(attempt["prompt_id"]) == provider.descriptor.prompt_id
+            assert bytes(attempt["prompt_sha256"]).hex() == provider.prompt_sha256
+            assert str(attempt["outcome"]) == ExtractionOutcome.SUCCEEDED.value
+            assert int(attempt["candidate_count"]) == 2
+
+            cursor = await connection.execute(
+                """
+                SELECT link.source_memory_id, link.target_memory_id, link.link_type,
+                       link.reason, link.metadata
+                FROM memory_links AS link
+                JOIN outbox_work_effects AS source_effect
+                  ON source_effect.resource_id = link.source_memory_id
+                JOIN outbox_work_effects AS target_effect
+                  ON target_effect.resource_id = link.target_memory_id
+                WHERE source_effect.work_id = %s AND target_effect.work_id = %s
+                """,
+                (ingested.work_id, ingested.work_id),
+            )
+            links = await cursor.fetchall()
+
+        assert len(links) == 1
+        link = links[0]
+        assert str(link["source_memory_id"]) == str(memories["regional-cache-procedure"]["id"])
+        assert str(link["target_memory_id"]) == str(memories["legacy-cache-attempt"]["id"])
+        assert str(link["link_type"]) == "derived_from"
+        assert link["reason"] == "The successful procedure was adapted from the failed attempt."
+        assert link["metadata"]["extraction"] == {
+            "work_id": ingested.work_id,
+            "source_candidate_key": "regional-cache-procedure",
+            "target_candidate_key": "legacy-cache-attempt",
+        }
     finally:
         await _cleanup(database, actor)
 

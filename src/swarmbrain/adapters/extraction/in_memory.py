@@ -103,6 +103,7 @@ class InMemoryWorkStore:
         self.attempts: dict[tuple[str, int, str], ExtractionProvenance] = {}
         self.effects: dict[tuple[str, str], AppliedWorkEffect] = {}
         self.effect_resources: dict[str, dict[str, Any]] = {}
+        self.effect_links: dict[str, dict[str, Any]] = {}
         self.events: dict[str, dict[str, Any]] = {}
         self.outbox_events: dict[str, dict[str, Any]] = {}
         self.memory_embeddings: dict[tuple[str, str], _StoredEmbedding] = {}
@@ -497,6 +498,17 @@ class InMemoryWorkStore:
                     "state": "tentative",
                     "visibility": "run",
                     "candidate": effect.candidate.model_dump(mode="json"),
+                    "valid_from": (
+                        effect.candidate.valid_from
+                        or effect.candidate.event_time
+                        or self.sources[item.subject_id].source.observed_at
+                        or self.sources[item.subject_id].source.recorded_at
+                    ).isoformat(),
+                    "metadata": self._effect_memory_metadata(
+                        command.work_id,
+                        effect,
+                        command.provenance,
+                    ),
                     "evidence": [span.model_dump(mode="json") for span in effect.candidate.spans],
                     "supersedes_memory_id": None,
                 }
@@ -510,6 +522,43 @@ class InMemoryWorkStore:
                 }
 
             now = self._clock()
+            by_candidate_key = {
+                effect.candidate.candidate_key: (effect, applied_effect)
+                for effect, applied_effect in zip(command.effects, new_effects, strict=True)
+                if effect.candidate.candidate_key is not None
+            }
+            new_links: dict[str, dict[str, Any]] = {}
+            for effect, applied_effect in zip(command.effects, new_effects, strict=True):
+                for relation in effect.candidate.relations:
+                    target_effect, target_applied = by_candidate_key[relation.target_candidate_key]
+                    link_id = str(
+                        uuid5(
+                            UUID(command.work_id),
+                            ":".join(
+                                (
+                                    "effect-link",
+                                    effect.effect_key,
+                                    target_effect.effect_key,
+                                    relation.kind.value,
+                                )
+                            ),
+                        )
+                    )
+                    new_links[link_id] = {
+                        "link_id": link_id,
+                        "source_memory_id": applied_effect.resource_id,
+                        "target_memory_id": target_applied.resource_id,
+                        "kind": relation.kind.value,
+                        "reason": relation.reason,
+                        "metadata": {
+                            "extraction": {
+                                "work_id": command.work_id,
+                                "source_candidate_key": effect.candidate.candidate_key,
+                                "target_candidate_key": relation.target_candidate_key,
+                            }
+                        },
+                        "created_at": now.isoformat(),
+                    }
             new_embedding_items: dict[str, WorkItem] = {}
             embedding_model = item.payload.get("embedding_model")
             if isinstance(embedding_model, str):
@@ -566,6 +615,7 @@ class InMemoryWorkStore:
             for applied in new_effects:
                 self.effects[(command.work_id, applied.effect_key)] = applied
             self.effect_resources.update(new_resources)
+            self.effect_links.update(new_links)
             self.events.update(new_events)
             self.outbox_events.update(new_outbox_events)
             for embedding_item in new_embedding_items.values():
@@ -584,6 +634,26 @@ class InMemoryWorkStore:
                 )
             self.items[command.work_id] = completed
             return ApplyWorkResult(item=completed, effects=tuple(new_effects))
+
+    @staticmethod
+    def _effect_memory_metadata(
+        work_id: str,
+        effect: WorkEffect,
+        provenance: Sequence[ExtractionProvenance],
+    ) -> dict[str, Any]:
+        candidate = effect.candidate
+        metadata = json.loads(json.dumps(candidate.metadata, allow_nan=False))
+        metadata["extraction"] = {
+            "work_id": work_id,
+            "effect_key": effect.effect_key,
+            "candidate_origin": effect.candidate_origin.value,
+            "candidate_key": candidate.candidate_key,
+            "event_time": candidate.event_time.isoformat() if candidate.event_time else None,
+            "provenance": [item.model_dump(mode="json") for item in provenance],
+        }
+        if candidate.aliases:
+            metadata["aliases"] = list(candidate.aliases)
+        return metadata
 
     async def apply_embedding(
         self,

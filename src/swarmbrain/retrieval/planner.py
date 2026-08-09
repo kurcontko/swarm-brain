@@ -123,6 +123,7 @@ class RetrievalPlanner:
             rerank_alpha=rerank_alpha,
             rerank_window=rerank_window,
             diversify=purpose in {RetrievalPurpose.PLANNING, RetrievalPurpose.TASK_BOOTSTRAP},
+            token_budget=self._token_budget(purpose),
         )
 
     @staticmethod
@@ -232,6 +233,20 @@ class RetrievalPlanner:
         }:
             return 2
         return 1
+
+    @staticmethod
+    def _token_budget(purpose: RetrievalPurpose) -> int | None:
+        """Bound server-injected context while preserving interactive v1 recall.
+
+        Interactive recall remains unbounded for wire compatibility.  Internal
+        activation purposes are server-owned and therefore safe to budget.
+        """
+
+        if purpose in {RetrievalPurpose.TASK_BOOTSTRAP, RetrievalPurpose.HANDOFF_RECOVERY}:
+            return 2048
+        if purpose in {RetrievalPurpose.PLANNING, RetrievalPurpose.CONFLICT_REVIEW}:
+            return 4096
+        return None
 
     @staticmethod
     def _domain_lanes(purpose: RetrievalPurpose) -> frozenset[str]:

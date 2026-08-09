@@ -71,7 +71,8 @@ async def test_swarm_arm_strictly_dominates_the_uncoordinated_baseline() -> None
     assert swarm.duplicate_investigations == 0
     assert swarm.discovery_derivations == WORKLOAD.minimum_discovery_derivations
     assert swarm.discoveries_rederived == 0
-    assert swarm.discovery_reuses >= 2
+    assert swarm.discovery_reuses >= 4
+    assert swarm.total_steps == WORKLOAD.minimum_steps
 
     # The simulated fleet duplicates every axis the swarm brain serializes.
     assert baseline.duplicate_task_executions > 0
@@ -103,9 +104,10 @@ async def test_arm_b_numbers_are_traceable_to_the_real_run() -> None:
     report = await _comparison()
     evidence = report.evidence
     assert evidence["ok"] is True
-    assert evidence["metrics"]["tasks_completed"] == 5
+    assert evidence["metrics"]["tasks_completed"] == 4
+    assert evidence["metrics"]["cross_agent_memory_uses"] >= 4
     # Claim arbitration refusing the losing racers is a store-recorded number.
-    assert report.swarm.duplicate_executions_prevented >= 8
+    assert report.swarm.duplicate_executions_prevented >= 2
     assert set(report.swarm.sources) >= {
         "task_executions",
         "discovery_reuses",
@@ -114,6 +116,10 @@ async def test_arm_b_numbers_are_traceable_to_the_real_run() -> None:
     }
     beat_keys = [beat["key"] for beat in evidence["beats"]]
     assert "shared_discovery" in beat_keys and "crash_handoff" in beat_keys
+    handoff = next(beat for beat in evidence["beats"] if beat["key"] == "crash_handoff")
+    causal = handoff["data"]["causal_verification"]
+    assert causal["without_memory"]["passed"] is False
+    assert causal["with_memory"]["passed"] is True
 
 
 @pytest.mark.asyncio
@@ -143,10 +149,10 @@ def test_baseline_simulation_is_deterministic_and_per_vendor() -> None:
     second = simulate_uncoordinated_baseline(build_scenario())
     assert first.to_dict() == second.to_dict()
 
-    fleets = len({agent.provider for agent in scenario.workers})
+    fleets = len({agent.provider for agent in scenario.all_agents})
     assert first.fleets == fleets
-    # Every fleet redoes every task and re-derives the one shared discovery.
+    # Every fleet redoes every task and re-derives both required discoveries.
     assert first.task_executions == fleets * WORKLOAD.minimum_executions
-    assert first.discovery_derivations == fleets
+    assert first.discovery_derivations == fleets * WORKLOAD.minimum_discovery_derivations
     assert set(first.executions_by_task.values()) == {fleets}
     assert first.total_steps > first.minimum_steps

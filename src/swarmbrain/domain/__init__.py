@@ -1,5 +1,14 @@
 """Public Pydantic v2 contracts for the Swarm Brain kernel."""
 
+from .activation import (
+    ActivationDecision,
+    ActivationReason,
+    ActivationTrigger,
+    MemoryActivationRequest,
+    MemoryActivationResult,
+    MemoryActivationTelemetry,
+    memory_activation_id,
+)
 from .agents import ActorContext, Agent, AgentStatus, Capability, CapabilityName
 from .common import (
     AgentId,
@@ -102,6 +111,7 @@ from .retrieval import (
     FusedCandidate,
     FusionContribution,
     HydrationRejection,
+    PackingTrace,
     RetrievalPlan,
     RetrievalPurpose,
     RetrievalScope,
@@ -127,6 +137,9 @@ from .tasks import (
 )
 
 __all__ = [
+    "ActivationDecision",
+    "ActivationReason",
+    "ActivationTrigger",
     "ActorContext",
     "Agent",
     "AgentId",
@@ -180,6 +193,9 @@ __all__ = [
     "MarkOutboxFailedCommand",
     "MarkOutboxPublishedCommand",
     "Memory",
+    "MemoryActivationRequest",
+    "MemoryActivationResult",
+    "MemoryActivationTelemetry",
     "MemoryContent",
     "MemoryId",
     "MemoryKind",
@@ -195,6 +211,7 @@ __all__ = [
     "MutationCommand",
     "OutboxEvent",
     "OutboxStatus",
+    "PackingTrace",
     "ProjectId",
     "RecallBundle",
     "RecallHit",
@@ -245,4 +262,5 @@ __all__ = [
     "Visibility",
     "AddEvidenceCommand",
     "utc_now",
+    "memory_activation_id",
 ]

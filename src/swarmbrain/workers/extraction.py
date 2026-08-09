@@ -8,7 +8,7 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 
 from swarmbrain.application.extraction import ExtractionService
-from swarmbrain.domain.extraction import ExtractionCandidate
+from swarmbrain.domain.extraction import ExtractionCandidate, ExtractionStage
 from swarmbrain.domain.work import (
     ApplyExtractionWorkCommand,
     ApplyWorkResult,
@@ -30,6 +30,18 @@ def _candidate_hash(candidate: ExtractionCandidate) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _candidate_origin(
+    payload_hash: str,
+    deterministic_hashes: set[str],
+    provider_hashes: set[str],
+) -> ExtractionStage:
+    if payload_hash in deterministic_hashes:
+        return ExtractionStage.DETERMINISTIC
+    if payload_hash in provider_hashes:
+        return ExtractionStage.PROVIDER
+    raise ValueError("combined extraction candidate has no recorded origin")
 
 
 class ExtractionWorker:
@@ -89,11 +101,22 @@ class ExtractionWorker:
                 request,
                 use_provider=bool(lease.item.payload.get("use_provider", False)),
             )
+            deterministic_hashes = {
+                _candidate_hash(candidate) for candidate in extraction.deterministic_candidates
+            }
+            provider_hashes = {
+                _candidate_hash(candidate) for candidate in extraction.provider_candidates
+            }
             effects = tuple(
                 WorkEffect(
                     effect_key=f"memory:{payload_hash}",
                     payload_sha256=payload_hash,
                     candidate=candidate,
+                    candidate_origin=_candidate_origin(
+                        payload_hash,
+                        deterministic_hashes,
+                        provider_hashes,
+                    ),
                 )
                 for candidate in extraction.candidates
                 for payload_hash in (_candidate_hash(candidate),)

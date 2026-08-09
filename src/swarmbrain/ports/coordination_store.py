@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from swarmbrain.domain.activation import MemoryActivationTelemetry
 from swarmbrain.domain.agents import ActorContext, Agent
 from swarmbrain.domain.common import RunId
 from swarmbrain.domain.events import EventPage, RunMetrics
@@ -81,6 +82,18 @@ class CoordinationStore(Protocol):
         actor: ActorContext,
         run_id: RunId,
     ) -> RunMetrics: ...
+
+    async def record_memory_activation(
+        self,
+        actor: ActorContext,
+        telemetry: MemoryActivationTelemetry,
+    ) -> None: ...
+
+    async def get_memory_activation(
+        self,
+        actor: ActorContext,
+        activation_id: str,
+    ) -> MemoryActivationTelemetry | None: ...
 
 
 __all__ = ["CoordinationStore"]

@@ -33,8 +33,13 @@ from .common import (
     utc_now,
 )
 from .evidence import Sha256
-from .extraction import ExtractionCandidate, ExtractionProvenance, ExtractionRoute
-from .memory import EmbeddingVector
+from .extraction import (
+    ExtractionCandidate,
+    ExtractionProvenance,
+    ExtractionRoute,
+    ExtractionStage,
+)
+from .memory import EmbeddingVector, MemoryLinkKind
 
 WorkerId = Annotated[
     str,
@@ -275,6 +280,7 @@ class WorkEffect(ContractModel):
     kind: WorkEffectKind = WorkEffectKind.MEMORY
     payload_sha256: Sha256
     candidate: ExtractionCandidate
+    candidate_origin: ExtractionStage = ExtractionStage.DETERMINISTIC
 
     @model_validator(mode="after")
     def validate_payload_hash(self) -> Self:
@@ -286,6 +292,11 @@ class WorkEffect(ContractModel):
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         if digest != self.payload_sha256:
             raise ValueError("payload_sha256 must identify the exact candidate payload")
+        if self.candidate_origin not in {
+            ExtractionStage.DETERMINISTIC,
+            ExtractionStage.PROVIDER,
+        }:
+            raise ValueError("candidate_origin must be deterministic or provider")
         return self
 
 
@@ -319,6 +330,28 @@ class ApplyExtractionWorkCommand(ContractModel):
             raise ValueError("provenance stages must be unique within one work attempt")
         if any(item.attempt != self.attempt for item in self.provenance):
             raise ValueError("provenance attempt must match the work attempt")
+        candidate_keys = [
+            effect.candidate.candidate_key
+            for effect in self.effects
+            if effect.candidate.candidate_key is not None
+        ]
+        if len(candidate_keys) != len(set(candidate_keys)):
+            raise ValueError("candidate_key values must be unique within one apply command")
+        known_candidate_keys = set(candidate_keys)
+        allowed_relation_kinds = {
+            MemoryLinkKind.DERIVED_FROM,
+            MemoryLinkKind.SUPPORTS,
+            MemoryLinkKind.CONTRADICTS,
+            MemoryLinkKind.RELATED_TO,
+        }
+        for effect in self.effects:
+            for relation in effect.candidate.relations:
+                if relation.kind not in allowed_relation_kinds:
+                    raise ValueError("candidate relation kind requires a governed lifecycle action")
+                if relation.target_candidate_key not in known_candidate_keys:
+                    raise ValueError(
+                        "candidate relation target is not present in the apply command"
+                    )
         return self
 
 

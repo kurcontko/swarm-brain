@@ -245,6 +245,139 @@ async def test_cross_vendor_memory_reuse_preserves_evidence(
 
 
 @pytest.mark.asyncio
+async def test_memory_citations_are_deduplicated_and_cross_agent_use_is_proven(
+    scope_ids: dict[str, str],
+) -> None:
+    clock = MutableClock()
+    kernel = InMemoryKernel(clock=clock)
+    memory = MemoryService(kernel, ConservativeMemoryPolicy(), review_store=kernel)
+    coordination = CoordinationService(kernel, memory_service=memory)
+    author = make_actor(scope_ids, harness="claude-code", provider="anthropic")
+    consumer = make_actor(scope_ids, harness="codex-cli", provider="openai")
+    published = await memory.publish(
+        author,
+        RememberCommand(
+            idempotency_key="publish-cross-agent-procedure",
+            kind=MemoryKind.PROCEDURE,
+            content="Retry SQLSTATE 40001 with the whole transaction closure",
+            visibility=Visibility.REPOSITORY,
+            desired_state=MemoryState.CONFIRMED,
+        ),
+    )
+    assert published.memory is not None
+    task = await kernel.add_task(
+        make_task(scope_ids, title="Repair transaction retry", created_at=clock())
+    )
+    claim = await coordination.claim(
+        consumer,
+        ClaimTaskCommand(idempotency_key="claim-citation-task", task_id=task.task_id),
+    )
+    assert claim.activation is not None
+    assert claim.activation.memory_ids == (published.memory.memory_id,)
+    checkpoint = await coordination.checkpoint(
+        consumer,
+        CheckpointCommand(
+            idempotency_key="checkpoint-citation-task",
+            task_id=task.task_id,
+            lease_id=claim.lease.lease_id,
+            expected_task_version=claim.task.version,
+            expected_lease_version=claim.lease.version,
+            summary="Applied the recalled retry procedure",
+            memory_ids=(published.memory.memory_id,),
+        ),
+    )
+    await coordination.complete(
+        consumer,
+        CompleteTaskCommand(
+            idempotency_key="complete-citation-task",
+            task_id=task.task_id,
+            lease_id=checkpoint.lease.lease_id,
+            expected_task_version=checkpoint.task.version,
+            expected_lease_version=checkpoint.lease.version,
+            summary="Retry test passes",
+            memory_ids=(published.memory.memory_id,),
+        ),
+    )
+
+    metrics = await coordination.metrics(consumer)
+    assert metrics.memories_cited == 1
+    assert metrics.cross_agent_memory_uses == 1
+    task_events = [
+        event
+        for event in kernel.events
+        if event.event_type in {EventType.TASK_CHECKPOINTED, EventType.TASK_COMPLETED}
+    ]
+    assert [event.payload["memory_ids"] for event in task_events] == [
+        [published.memory.memory_id],
+        [published.memory.memory_id],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_memory_citations_are_distinct_per_lease(
+    scope_ids: dict[str, str],
+) -> None:
+    clock = MutableClock()
+    kernel = InMemoryKernel(clock=clock)
+    memory = MemoryService(kernel, ConservativeMemoryPolicy(), review_store=kernel)
+    coordination = CoordinationService(kernel)
+    actor = make_actor(scope_ids)
+    published = await memory.publish(
+        actor,
+        RememberCommand(
+            idempotency_key="publish-released-lease-citation",
+            kind=MemoryKind.PROCEDURE,
+            content="Preserve citations across a crash handoff",
+        ),
+    )
+    assert published.memory is not None
+    task = await kernel.add_task(make_task(scope_ids, created_at=clock()))
+    first = await coordination.claim(
+        actor,
+        ClaimTaskCommand(
+            idempotency_key="first-citation-lease",
+            task_id=task.task_id,
+            lease_seconds=15,
+        ),
+    )
+    await coordination.checkpoint(
+        actor,
+        CheckpointCommand(
+            idempotency_key="first-citation-checkpoint",
+            task_id=task.task_id,
+            lease_id=first.lease.lease_id,
+            expected_task_version=first.task.version,
+            expected_lease_version=first.lease.version,
+            summary="First lease used the memory",
+            memory_ids=(published.memory.memory_id,),
+        ),
+    )
+    clock.advance(seconds=16)
+    second = await coordination.claim(
+        actor,
+        ClaimTaskCommand(
+            idempotency_key="second-citation-lease",
+            task_id=task.task_id,
+        ),
+    )
+    await coordination.complete(
+        actor,
+        CompleteTaskCommand(
+            idempotency_key="second-citation-completion",
+            task_id=task.task_id,
+            lease_id=second.lease.lease_id,
+            expected_task_version=second.task.version,
+            expected_lease_version=second.lease.version,
+            summary="Second lease used the same memory",
+            memory_ids=(published.memory.memory_id,),
+        ),
+    )
+
+    metrics = await coordination.metrics(actor)
+    assert metrics.memories_cited == 2
+
+
+@pytest.mark.asyncio
 async def test_structured_custom_memories_append_and_recall_without_implicit_merge(
     scope_ids: dict[str, str],
 ) -> None:

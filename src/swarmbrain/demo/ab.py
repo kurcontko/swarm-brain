@@ -81,13 +81,16 @@ class Workload:
 
     @property
     def minimum_discovery_derivations(self) -> int:
-        return 1
+        return sum(task.derives_discovery for task in self.tasks)
 
     @property
     def minimum_steps(self) -> int:
-        """Every task done once, the discovery derived once, nothing redone."""
+        """Every task and required discovery done once, with nothing redone."""
 
-        return sum(task.steps for task in self.tasks) + self.discovery_steps
+        return (
+            sum(task.steps for task in self.tasks)
+            + self.minimum_discovery_derivations * self.discovery_steps
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -116,25 +119,34 @@ def build_workload() -> Workload:
 
     return Workload(
         tasks=(
-            WorkloadTask(key="flaky-test", steps=6, investigative=True),
             WorkloadTask(
-                key="duplicate-charge",
+                key="replay-invariant",
                 steps=5,
                 investigative=True,
                 derives_discovery=True,
             ),
-            WorkloadTask(key="pool-exhaustion", steps=4, investigative=True),
             WorkloadTask(
-                key="replay-regression-test",
+                key="replay-procedure",
+                steps=5,
+                investigative=True,
+                derives_discovery=True,
+            ),
+            WorkloadTask(
+                key="implement-replay-guard",
+                steps=4,
+                investigative=False,
+                needs_discovery=True,
+            ),
+            WorkloadTask(
+                key="verify-replay-guard",
                 steps=3,
                 investigative=False,
                 needs_discovery=True,
             ),
-            WorkloadTask(key="apply-fix", steps=3, investigative=False, needs_discovery=True),
         ),
         discovery_steps=4,
-        crash_task_key="flaky-test",
-        crash_after_steps=4,
+        crash_task_key="implement-replay-guard",
+        crash_after_steps=3,
     )
 
 
@@ -229,8 +241,8 @@ BASELINE_NOTES: tuple[str, ...] = (
     "would multiply the duplication by the fleet size instead of the vendor count.",
     "No transactional claim: each fleet self-assigns from the same priority-"
     "ordered board and works any task whose result it has not itself produced.",
-    "No cross-agent recall: a fleet that needs the root-cause discovery derives "
-    "it itself, because another vendor's derivation is invisible to it.",
+    "No cross-agent recall: a fleet that needs the root-cause discoveries derives "
+    "them itself, because another vendor's derivations are invisible to it.",
     "No durable checkpoint: the crashed worker's partial progress dies with it "
     "and its replacement restarts that task from zero.",
 )
@@ -242,7 +254,7 @@ def simulate_uncoordinated_baseline(
 ) -> ArmMetrics:
     """Deterministic simulation of the same roster with nothing shared."""
 
-    fleets = tuple(dict.fromkeys(agent.provider for agent in scenario.workers))
+    fleets = tuple(dict.fromkeys(agent.provider for agent in scenario.all_agents))
     executions: Counter[str] = Counter()
     investigations = 0
     derivations = 0
@@ -252,13 +264,19 @@ def simulate_uncoordinated_baseline(
     for _provider in fleets:
         # Each fleet only ever sees results it produced itself.
         fleet_results: set[str] = set()
-        knows_discovery = False
+        known_discoveries = 0
         for task in workload.tasks:
             if task.key in fleet_results:
                 continue
-            if (task.derives_discovery or task.needs_discovery) and not knows_discovery:
+            if task.derives_discovery:
                 derivations += 1
-                knows_discovery = True
+                known_discoveries += 1
+            elif (
+                task.needs_discovery
+                and (missing := workload.minimum_discovery_derivations - known_discoveries) > 0
+            ):
+                derivations += missing
+                known_discoveries += missing
             executions[task.key] += 1
             if task.investigative:
                 investigations += 1
@@ -274,7 +292,7 @@ def simulate_uncoordinated_baseline(
         label=f"{BASELINE_LABEL} (simulated uncoordinated fleet)",
         kind=BASELINE_KIND,
         fleets=len(fleets),
-        workers=len(scenario.workers),
+        workers=len(scenario.all_agents),
         task_executions=total_executions,
         distinct_tasks=len(executions),
         duplicate_task_executions=total_executions - len(executions),
@@ -343,13 +361,6 @@ def _check_ok(report: DemoReport, beat_key: str, check_name: str) -> bool:
     return False
 
 
-def _beat_data(report: DemoReport, beat_key: str) -> dict[str, Any]:
-    for beat in report.beats:
-        if beat.key == beat_key:
-            return beat.data
-    return {}
-
-
 def measure_swarm_arm(
     scenario: DemoScenario,
     report: DemoReport,
@@ -384,11 +395,28 @@ def measure_swarm_arm(
     executions = sum(fresh.values())
     investigations = sum(fresh[key] for key in workload.investigative_keys)
 
-    discovery = _beat_data(report, "shared_discovery")
-    derivations = 1 if _check_ok(report, "shared_discovery", "discovery_published") else 0
-    reuses = len(discovery.get("recalled_by", []))
-    if _check_ok(report, "crash_handoff", "bootstrap_memory_included"):
-        reuses += 1
+    derivations = (
+        workload.minimum_discovery_derivations
+        if _check_ok(report, "shared_discovery", "two_confirmed_memories_published")
+        else 0
+    )
+    memory_authors = {
+        str(event["aggregate_id"]): str(event["agent_id"])
+        for event in events
+        if event["event_type"] in {"memory.added", "memory.superseded"} and event.get("agent_id")
+    }
+    citations = {
+        (str(event["task_id"]), str(event["agent_id"]), str(memory_id))
+        for event in events
+        if event["event_type"] in {"task.checkpointed", "task.completed"}
+        and event.get("task_id")
+        and event.get("agent_id")
+        for memory_id in (event.get("payload") or {}).get("memory_ids", [])
+    }
+    reuses = sum(
+        memory_authors.get(memory_id) is not None and memory_authors[memory_id] != consumer_id
+        for _task_id, consumer_id, memory_id in citations
+    )
 
     handed_off = (
         _check_ok(report, "crash_handoff", "successor_resumes_with_checkpoint")
@@ -401,8 +429,8 @@ def measure_swarm_arm(
     return ArmMetrics(
         label=f"{SWARM_LABEL} (measured live run)",
         kind=SWARM_KIND,
-        fleets=len({agent.provider for agent in scenario.workers}),
-        workers=len(scenario.workers),
+        fleets=len({agent.provider for agent in scenario.all_agents}),
+        workers=len(scenario.all_agents),
         task_executions=executions,
         distinct_tasks=len(fresh),
         duplicate_task_executions=executions - len(fresh),
@@ -434,10 +462,12 @@ def measure_swarm_arm(
             ),
             "duplicate_task_executions": "run events: fresh claims minus distinct tasks claimed",
             "investigations_performed": "run events: fresh claims on investigative tasks",
-            "discovery_derivations": "beat shared_discovery / check discovery_published",
+            "discovery_derivations": (
+                "beat shared_discovery / check two_confirmed_memories_published"
+            ),
             "discovery_reuses": (
-                "beat shared_discovery data.recalled_by + beat crash_handoff / "
-                "check bootstrap_memory_included"
+                "unique task checkpoint/completion memory_ids whose author differs "
+                "from the citing agent"
             ),
             "crash_steps_preserved": (
                 "beat crash_handoff / check successor_resumes_with_checkpoint, "
@@ -575,7 +605,7 @@ def render_table(report: ABReport) -> str:
             "",
             f"  minimum necessary: {report.workload.minimum_executions} executions, "
             f"{report.workload.minimum_investigations} investigations, "
-            f"{report.workload.minimum_discovery_derivations} discovery derivation, "
+            f"{report.workload.minimum_discovery_derivations} discovery derivations, "
             f"{report.workload.minimum_steps} steps",
             f"  duplicate claims the swarm brain refused outright: "
             f"{swarm.duplicate_executions_prevented} (run metrics)",

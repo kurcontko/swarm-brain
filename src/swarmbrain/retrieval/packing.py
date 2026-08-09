@@ -48,9 +48,12 @@ discovering later:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from math import ceil
+
+from swarmbrain.domain.memory import RecallHit
 
 CHARS_PER_TOKEN = 4
 
@@ -61,6 +64,73 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
     return max(1, ceil(len(text) / CHARS_PER_TOKEN))
+
+
+def render_recall_hit(hit: RecallHit) -> str:
+    """Render one self-describing, source-preserving memory context block.
+
+    The public recall response stays structured.  This compact representation
+    is for activation bundles handed to an agent and intentionally includes the
+    memory ID so the agent can cite what it used in a checkpoint or completion.
+    """
+
+    memory = hit.memory
+    content = json.dumps(
+        memory.content,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    lines = [
+        f"[memory:{memory.memory_id}]",
+        (
+            f"kind={memory.kind} state={memory.state.value} "
+            f"visibility={memory.visibility.value} confidence={memory.confidence:.4f}"
+        ),
+        f"valid_from={memory.valid_from.isoformat()}",
+        f"recorded_from={memory.recorded_from.isoformat()}",
+    ]
+    if memory.valid_to is not None:
+        lines.append(f"valid_to={memory.valid_to.isoformat()}")
+    if memory.recorded_to is not None:
+        lines.append(f"recorded_to={memory.recorded_to.isoformat()}")
+    if memory.author_agent_id:
+        lines.append(f"author_agent_id={memory.author_agent_id}")
+    if memory.task_id:
+        lines.append(f"task_id={memory.task_id}")
+    if memory.title:
+        lines.append(f"title={json.dumps(memory.title, ensure_ascii=False)}")
+    if memory.tags:
+        lines.append(
+            "tags="
+            + json.dumps(
+                memory.tags,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+    if memory.metadata:
+        lines.append(
+            "metadata="
+            + json.dumps(
+                memory.metadata,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+    lines.append(f"content={content}")
+    for evidence in hit.evidence:
+        lines.append(
+            "evidence="
+            + json.dumps(
+                evidence.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,4 +268,5 @@ __all__ = [
     "answer_in_context",
     "estimate_tokens",
     "pack_to_budget",
+    "render_recall_hit",
 ]

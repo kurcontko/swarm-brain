@@ -21,6 +21,7 @@ from swarmbrain.application.errors import IdempotencyConflict
 from swarmbrain.application.extraction import ExtractionService
 from swarmbrain.domain.evidence import EvidenceKind, SourceTrust
 from swarmbrain.domain.extraction import (
+    CandidateRelation,
     ExtractionCandidate,
     ExtractionOutcome,
     ExtractionProvenance,
@@ -29,7 +30,7 @@ from swarmbrain.domain.extraction import (
     ProviderDescriptor,
     SourceSpan,
 )
-from swarmbrain.domain.memory import MemoryKind
+from swarmbrain.domain.memory import MemoryKind, MemoryLinkKind
 from swarmbrain.domain.work import (
     ApplyExtractionWorkCommand,
     ClaimWorkCommand,
@@ -309,6 +310,264 @@ def test_candidate_allows_structured_synthesis_without_claiming_an_exact_quote()
     assert candidate.spans == ()
     assert candidate.kind == "org.acme/synthesis"
     assert candidate.content["signals"] == ["todo"]
+
+
+def test_candidate_supports_typed_time_aliases_relationships_and_namespaced_metadata() -> None:
+    event_time = datetime(2026, 8, 2, 10, 30, tzinfo=UTC)
+    candidate = ExtractionCandidate(
+        candidate_key="procedure-1",
+        kind=MemoryKind.PROCEDURE,
+        content="Retry the deployment with the regional endpoint.",
+        event_time=event_time,
+        aliases=("DeployConfig", "deployconfig", "regional endpoint"),
+        relations=(
+            CandidateRelation(
+                target_candidate_key="attempt-1",
+                kind=MemoryLinkKind.DERIVED_FROM,
+                reason="The failed attempt established the corrected procedure.",
+            ),
+        ),
+        metadata={"extracted": {"path": "deploy/config.py"}},
+    )
+
+    assert candidate.event_time == event_time
+    assert candidate.aliases == ("DeployConfig", "regional endpoint")
+    assert candidate.relations[0].target_candidate_key == "attempt-1"
+    assert candidate.metadata["extracted"] == {"path": "deploy/config.py"}
+
+
+@pytest.mark.parametrize("reserved", ["extraction", "governance", "retrieval"])
+def test_candidate_metadata_cannot_set_framework_owned_namespaces(reserved: str) -> None:
+    with pytest.raises(ValidationError, match="reserved framework namespaces"):
+        ExtractionCandidate(
+            kind=MemoryKind.OBSERVATION,
+            content="candidate",
+            metadata={reserved: {"domain_lane": "playbook"}},
+        )
+
+
+class CandidateGraphProvider:
+    descriptor = ProviderDescriptor(provider="test", model="candidate-graph")
+
+    def __init__(self, candidates: list[dict[str, object]]) -> None:
+        self.candidates = candidates
+
+    async def extract(self, request: Any) -> list[dict[str, object]]:
+        del request
+        return self.candidates
+
+
+def _graph_candidate(
+    key: str,
+    *,
+    content: str,
+    relations: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    return {
+        "candidate_key": key,
+        "kind": "observation",
+        "content": content,
+        "relations": relations or [],
+        "spans": [
+            {
+                "chunk_index": 0,
+                "char_start": 0,
+                "char_end": 3,
+                "excerpt": "def",
+            }
+        ],
+    }
+
+
+async def _extract_provider_graph(
+    scope_ids: dict[str, str],
+    candidates: list[dict[str, object]],
+    *,
+    max_provider_candidates: int = 64,
+) -> Any:
+    store = InMemoryWorkStore()
+    service = ExtractionService(
+        store,
+        CodingRuleExtractor(),
+        provider=CandidateGraphProvider(candidates),
+        max_provider_candidates=max_provider_candidates,
+    )
+    actor = make_actor(scope_ids)
+    await service.ingest(actor, _command(use_provider=True))
+    lease = (await store.claim_work(ClaimWorkCommand(worker_id="graph-worker"))).leases[0]
+    request = await store.load_extraction_input(lease)
+    return await service.extract(request, use_provider=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "candidates",
+    [
+        [
+            _graph_candidate("same", content="first"),
+            _graph_candidate("same", content="second"),
+        ],
+        [
+            _graph_candidate(
+                "source",
+                content="dangling",
+                relations=[
+                    {
+                        "target_candidate_key": "missing",
+                        "kind": "related_to",
+                        "reason": None,
+                    }
+                ],
+            )
+        ],
+        [
+            _graph_candidate(
+                "source",
+                content="self link",
+                relations=[
+                    {
+                        "target_candidate_key": "source",
+                        "kind": "related_to",
+                        "reason": None,
+                    }
+                ],
+            )
+        ],
+        [
+            _graph_candidate(
+                "new",
+                content="unsafe lifecycle",
+                relations=[
+                    {
+                        "target_candidate_key": "old",
+                        "kind": "supersedes",
+                        "reason": None,
+                    }
+                ],
+            ),
+            _graph_candidate("old", content="old value"),
+        ],
+    ],
+)
+async def test_provider_candidate_graph_rejects_duplicate_dangling_self_and_lifecycle_links(
+    scope_ids: dict[str, str],
+    candidates: list[dict[str, object]],
+) -> None:
+    result = await _extract_provider_graph(scope_ids, candidates)
+
+    assert result.status.value == "fallback"
+    assert result.fallback_reason is not None
+    assert result.fallback_reason.startswith("validation_")
+    assert result.candidates == result.deterministic_candidates
+    assert result.provider_candidates == ()
+
+
+@pytest.mark.asyncio
+async def test_provider_candidate_graph_accepts_bounded_local_relationships(
+    scope_ids: dict[str, str],
+) -> None:
+    candidates = [
+        _graph_candidate("attempt", content="failed attempt"),
+        _graph_candidate(
+            "procedure",
+            content="working procedure",
+            relations=[
+                {
+                    "target_candidate_key": "attempt",
+                    "kind": "derived_from",
+                    "reason": "The failure led to the procedure.",
+                }
+            ],
+        ),
+    ]
+
+    result = await _extract_provider_graph(scope_ids, candidates)
+
+    assert result.status.value == "completed"
+    assert {candidate.candidate_key for candidate in result.provider_candidates} == {
+        "attempt",
+        "procedure",
+    }
+
+
+@pytest.mark.asyncio
+async def test_provider_candidate_semantics_survive_in_memory_materialization(
+    scope_ids: dict[str, str],
+) -> None:
+    event_time = datetime(2026, 8, 1, 9, 30, tzinfo=UTC)
+    provider = CandidateGraphProvider(
+        [
+            _graph_candidate("attempt", content="failed attempt"),
+            {
+                **_graph_candidate(
+                    "procedure",
+                    content="working procedure",
+                    relations=[
+                        {
+                            "target_candidate_key": "attempt",
+                            "kind": "derived_from",
+                            "reason": "The failed attempt revealed the procedure.",
+                        }
+                    ],
+                ),
+                "event_time": event_time.isoformat(),
+                "aliases": ["deploy_guard", "Deploy_Guard"],
+                "metadata": {"extracted": {"path": "deploy/guard.py"}},
+            },
+        ]
+    )
+    store = InMemoryWorkStore()
+    service = ExtractionService(store, CodingRuleExtractor(), provider=provider)
+    actor = make_actor(scope_ids)
+    await service.ingest(
+        actor,
+        _command(idempotency_key="provider-materialization", use_provider=True),
+    )
+
+    applied = await ExtractionWorker(store, store, service).run_once(
+        "provider-materialization-worker"
+    )
+
+    assert len(applied) == 1, [item.last_error for item in store.items.values()]
+    resources = {
+        resource["candidate"]["candidate_key"]: (memory_id, resource)
+        for memory_id, resource in store.effect_resources.items()
+        if resource["candidate"]["candidate_key"] is not None
+    }
+    attempt_id, _attempt = resources["attempt"]
+    procedure_id, procedure = resources["procedure"]
+    assert procedure["valid_from"] == event_time.isoformat()
+    assert procedure["metadata"]["aliases"] == ["deploy_guard"]
+    assert procedure["metadata"]["extracted"] == {"path": "deploy/guard.py"}
+    extraction_metadata = procedure["metadata"]["extraction"]
+    assert extraction_metadata["candidate_origin"] == ExtractionStage.PROVIDER.value
+    assert any(
+        item["stage"] == ExtractionStage.PROVIDER.value and item["provider"] == "test"
+        for item in extraction_metadata["provenance"]
+    )
+    assert len(store.effect_links) == 1
+    link = next(iter(store.effect_links.values()))
+    assert link["source_memory_id"] == procedure_id
+    assert link["target_memory_id"] == attempt_id
+    assert link["kind"] == MemoryLinkKind.DERIVED_FROM.value
+
+
+@pytest.mark.asyncio
+async def test_provider_candidate_count_is_bounded_before_validation(
+    scope_ids: dict[str, str],
+) -> None:
+    result = await _extract_provider_graph(
+        scope_ids,
+        [
+            _graph_candidate("first", content="first"),
+            _graph_candidate("second", content="second"),
+        ],
+        max_provider_candidates=1,
+    )
+
+    assert result.status.value == "fallback"
+    assert result.fallback_reason == "provider_ProviderOutputLimitExceeded"
+    assert result.candidates == result.deterministic_candidates
 
 
 class InvalidProvider:

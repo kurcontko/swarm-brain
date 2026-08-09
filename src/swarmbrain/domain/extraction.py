@@ -22,6 +22,7 @@ from .common import (
     JsonObject,
     MemoryContent,
     MutationCommand,
+    NestedJsonValue,
     SemanticLabel,
     SourceId,
     TaskId,
@@ -29,7 +30,7 @@ from .common import (
     utc_now,
 )
 from .evidence import EvidenceKind, EvidenceKindValue, EvidenceSource, Sha256, SourceTrust
-from .memory import MemoryKindValue
+from .memory import MemoryKindValue, MemoryLinkKind
 
 GENERAL_SOURCE_KINDS = frozenset(
     {
@@ -46,6 +47,15 @@ ExtractorName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
 ]
+CandidateKey = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+    ),
+]
 
 
 def _bounded_candidate_content(value: MemoryContent) -> MemoryContent:
@@ -61,6 +71,41 @@ def _bounded_candidate_content(value: MemoryContent) -> MemoryContent:
 
 
 CandidateContent = Annotated[MemoryContent, AfterValidator(_bounded_candidate_content)]
+
+
+def _bounded_candidate_metadata(
+    value: dict[str, NestedJsonValue],
+) -> dict[str, NestedJsonValue]:
+    reserved = {"extraction", "governance", "retrieval"} & {key.strip().casefold() for key in value}
+    if reserved:
+        raise ValueError("candidate metadata cannot set reserved framework namespaces")
+    try:
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("candidate metadata must be finite JSON") from exc
+    if len(encoded) > 16_384:
+        raise ValueError("candidate metadata exceeds 16384 encoded bytes")
+    return value
+
+
+CandidateMetadata = Annotated[
+    dict[str, NestedJsonValue],
+    AfterValidator(_bounded_candidate_metadata),
+]
+
+
+class CandidateRelation(ContractModel):
+    """One provider-proposed edge to another candidate in the same extraction batch."""
+
+    target_candidate_key: CandidateKey
+    kind: MemoryLinkKind
+    reason: str | None = Field(default=None, max_length=4096)
 
 
 class ExtractionRoute(StrEnum):
@@ -207,19 +252,38 @@ class SourceIngestResult(ContractModel):
 class ExtractionCandidate(ContractModel):
     """Untrusted proposal; storage-owned identity and lifecycle are impossible to set."""
 
+    candidate_key: CandidateKey | None = None
     kind: MemoryKindValue
     content: CandidateContent
     title: str | None = Field(default=None, max_length=500)
     tags: tuple[str, ...] = Field(default=(), max_length=64)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, allow_inf_nan=False)
+    event_time: AwareDatetime | None = None
     valid_from: AwareDatetime | None = None
     valid_to: AwareDatetime | None = None
+    aliases: tuple[SemanticLabel, ...] = Field(default=(), max_length=64)
+    relations: tuple[CandidateRelation, ...] = Field(default=(), max_length=16)
+    metadata: CandidateMetadata = Field(default_factory=dict)
     spans: tuple[SourceSpan, ...] = Field(default=(), max_length=32)
 
     @field_validator("tags")
     @classmethod
     def normalize_tags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(dict.fromkeys(item.strip().lower() for item in value if item.strip()))
+
+    @field_validator("aliases")
+    @classmethod
+    def normalize_aliases(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            stripped = item.strip()
+            key = stripped.casefold()
+            if not stripped or key in seen:
+                continue
+            seen.add(key)
+            normalized.append(stripped)
+        return tuple(normalized)
 
     @model_validator(mode="after")
     def validate_interval(self) -> Self:
@@ -231,6 +295,12 @@ class ExtractionCandidate(ContractModel):
             and self.valid_to <= self.valid_from
         ):
             raise ValueError("valid_to must be later than valid_from")
+        if self.relations and self.candidate_key is None:
+            raise ValueError("candidate relations require candidate_key")
+        if self.candidate_key is not None and any(
+            relation.target_candidate_key == self.candidate_key for relation in self.relations
+        ):
+            raise ValueError("candidate relationships cannot be self-referential")
         return self
 
 
@@ -301,7 +371,10 @@ class ExtractionResult(ContractModel):
 
 
 __all__ = [
+    "CandidateKey",
     "CandidateContent",
+    "CandidateMetadata",
+    "CandidateRelation",
     "EXTRACTABLE_SOURCE_KINDS",
     "ExtractionCandidate",
     "ExtractionInput",

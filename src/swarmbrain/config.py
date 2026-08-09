@@ -59,6 +59,11 @@ class EmbeddingsKind(StrEnum):
     OPENAI = "openai"
 
 
+class ExtractionProviderKind(StrEnum):
+    NONE = "none"
+    OPENAI = "openai"
+
+
 def _backend_kind(value: BackendKind | str) -> BackendKind:
     try:
         return BackendKind(value)
@@ -71,6 +76,15 @@ def _embeddings_kind(value: EmbeddingsKind | str) -> EmbeddingsKind:
         return EmbeddingsKind(value)
     except ValueError as exc:
         raise ValueError("embeddings must be one of: none, deterministic, bedrock, openai") from exc
+
+
+def _extraction_provider_kind(
+    value: ExtractionProviderKind | str,
+) -> ExtractionProviderKind:
+    try:
+        return ExtractionProviderKind(value)
+    except ValueError as exc:
+        raise ValueError("extraction provider must be one of: none, openai") from exc
 
 
 def _source_trust(value: SourceTrust | str) -> SourceTrust:
@@ -101,6 +115,13 @@ class ApiSettings:
     ingest_use_provider: bool = False
     ingest_chunk_chars: int = 65_536
     ingest_priority: int = 0
+    extraction_provider: ExtractionProviderKind = ExtractionProviderKind.NONE
+    extraction_model: str | None = None
+    extraction_revision: str | None = None
+    extraction_base_url: str | None = None
+    extraction_api_key: str | None = field(default=None, repr=False)
+    extraction_timeout_seconds: float = 20.0
+    extraction_max_output_tokens: int = 4096
     # Fail closed: the one-click hosted demo trigger only exists when an
     # operator explicitly sets SWARMBRAIN_CONSOLE_DEMO=enabled. Any other
     # value (including unset, empty, or a typo) leaves the route absent.
@@ -115,6 +136,8 @@ class ApiSettings:
         object.__setattr__(self, "backend", backend)
         embeddings = _embeddings_kind(self.embeddings)
         object.__setattr__(self, "embeddings", embeddings)
+        extraction_provider = _extraction_provider_kind(self.extraction_provider)
+        object.__setattr__(self, "extraction_provider", extraction_provider)
         object.__setattr__(self, "ingest_trust", _source_trust(self.ingest_trust))
 
         if not self.token_secret:
@@ -132,6 +155,41 @@ class ApiSettings:
                 )
         elif self.embeddings_base_url is not None:
             raise ValueError("embeddings base URL is only allowed for the openai provider")
+        if extraction_provider is ExtractionProviderKind.OPENAI:
+            if not self.extraction_model or not 1 <= len(self.extraction_model) <= 255:
+                raise ValueError("openai extraction requires an extraction model")
+            if not self.extraction_base_url:
+                raise ValueError("openai extraction requires SWARMBRAIN_EXTRACTION_BASE_URL")
+            parsed_extraction_url = urlsplit(self.extraction_base_url)
+            if (
+                parsed_extraction_url.scheme not in {"http", "https"}
+                or not parsed_extraction_url.hostname
+                or parsed_extraction_url.username is not None
+                or parsed_extraction_url.password is not None
+                or parsed_extraction_url.query
+                or parsed_extraction_url.fragment
+            ):
+                raise ValueError(
+                    "extraction base URL must be an http(s) URL without credentials, query, or fragment"
+                )
+        elif any(
+            value is not None
+            for value in (
+                self.extraction_model,
+                self.extraction_revision,
+                self.extraction_base_url,
+                self.extraction_api_key,
+            )
+        ):
+            raise ValueError("extraction settings are only allowed for a configured provider")
+        if self.ingest_use_provider and extraction_provider is ExtractionProviderKind.NONE:
+            raise ValueError("provider-backed ingestion requires an extraction provider")
+        if self.extraction_revision is not None and not 1 <= len(self.extraction_revision) <= 255:
+            raise ValueError("extraction revision must contain between 1 and 255 characters")
+        if not 1.0 <= self.extraction_timeout_seconds <= 55.0:
+            raise ValueError("extraction timeout must be between 1 and 55 seconds")
+        if not 256 <= self.extraction_max_output_tokens <= 16_384:
+            raise ValueError("extraction max output tokens must be between 256 and 16384")
         if not 0.0 <= self.retrieval_dense_min_similarity <= 1.0:
             raise ValueError("dense retrieval minimum similarity must be between 0 and 1")
         if not 1 <= self.retrieval_dense_ann_beam_size <= 1024:
@@ -206,6 +264,19 @@ class ApiSettings:
                 ingest_use_provider=_boolean_env("SWARMBRAIN_INGEST_USE_PROVIDER", default=False),
                 ingest_chunk_chars=_integer_env("SWARMBRAIN_INGEST_CHUNK_CHARS", default=65_536),
                 ingest_priority=_integer_env("SWARMBRAIN_INGEST_PRIORITY", default=0),
+                extraction_provider=_extraction_provider_kind(
+                    (_env("SWARMBRAIN_EXTRACTION_PROVIDER", default="none") or "none").casefold()
+                ),
+                extraction_model=_env("SWARMBRAIN_EXTRACTION_MODEL"),
+                extraction_revision=_env("SWARMBRAIN_EXTRACTION_REVISION"),
+                extraction_base_url=_env("SWARMBRAIN_EXTRACTION_BASE_URL"),
+                extraction_api_key=_env("SWARMBRAIN_EXTRACTION_API_KEY"),
+                extraction_timeout_seconds=_float_env(
+                    "SWARMBRAIN_EXTRACTION_TIMEOUT_SECONDS", default=20.0
+                ),
+                extraction_max_output_tokens=_integer_env(
+                    "SWARMBRAIN_EXTRACTION_MAX_OUTPUT_TOKENS", default=4096
+                ),
                 console_demo_enabled=(
                     (_env("SWARMBRAIN_CONSOLE_DEMO", default="") or "").casefold() == "enabled"
                 ),
@@ -295,5 +366,6 @@ __all__ = [
     "BackendKind",
     "BridgeSettings",
     "EmbeddingsKind",
+    "ExtractionProviderKind",
     "WorkerSettings",
 ]

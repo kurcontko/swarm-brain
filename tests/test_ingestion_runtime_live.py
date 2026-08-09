@@ -17,6 +17,7 @@ from swarmbrain.config import ApiSettings, BackendKind, EmbeddingsKind
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.common import ContractModel
 from swarmbrain.domain.evidence import RejectSourceCommand
+from swarmbrain.domain.memory import RecallQuery
 from swarmbrain.transports.http.app import create_app
 
 DATABASE_URL = os.getenv("SWARMBRAIN_TEST_DATABASE_URL")
@@ -32,7 +33,11 @@ class _Ack(ContractModel):
     ok: bool = True
 
 
-def _settings(*, embedding_model: str = EMBEDDING_MODEL) -> ApiSettings:
+def _settings(
+    *,
+    embedding_model: str = EMBEDDING_MODEL,
+    embeddings: EmbeddingsKind = EmbeddingsKind.DETERMINISTIC,
+) -> ApiSettings:
     assert DATABASE_URL is not None
     return ApiSettings(
         backend=BackendKind.COCKROACH,
@@ -40,8 +45,8 @@ def _settings(*, embedding_model: str = EMBEDDING_MODEL) -> ApiSettings:
         database_url=DATABASE_URL,
         database_pool_min_size=1,
         database_pool_max_size=4,
-        embeddings=EmbeddingsKind.DETERMINISTIC,
-        embeddings_model=embedding_model,
+        embeddings=embeddings,
+        embeddings_model=(embedding_model if embeddings is not EmbeddingsKind.NONE else None),
         embeddings_dimensions=1024,
         ingest_use_provider=False,
         ingest_priority=1000,
@@ -543,6 +548,22 @@ async def test_structured_ingestion_survives_restarts_and_applies_effects_once(
             await runtime_b.close()
         assert len(extracted) == 1, await _work_diagnostic(database, actor, receipt["work_id"])
         memory_id = extracted[0].effects[0].resource_id
+
+        # Extraction must synchronously maintain the canonical lexical
+        # projection. It cannot rely on the optional embedding worker to make a
+        # newly materialized memory discoverable.
+        lexical_runtime = build_runtime(_settings(embeddings=EmbeddingsKind.NONE))
+        await lexical_runtime.start()
+        try:
+            lexical = await lexical_runtime.memory.recall(
+                actor,
+                RecallQuery(text="serializable transactions SQLSTATE 40001", min_score=0.01),
+            )
+        finally:
+            await lexical_runtime.close()
+        assert [hit.memory.memory_id for hit in lexical.hits] == [memory_id]
+        assert all("semantic_match" not in hit.reasons for hit in lexical.hits)
+
         assert await _embedding_snapshot(database, actor, memory_id) == (
             "pending",
             0,

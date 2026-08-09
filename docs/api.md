@@ -146,14 +146,58 @@ a non-empty reason.
 
 Results are:
 
-- `ClaimTaskResult(task, lease, checkpoint?, memory?: RecallBundle,
-  replayed=false)`;
+- `ClaimTaskResult(task, lease, checkpoint?, activation?:
+  MemoryActivationTelemetry, activation_context?: string, replayed=false)`;
 - `CheckpointResult(task, lease, checkpoint, replayed=false)`;
 - `CompletionResult(task, lease, completion, replayed=false)`;
 - `ReleaseResult(task, lease, replayed=false)`.
 
-`ClaimTaskResult.memory` is the initial memory/handoff bundle; it is also
-available as the `initial_memory` property in Python.
+`ClaimTaskResult.memory` remains an in-process compatibility field, also
+available as the `initial_memory` Python property, but it is explicitly
+excluded from model serialization. HTTP and MCP therefore never return the raw
+`RecallBundle`; wire consumers receive only the bounded `activation_context`
+and content-free `activation` telemetry.
+
+#### Selective task-claim activation
+
+`MemoryActivationRequest` identifies the task, lease, trigger, optional
+retrieval purpose and checkpoint seed IDs, plus a token budget, relevance floor,
+and result limit. It intentionally contains no query text. The corresponding
+`MemoryActivationTelemetry` records stable activation/run/agent/task/lease IDs,
+trigger, `skip|recall|deep_recall|defer` decision, closed reason and purpose,
+optional retrieval trace ID, selected and dropped memory IDs, budget and
+estimated tokens, exact selected-memory versions, score floor, candidate count,
+and truncation. It contains no task text, prompt, memory content, provider error,
+or rendered context.
+
+On a task claim, the coordination service constructs an ephemeral query from
+the task and optional checkpoint, then retrieves only `confirmed` memories.
+The default final limit is 12, the relevance floor is `0.4`, and the activation
+budget is 2,048 estimated tokens. Canonically rendered memory blocks are packed
+greedily to that budget; selected IDs and dropped IDs are recorded separately.
+Empty or irrelevant retrieval skips injection, while an unavailable optional
+recall lane defers it. Checkpoint resume uses the deeper handoff-recovery purpose
+and privately seeds cited checkpoint IDs, but the final context remains subject
+to the same limit and budget.
+
+Activation runs after the lease commit and only for actors with
+`memory:recall`. A failure cannot hide or duplicate the successful claim: the
+claim returns with no activation context. Activation telemetry must persist
+before context is exposed, so an event-store failure also returns only the
+committed claim rather than delivering untracked memory. The activation
+transaction also reapplies the canonical lifecycle, temporal, scope, and trust
+predicates and requires every selected memory version to remain unchanged. This
+withholds stale rendered context, including a selection whose evidence changed
+after recall. The raw bundle exists only long enough for in-process
+compatibility; the canonical context string is the sole memory-content
+representation that crosses the claim HTTP/MCP boundary.
+Because that context is deliberately ephemeral rather than part of the durable
+claim response, an idempotent claim replay returns the stable task, lease, and
+checkpoint with `replayed=true` but does not recompute activation against newer
+memory state when its deterministic activation event already exists. If the
+claim committed but the process stopped before recording any activation event,
+the first replay repairs that missing post-commit effect while the lease is
+still valid; concurrent repairs converge on the same deterministic event.
 
 ### Source and evidence
 
@@ -164,6 +208,11 @@ Built-in semantic labels and closed operational enums:
   string label (max 255 characters), for example `application/pdf`;
 - `SourceTrust`: `unknown|trusted|untrusted`;
 - `SourceReviewState`: `pending|approved|rejected`.
+
+Source rejection is terminal. `RejectSourceCommand` rolls back memories that
+lose their final acceptable source, and a rejected source cannot later be
+reviewed back to pending or approved; new evidence must be registered as a new
+source occurrence.
 
 SHA-256 values are 64 lowercase hexadecimal characters.
 
@@ -242,6 +291,30 @@ The dependency-free structured route accepts the explicit media type
   ]
 }
 ```
+
+For ordinary raw-source work, deterministic extraction runs first. Operators
+may additionally enable the OpenAI-compatible typed-memory compiler with
+`SWARMBRAIN_INGEST_USE_PROVIDER=true`,
+`SWARMBRAIN_EXTRACTION_PROVIDER=openai`, and a complete model/base-URL profile.
+The public ingest request cannot select or configure this provider.
+
+The provider receives immutable source chunks as untrusted data and must answer
+through a strict JSON schema. It may propose bounded memory kind/content,
+candidate-local keys and relations, title, tags, confidence, event/valid time,
+aliases, namespaced metadata entries, and verbatim source quotations. It cannot
+set a memory ID, scope, author, visibility, lifecycle state, trust decision, or
+storage policy outcome. Quotations carry a chunk index and occurrence rather
+than provider-invented offsets; the adapter resolves exact offsets locally and
+rejects a quotation that cannot be matched to the preserved chunk.
+
+Provider count/byte/time limits, Pydantic validation, exact-span checks,
+candidate-graph checks, and local deduplication all run before fenced apply. A
+provider outage, malformed response, or rejected candidate graph records only a
+bounded failure class and returns the deterministic candidates with
+`status=fallback`; raw provider messages are not persisted or exposed through
+the status reader. Successful provenance identifies provider, model, optional
+revision, and the versioned prompt digest without turning provider output into
+trusted state.
 
 Storage still assigns scope, state, visibility, IDs, author, system time, and
 lineage. A candidate without exact spans receives deterministic whole-source
@@ -337,11 +410,15 @@ truncated=false)` are the canonical recall result.
 Retrieval purpose, intent, enabled lanes, lane budgets, fusion weights, and the
 full trace are server-owned and are not fields of `RecallQuery` or
 `RecallBundle`. Ordinary HTTP/MCP recall uses `interactive_recall`; task claim
-uses `task_bootstrap` and may privately seed checkpoint memory IDs. Exact,
-FTS `simple`, and trigram candidates are fused with weighted RRF, then every ID
-is revalidated through canonical scope/state/trust/world/system-time predicates.
-The deprecated `memory_ids` field remains accepted by HTTP v1 for compatibility
-but is no longer used as an internal hydration transport. No zero-score
+uses `task_bootstrap` (or `handoff_recovery` on checkpoint resume) and may
+privately seed checkpoint memory IDs. Automatic claim activation is narrower
+than interactive recall: it requests confirmed state only, applies its score
+floor, renders canonical blocks, and packs the selected blocks to the request's
+token budget before any content reaches the claimant. Exact, FTS `simple`, and
+trigram candidates are fused with weighted RRF, then every ID is revalidated
+through canonical scope/state/trust/world/system-time predicates. The
+deprecated `memory_ids` field remains accepted by HTTP v1 for compatibility but
+is no longer used as an internal hydration transport. No zero-score
 `scope_match` is emitted.
 
 `MemoryLink` has a server ID, source/target IDs, kind, evidence, optional
@@ -406,7 +483,7 @@ replay status.
 types, aggregate ID/version, all scope IDs, optional agent/task, JSON payload,
 occurred/recorded times, correlation/causation IDs, and optional idempotency key.
 Built-in event types cover join, claim, renew, checkpoint, complete, release,
-memory add/supersede/confirm/refute, source rejection, and conflict
+memory add/supersede/confirm/refute/activate, source rejection, and conflict
 report/resolve.
 
 `AuditEvent` records actor/action/resource, outcome
@@ -417,7 +494,20 @@ bounded batch or mark one expected version published/failed.
 
 `EventPage(events, next_cursor?)` uses an opaque keyset cursor. `RunMetrics`
 contains non-negative task/lease/checkpoint/handoff/memory/conflict/duplicate
-counters plus custom numeric metrics.
+counters plus custom numeric metrics. Its memory lifecycle counters have
+deliberately different meanings:
+
+- `memory_activation_attempts` counts content-free `memory.activated` decision
+  events, including skip/defer outcomes;
+- `memories_activated` counts the memory IDs actually selected by those events;
+- `memories_cited` counts distinct durable references by task, lease,
+  consuming agent, and memory ID; checkpoint and completion citations under
+  one lease are deduplicated, while a later lease is a distinct use;
+- `cross_agent_memory_uses` counts citations of another agent's memory that can
+  also be tied to activation for the same task, lease, and consuming agent.
+
+`memories_reused` is deprecated compatibility telemetry: it counts memories
+returned by recall and is not evidence that an agent saw, cited, or used them.
 
 ## Application service protocols
 
@@ -498,9 +588,10 @@ class AuditService:
 
 Each actor-facing method checks the listed capability before accessing a store
 and maps all resource lookups through authenticated scope. `claim` composes a
-coordination commit with a post-commit memory/handoff read. A memory recall
-failure must not roll back or duplicate an already committed lease; the result
-can carry an empty bundle plus a stable retryable warning if necessary.
+coordination commit with post-commit selective memory activation. A memory
+recall failure must not roll back or duplicate an already committed lease; the
+result simply omits activation content while retaining the committed task and
+lease.
 
 Current source protocols are `@runtime_checkable`, async, and storage-oriented:
 
@@ -562,9 +653,10 @@ Path `run_id` must equal the authenticated run. Task/lease/memory/conflict IDs
 are looked up with tenant/repository/run predicates; an out-of-scope ID is
 reported as not found or scope mismatch without revealing its existence.
 
-Initial memory in `ClaimTaskResult` is optional enrichment. It is populated
-only when the actor has both `task:claim` and `memory:recall`; a claim-only
-actor receives `memory: null`. Once a lease is committed, a recall failure is
+Activation in `ClaimTaskResult` is optional enrichment. It runs only when the
+actor has both `task:claim` and `memory:recall`; a claim-only actor receives no
+activation context. The raw `memory` compatibility field is excluded rather
+than serialized as `null`. Once a lease is committed, a recall failure is
 logged and the successful claim is still returned, so the owner never loses
 the lease identity because the optional retrieval lane is unavailable.
 
@@ -592,8 +684,8 @@ after lease expiry. If the last allowed attempt expires with its worker, the
 next claim cycle terminalizes it as `failed` with `lease_expired` instead of
 leaving an unclaimable leased row.
 
-`SWARMBRAIN_EMBEDDINGS=none|deterministic|bedrock` controls the optional dense
-lane. CockroachDB schema v8 introduced an additive `retrieval_vectors_1024`
+`SWARMBRAIN_EMBEDDINGS=none|deterministic|bedrock|openai` controls the optional
+dense lane. CockroachDB schema v8 introduced an additive `retrieval_vectors_1024`
 projection with canonical resource version/content digest, repository/run/task
 scope key, domain lane, and a signature covering renderer, current mode,
 cosine metric, provider normalization/truncation, model, and dimensions. Its
@@ -663,7 +755,7 @@ author fields.
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `claim_task` | `idempotency_key`, optional task ID/required tags/required capabilities/lease seconds/expected task version | `ClaimTaskResult`, including checkpoint and initial memory |
+| `claim_task` | `idempotency_key`, optional task ID/required tags/required capabilities/lease seconds/expected task version | `ClaimTaskResult`, including checkpoint, activation telemetry, and bounded activation context (never a raw recall bundle) |
 | `recall_memory` | `RecallQuery` fields | `RecallBundle` |
 | `publish_memory` | `RememberCommand` fields | `RememberResult` |
 | `checkpoint_task` | `CheckpointCommand` fields | `CheckpointResult` |
@@ -682,6 +774,28 @@ child namespace includes the authenticated agent, parent operation, parent
 idempotency key, and evidence position. This preserves restart replay without
 conflating the same caller key across tools or agents; changing evidence under
 the same actor/operation/key is rejected before another HTTP request.
+
+## Scripted runtime demonstration
+
+`swarmbrain-demo` instantiates exactly four agents with four provider labels and
+four tasks arranged in two waves. Wave A contains two independent
+investigations, so two claimants win while two agents receive
+`no_task_available`; both Wave-B tasks depend on both investigations and become
+claimable only after Wave A completes. Those two waiting agents then own Wave B.
+
+Wave A publishes and confirms two fresh opaque facts. Wave-B claims receive
+only their packed `activation_context`, and the demo's pure verifier runs once
+with an empty context and once with that exact wire string. The latter must
+recover both facts while superseded and unsupported guidance remains absent.
+Checkpoint and completion commands explicitly cite accepted memory IDs, a
+crashed claimant resumes under a different provider from its checkpoint, and a
+late write is fenced. The final checks read durable events and require the
+activation, citation, and proven cross-agent-use counters to agree with that
+causal path.
+
+With `--ab`, the no-framework arm is explicitly labeled as a deterministic
+simulation over the shared fixture. Only the Swarm Brain arm is measured from
+the live HTTP run, event ledger, and runtime metrics.
 
 ## Error model
 

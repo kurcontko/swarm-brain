@@ -19,12 +19,14 @@ from swarmbrain.adapters.extraction import (
 from swarmbrain.application.extraction import ExtractionService
 from swarmbrain.application.runtime import build_in_memory_runtime
 from swarmbrain.config import BridgeSettings
+from swarmbrain.domain.activation import ActivationTrigger, memory_activation_id
 from swarmbrain.domain.evidence import (
     AddEvidenceCommand,
     EvidenceKind,
     RegisterEvidenceSourceCommand,
 )
 from swarmbrain.domain.memory import RememberCommand, Visibility
+from swarmbrain.domain.tasks import ClaimTaskCommand
 from swarmbrain.transports.http import create_app
 from swarmbrain.transports.mcp.client import BridgeHttpError, SwarmBrainHttpClient
 from swarmbrain.transports.mcp.server import create_server
@@ -132,8 +134,10 @@ async def test_task_claim_capability_does_not_leak_initial_memory(
         )
 
     assert claimed.status_code == 200, claimed.text
-    assert claimed.json()["task"]["status"] == "claimed"
-    assert claimed.json()["memory"] is None
+    payload = claimed.json()
+    assert payload["task"]["status"] == "claimed"
+    assert "memory" not in payload
+    assert payload["activation_context"] is None
 
 
 @pytest.mark.asyncio
@@ -167,10 +171,167 @@ async def test_initial_memory_failure_does_not_hide_committed_claim(
         )
 
     assert claimed.status_code == 200, claimed.text
-    assert claimed.json()["memory"] is None
+    assert "memory" not in claimed.json()
+    assert claimed.json()["activation_context"] is None
     persisted = runtime.kernel.tasks[task.task_id]
     assert persisted.status.value == "claimed"
     assert persisted.active_lease_id == claimed.json()["lease"]["lease_id"]
+
+
+@pytest.mark.asyncio
+async def test_claim_exposes_only_the_exact_budgeted_activation_context(
+    scope_ids: dict[str, str],
+) -> None:
+    runtime = build_in_memory_runtime(SECRET)
+    actor = make_actor(scope_ids)
+    task = make_task(scope_ids, title="Retry SQLSTATE 40001 transaction")
+    await runtime.kernel.add_task(task)
+    published = await runtime.memory.publish(
+        actor,
+        RememberCommand(
+            idempotency_key="claim-activation-memory",
+            kind="procedure",
+            desired_state="confirmed",
+            content="Retry SQLSTATE 40001 around the complete transaction closure",
+            visibility=Visibility.REPOSITORY,
+        ),
+    )
+    assert published.memory is not None
+    transport = httpx.ASGITransport(app=create_app(runtime))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        claimed = await client.post(
+            "/v1/tasks:claim",
+            json={"task_id": task.task_id},
+            headers={
+                "Authorization": f"Bearer {runtime.tokens.issue(actor)}",
+                "Idempotency-Key": "claim-with-activation",
+            },
+        )
+
+    assert claimed.status_code == 200, claimed.text
+    payload = claimed.json()
+    assert "memory" not in payload
+    assert payload["activation"]["memory_ids"] == [published.memory.memory_id]
+    assert payload["activation"]["memory_versions"] == {
+        published.memory.memory_id: published.memory.version
+    }
+    assert payload["activation"]["trace_id"] is not None
+    assert f"[memory:{published.memory.memory_id}]" in payload["activation_context"]
+    assert "Retry SQLSTATE 40001" in payload["activation_context"]
+    assert "query" not in payload["activation"]
+
+
+@pytest.mark.asyncio
+async def test_claim_replay_never_recomputes_ephemeral_activation(
+    scope_ids: dict[str, str],
+) -> None:
+    runtime = build_in_memory_runtime(SECRET)
+    actor = make_actor(scope_ids)
+    task = make_task(scope_ids, title="Replay activation sentinel")
+    await runtime.kernel.add_task(task)
+    transport = httpx.ASGITransport(app=create_app(runtime))
+    headers = {
+        "Authorization": f"Bearer {runtime.tokens.issue(actor)}",
+        "Idempotency-Key": "stable-claim-replay",
+    }
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post(
+            "/v1/tasks:claim",
+            json={"task_id": task.task_id},
+            headers=headers,
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["activation"]["decision"] == "skip"
+
+        published = await runtime.memory.publish(
+            actor,
+            RememberCommand(
+                idempotency_key="post-claim-relevant-memory",
+                kind="procedure",
+                desired_state="confirmed",
+                content="Replay activation sentinel procedure",
+                visibility=Visibility.REPOSITORY,
+            ),
+        )
+        assert published.memory is not None
+        replay = await client.post(
+            "/v1/tasks:claim",
+            json={"task_id": task.task_id},
+            headers=headers,
+        )
+
+    assert replay.status_code == 200, replay.text
+    payload = replay.json()
+    assert payload["replayed"] is True
+    assert payload["activation"] is None
+    assert payload["activation_context"] is None
+    assert "memory" not in payload
+    metrics = await runtime.coordination.metrics(actor)
+    assert metrics.memory_activation_attempts == 1
+    assert metrics.memories_activated == 0
+
+
+@pytest.mark.asyncio
+async def test_claim_replay_repairs_a_missing_post_commit_activation(
+    scope_ids: dict[str, str],
+) -> None:
+    runtime = build_in_memory_runtime(SECRET)
+    actor = make_actor(scope_ids)
+    task = make_task(scope_ids, title="Repair missing activation effect")
+    await runtime.kernel.add_task(task)
+    published = await runtime.memory.publish(
+        actor,
+        RememberCommand(
+            idempotency_key="missing-effect-memory",
+            kind="procedure",
+            desired_state="confirmed",
+            content="Repair missing activation effect from a durable claim",
+            visibility=Visibility.REPOSITORY,
+        ),
+    )
+    assert published.memory is not None
+    idempotency_key = "claim-committed-before-service-crash"
+    committed = await runtime.kernel.claim_task(
+        actor,
+        ClaimTaskCommand(idempotency_key=idempotency_key, task_id=task.task_id),
+    )
+    assert committed.replayed is False
+    assert (
+        await runtime.kernel.get_memory_activation(
+            actor,
+            memory_activation_id(
+                task.task_id,
+                committed.lease.lease_id,
+                ActivationTrigger.TASK_CLAIM,
+            ),
+        )
+        is None
+    )
+    transport = httpx.ASGITransport(app=create_app(runtime))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        replay = await client.post(
+            "/v1/tasks:claim",
+            json={"task_id": task.task_id},
+            headers={
+                "Authorization": f"Bearer {runtime.tokens.issue(actor)}",
+                "Idempotency-Key": idempotency_key,
+            },
+        )
+
+    assert replay.status_code == 200, replay.text
+    payload = replay.json()
+    assert payload["replayed"] is True
+    assert payload["activation"]["memory_ids"] == [published.memory.memory_id]
+    assert payload["activation"]["memory_versions"] == {
+        published.memory.memory_id: published.memory.version
+    }
+    assert f"[memory:{published.memory.memory_id}]" in payload["activation_context"]
+    metrics = await runtime.coordination.metrics(actor)
+    assert metrics.memory_activation_attempts == 1
+    assert metrics.memories_activated == 1
 
 
 @pytest.mark.asyncio
@@ -383,6 +544,9 @@ def test_http_openapi_uses_typed_domain_contracts(scope_ids: dict[str, str]) -> 
     body = schema["components"]["schemas"]["ClaimTaskBody"]
     assert "agent_id" not in body["properties"]
     assert "tenant_id" not in body["properties"]
+    result = schema["components"]["schemas"]["ClaimTaskResult"]
+    assert "memory" not in result["properties"]
+    assert {"activation", "activation_context"} <= set(result["properties"])
     ingest_ref = schema["paths"]["/v1/sources:ingest"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]["$ref"]

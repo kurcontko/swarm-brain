@@ -10,7 +10,12 @@ import pytest
 
 from swarmbrain.application import runtime as runtime_module
 from swarmbrain.application.runtime import build_in_memory_runtime, build_runtime
-from swarmbrain.config import ApiSettings, BackendKind, BridgeSettings
+from swarmbrain.config import (
+    ApiSettings,
+    BackendKind,
+    BridgeSettings,
+    ExtractionProviderKind,
+)
 from swarmbrain.transports.http import create_app
 
 SECRET = "0123456789abcdef-local-test-secret"
@@ -25,6 +30,14 @@ API_ENVIRONMENT = (
     "SWARMBRAIN_RETRIEVAL_DENSE_ANN_BEAM_SIZE",
     "SWARMBRAIN_HOST",
     "SWARMBRAIN_PORT",
+    "SWARMBRAIN_INGEST_USE_PROVIDER",
+    "SWARMBRAIN_EXTRACTION_PROVIDER",
+    "SWARMBRAIN_EXTRACTION_MODEL",
+    "SWARMBRAIN_EXTRACTION_REVISION",
+    "SWARMBRAIN_EXTRACTION_BASE_URL",
+    "SWARMBRAIN_EXTRACTION_API_KEY",
+    "SWARMBRAIN_EXTRACTION_TIMEOUT_SECONDS",
+    "SWARMBRAIN_EXTRACTION_MAX_OUTPUT_TOKENS",
 )
 
 
@@ -127,6 +140,105 @@ def test_settings_representations_do_not_expose_credentials() -> None:
     assert SECRET not in repr(settings)
     assert DATABASE_URL not in repr(settings)
     assert "agent-token-secret" not in repr(bridge)
+
+
+def test_provider_backed_ingestion_configuration_is_explicit_and_secret_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_api_environment(monkeypatch)
+    extraction_secret = "extraction-secret-value"
+    monkeypatch.setenv("SWARMBRAIN_BACKEND", "cockroach")
+    monkeypatch.setenv("SWARMBRAIN_TOKEN_SECRET", SECRET)
+    monkeypatch.setenv("SWARMBRAIN_DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("SWARMBRAIN_INGEST_USE_PROVIDER", "true")
+    monkeypatch.setenv("SWARMBRAIN_EXTRACTION_PROVIDER", "openai")
+    monkeypatch.setenv("SWARMBRAIN_EXTRACTION_MODEL", "qwen-memory")
+    monkeypatch.setenv("SWARMBRAIN_EXTRACTION_REVISION", "weights-7")
+    monkeypatch.setenv("SWARMBRAIN_EXTRACTION_BASE_URL", "http://model.local:8000")
+    monkeypatch.setenv("SWARMBRAIN_EXTRACTION_API_KEY", extraction_secret)
+
+    settings = ApiSettings.from_env()
+
+    assert settings.ingest_use_provider is True
+    assert settings.extraction_provider is ExtractionProviderKind.OPENAI
+    assert settings.extraction_model == "qwen-memory"
+    assert settings.extraction_revision == "weights-7"
+    assert extraction_secret not in repr(settings)
+
+
+def test_provider_backed_ingestion_fails_fast_without_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_api_environment(monkeypatch)
+    monkeypatch.setenv("SWARMBRAIN_BACKEND", "memory")
+    monkeypatch.setenv("SWARMBRAIN_TOKEN_SECRET", SECRET)
+    monkeypatch.setenv("SWARMBRAIN_INGEST_USE_PROVIDER", "true")
+
+    with pytest.raises(RuntimeError, match="requires an extraction provider"):
+        ApiSettings.from_env()
+
+
+@pytest.mark.parametrize(
+    ("environment", "message"),
+    [
+        (
+            {
+                "SWARMBRAIN_EXTRACTION_PROVIDER": "openai",
+                "SWARMBRAIN_EXTRACTION_BASE_URL": "http://model.local",
+            },
+            "requires an extraction model",
+        ),
+        (
+            {
+                "SWARMBRAIN_EXTRACTION_PROVIDER": "openai",
+                "SWARMBRAIN_EXTRACTION_MODEL": "memory-model",
+            },
+            "EXTRACTION_BASE_URL",
+        ),
+        (
+            {
+                "SWARMBRAIN_EXTRACTION_PROVIDER": "openai",
+                "SWARMBRAIN_EXTRACTION_MODEL": "memory-model",
+                "SWARMBRAIN_EXTRACTION_BASE_URL": "http://user:secret@model.local",
+            },
+            "without credentials",
+        ),
+    ],
+)
+def test_extraction_provider_configuration_rejects_incomplete_or_unsafe_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+    environment: dict[str, str],
+    message: str,
+) -> None:
+    _clear_api_environment(monkeypatch)
+    monkeypatch.setenv("SWARMBRAIN_BACKEND", "memory")
+    monkeypatch.setenv("SWARMBRAIN_TOKEN_SECRET", SECRET)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(RuntimeError, match=message):
+        ApiSettings.from_env()
+
+
+def test_extraction_provider_composition_is_lazy_and_descriptor_bound() -> None:
+    settings = ApiSettings(
+        backend=BackendKind.COCKROACH,
+        token_secret=SECRET,
+        database_url=DATABASE_URL,
+        ingest_use_provider=True,
+        extraction_provider=ExtractionProviderKind.OPENAI,
+        extraction_model="qwen-memory",
+        extraction_revision="weights-7",
+        extraction_base_url="http://model.local:8000",
+        extraction_api_key="provider-secret",
+    )
+
+    provider = runtime_module._build_extraction_provider(settings)
+
+    assert provider is not None
+    assert provider.descriptor.provider == "openai-compatible"
+    assert provider.descriptor.model == "qwen-memory"
+    assert provider.descriptor.revision == "weights-7"
 
 
 class _FakeDatabase:

@@ -53,6 +53,16 @@ class _Reader:
         return (self.memory,) if self.memory.memory_id in candidate_ids else ()
 
 
+class _MultiReader:
+    def __init__(self, memories: tuple[Memory, ...]) -> None:
+        self.memories = {memory.memory_id: memory for memory in memories}
+
+    async def hydrate_recallable(
+        self, _actor: object, _query: object, candidate_ids: tuple[str, ...]
+    ) -> tuple[Memory, ...]:
+        return tuple(self.memories[item] for item in candidate_ids if item in self.memories)
+
+
 class _TraceSink:
     def __init__(self) -> None:
         self.traces: list[RetrievalTrace] = []
@@ -205,6 +215,84 @@ async def test_exact_rank_one_survives_min_score_with_empty_and_failed_lanes(
     )
     assert failed_batch.degradation_reason == "RuntimeError"
     assert execution.trace.parsed_identifiers == (memory_id, seed_id)
+
+
+@pytest.mark.asyncio
+async def test_runtime_budget_skips_oversized_top_hit_and_keeps_smaller_evidence(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    now = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    oversized = Memory(
+        memory_id=new_id(),
+        **scope_ids,
+        author_agent_id=actor.agent_id,
+        kind="observation",
+        state=MemoryState.CONFIRMED,
+        visibility=Visibility.REPOSITORY,
+        content="needle " + ("large-context " * 300),
+        valid_from=now,
+        recorded_from=now,
+    )
+    compact = Memory(
+        memory_id=new_id(),
+        **scope_ids,
+        author_agent_id=actor.agent_id,
+        kind="procedure",
+        state=MemoryState.CONFIRMED,
+        visibility=Visibility.REPOSITORY,
+        content="needle compact verified fix",
+        valid_from=now,
+        recorded_from=now,
+    )
+    candidates = tuple(
+        Candidate(
+            resource_type="memory",
+            resource_id=memory.memory_id,
+            resource_version=1,
+            canonical_id=memory.memory_id,
+            domain_lane="knowledge",
+            signal=RetrievalSignal.LEXICAL,
+            rank=rank,
+            raw_score=1.0 / rank,
+        )
+        for rank, memory in enumerate((oversized, compact), start=1)
+    )
+    service = RetrievalService(
+        (
+            _Gateway(
+                RetrievalSignal.LEXICAL,
+                CandidateBatch(
+                    lane=RetrievalSignal.LEXICAL,
+                    candidates=candidates,
+                    examined_count=2,
+                    latency_ms=0.1,
+                ),
+            ),
+        ),
+        _MultiReader((oversized, compact)),
+    )
+
+    packed = await service.execute(
+        actor,
+        RecallQuery(text="needle", limit=2),
+        token_budget=150,
+    )
+    unbounded = await service.execute(actor, RecallQuery(text="needle", limit=2))
+
+    assert [hit.memory.memory_id for hit in packed.bundle.hits] == [compact.memory_id]
+    assert packed.trace.final_ids == (compact.memory_id,)
+    assert packed.trace.packing is not None
+    assert packed.trace.packing.used_tokens <= 150
+    assert packed.trace.packing.dropped_ids == (oversized.memory_id,)
+    assert f"[memory:{compact.memory_id}]" in packed.rendered_context
+    assert oversized.memory_id not in packed.rendered_context
+    assert packed.bundle.truncated is True
+    assert [hit.memory.memory_id for hit in unbounded.bundle.hits] == [
+        oversized.memory_id,
+        compact.memory_id,
+    ]
+    assert unbounded.trace.packing is None
 
 
 @pytest.mark.asyncio

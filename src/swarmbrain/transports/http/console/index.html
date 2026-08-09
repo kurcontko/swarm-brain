@@ -657,7 +657,7 @@
   </div>
   <div class="topbar-actions">
     <span class="demo-note" id="demo-note" role="status" aria-live="polite"></span>
-    <button class="btn btn-primary" id="run-demo" type="button" hidden>Run demo</button>
+    <button class="btn btn-primary" id="run-demo" type="button" hidden>Run four-agent · two-wave demo</button>
     <span class="pulse" id="pulse" data-state="idle" role="status" aria-live="polite">idle</span>
     <button class="btn" id="open-connect" type="button">Connection</button>
   </div>
@@ -765,8 +765,8 @@
   const LEDGER_ROWS = 250;
   const STORE = "swarmbrain.console";
 
-  // Categorical ramp for agents: equal-lightness hues so a 14-agent roster stays
-  // distinguishable without any one agent shouting.
+  // Categorical ramp for agents: equal-lightness hues keep the four-provider
+  // demo roster distinguishable without any one agent shouting.
   const AGENT_COLORS = [
     "#7c8cf8", "#45c7c0", "#5fd39b", "#d9b26a",
     "#e2789b", "#b18cf0", "#57b6f0", "#e08a5f",
@@ -1151,7 +1151,18 @@
       meter("Active leases", m.active_leases, "unexpired work leases", "live"),
       meter("Crash handoffs", m.crash_handoffs, "resumed from checkpoint", "fence"),
       meter("Duplicate replays", m.duplicate_mutations_replayed, "returned, not re-executed", "live"),
-      meter("Memories published", m.memories_published, `${m.memories_reused} reused by peers`, "mem"),
+      meter(
+        "Memory activations",
+        m.memories_activated,
+        `${m.memory_activation_attempts} decisions · ${m.memories_published} published`,
+        "mem",
+      ),
+      meter(
+        "Memory citations",
+        m.memories_cited,
+        `${m.cross_agent_memory_uses} proven cross-agent uses`,
+        "done",
+      ),
       meter("Conflicts open", m.conflicts_open, `${m.conflicts_resolved} resolved`, "fence"),
     ]);
   }
@@ -1520,7 +1531,7 @@
       state.token = String(body.viewer_token || "");
       reset();
       save();
-      note("scenario running — the board fills as beats land");
+      note("four-agent, two-wave scenario running — the board fills as beats land");
       render();
       start();
     } catch (error) {

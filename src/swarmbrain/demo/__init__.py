@@ -24,7 +24,15 @@ from .ab import (
     simulate_uncoordinated_baseline,
 )
 from .runner import BeatCheck, BeatReport, DemoAssertionError, DemoReport, DemoRunner
-from .scenario import DemoAgent, DemoScenario, DemoTask, actor_context, build_scenario
+from .scenario import (
+    DemoAgent,
+    DemoChallenge,
+    DemoScenario,
+    DemoTask,
+    actor_context,
+    build_scenario,
+)
+from .verification import ContextVerification, verify_memory_context
 
 __all__ = [
     "BASELINE_KIND",
@@ -34,7 +42,9 @@ __all__ = [
     "ArmMetrics",
     "BeatCheck",
     "BeatReport",
+    "ContextVerification",
     "DemoAgent",
+    "DemoChallenge",
     "DemoAssertionError",
     "DemoReport",
     "DemoRunner",
@@ -48,4 +58,5 @@ __all__ = [
     "render_table",
     "run_comparison",
     "simulate_uncoordinated_baseline",
+    "verify_memory_context",
 ]

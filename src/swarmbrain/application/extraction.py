@@ -26,6 +26,7 @@ from swarmbrain.domain.extraction import (
     SourceChunk,
     SourceIngestResult,
 )
+from swarmbrain.domain.memory import MemoryLinkKind
 from swarmbrain.domain.work import SourceExtractionStatus
 from swarmbrain.ports.extraction import (
     DeterministicExtractor,
@@ -35,6 +36,19 @@ from swarmbrain.ports.extraction import (
 )
 
 from .capabilities import require_capability
+
+ALLOWED_EXTRACTION_RELATION_KINDS = frozenset(
+    {
+        MemoryLinkKind.DERIVED_FROM,
+        MemoryLinkKind.SUPPORTS,
+        MemoryLinkKind.CONTRADICTS,
+        MemoryLinkKind.RELATED_TO,
+    }
+)
+
+
+class ProviderOutputLimitExceeded(ValueError):
+    """Provider output exceeded a framework-owned count or byte bound."""
 
 
 def _sha256(value: bytes | str) -> str:
@@ -60,13 +74,21 @@ class ExtractionService:
         *,
         provider: ExtractionProvider | None = None,
         embedding_model: str | None = None,
+        max_provider_candidates: int = 64,
+        max_provider_output_bytes: int = 262_144,
     ) -> None:
         if embedding_model is not None and not 1 <= len(embedding_model) <= 255:
             raise ValueError("embedding_model must be a non-empty string")
+        if not 1 <= max_provider_candidates <= 128:
+            raise ValueError("max_provider_candidates must be between 1 and 128")
+        if not 1024 <= max_provider_output_bytes <= 4_194_304:
+            raise ValueError("max_provider_output_bytes must be between 1024 and 4194304")
         self.ingest_store = ingest_store
         self.deterministic = deterministic
         self.provider = provider
         self.embedding_model = embedding_model
+        self.max_provider_candidates = max_provider_candidates
+        self.max_provider_output_bytes = max_provider_output_bytes
 
     async def ingest(
         self,
@@ -195,7 +217,12 @@ class ExtractionService:
         try:
             descriptor = self.provider.descriptor
             raw_candidates = tuple(await self.provider.extract(request))
-            raw_hash = _sha256(_json_bytes(self._serializable_provider_output(raw_candidates)))
+            if len(raw_candidates) > self.max_provider_candidates:
+                raise ProviderOutputLimitExceeded("provider returned too many candidates")
+            raw_output = _json_bytes(self._serializable_provider_output(raw_candidates))
+            if len(raw_output) > self.max_provider_output_bytes:
+                raise ProviderOutputLimitExceeded("provider output exceeded the byte limit")
+            raw_hash = _sha256(raw_output)
         except Exception as exc:
             # Persist only a bounded class name. Provider messages may contain secrets or payloads.
             return self._fallback(
@@ -229,6 +256,8 @@ class ExtractionService:
         validation_started = utc_now()
         try:
             provider_candidates = tuple(self._validated_candidates(raw_candidates, request))
+            combined = self._dedupe((*deterministic, *provider_candidates))
+            self._validate_candidate_graph(combined)
         except Exception as exc:
             return self._fallback(
                 route,
@@ -263,7 +292,6 @@ class ExtractionService:
                 finished_at=validation_finished,
             )
         )
-        combined = self._dedupe((*deterministic, *provider_candidates))
         return ExtractionResult(
             route=route,
             status=ExtractionRunStatus.COMPLETED,
@@ -337,7 +365,25 @@ class ExtractionService:
                 if request.raw_content[span.char_start : span.char_end] != span.excerpt:
                     raise ValueError("candidate span does not quote the raw source")
             candidates.append(candidate)
+        self._validate_candidate_graph(candidates)
         return candidates
+
+    @staticmethod
+    def _validate_candidate_graph(candidates: Sequence[ExtractionCandidate]) -> None:
+        keys = [candidate.candidate_key for candidate in candidates if candidate.candidate_key]
+        if len(keys) != len(set(keys)):
+            raise ValueError("candidate_key values must be unique within one extraction batch")
+        known = set(keys)
+        for candidate in candidates:
+            for relation in candidate.relations:
+                if relation.kind not in ALLOWED_EXTRACTION_RELATION_KINDS:
+                    raise ValueError("candidate relation kind requires a governed lifecycle action")
+                if relation.target_candidate_key not in known:
+                    raise ValueError(
+                        "candidate relation target is not present in the extraction batch"
+                    )
+                if relation.target_candidate_key == candidate.candidate_key:
+                    raise ValueError("candidate relationships cannot be self-referential")
 
     @staticmethod
     def _dedupe(values: Sequence[ExtractionCandidate]) -> tuple[ExtractionCandidate, ...]:
@@ -394,4 +440,9 @@ class ExtractionService:
         )
 
 
-__all__ = ["ExtractionService", "GENERAL_SOURCE_KINDS"]
+__all__ = [
+    "ALLOWED_EXTRACTION_RELATION_KINDS",
+    "ExtractionService",
+    "GENERAL_SOURCE_KINDS",
+    "ProviderOutputLimitExceeded",
+]

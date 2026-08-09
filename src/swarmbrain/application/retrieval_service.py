@@ -20,6 +20,7 @@ from swarmbrain.domain.retrieval import (
     DenseQuery,
     FusedCandidate,
     HydrationRejection,
+    PackingTrace,
     RetrievalPurpose,
     RetrievalSignal,
     RetrievalTrace,
@@ -34,9 +35,12 @@ from swarmbrain.retrieval import (
     RELEVANCE_VERSION,
     RetrievalPlanner,
     candidate_relevance,
+    estimate_tokens,
+    pack_to_budget,
     parse_query_identifiers,
     relevance_query,
     relevance_reranked,
+    render_recall_hit,
     weighted_rrf,
 )
 
@@ -72,6 +76,7 @@ async def _retrieval_now(reader: CanonicalMemoryReader) -> datetime:
 class RetrievalExecution:
     bundle: RecallBundle
     trace: RetrievalTrace
+    rendered_context: str = ""
 
 
 class RetrievalService:
@@ -112,6 +117,7 @@ class RetrievalService:
         purpose: RetrievalPurpose = RetrievalPurpose.INTERACTIVE_RECALL,
         seed_memory_ids: tuple[MemoryId, ...] = (),
         dense_query: DenseQuery | None = None,
+        token_budget: int | None = None,
     ) -> RetrievalExecution:
         async with _retrieval_snapshot(self.canonical_reader):
             started_at = await _retrieval_now(self.canonical_reader)
@@ -127,6 +133,8 @@ class RetrievalService:
                 available_signals=available_signals,
                 seed_memory_ids=seed_memory_ids,
             )
+            if token_budget is not None:
+                plan = plan.model_copy(update={"token_budget": token_budget})
             selected_primary = tuple(
                 cast(RetrievalGateway, gateway)
                 for gateway in self.gateways
@@ -255,6 +263,9 @@ class RetrievalService:
         relevance_scores: list[CandidateRelevance] = []
         eligible: list[RecallHit] = []
         overflowed = False
+        candidate_limit = (
+            min(512, query.limit * 4) if plan.token_budget is not None else query.limit
+        )
         for candidate in ranked:
             memory = hydrated_by_id.get(candidate.canonical_id)
             if memory is None:
@@ -263,7 +274,7 @@ class RetrievalService:
             relevance_scores.append(relevance)
             if relevance.relevance < query.min_score:
                 continue
-            if len(eligible) >= query.limit:
+            if len(eligible) >= candidate_limit:
                 overflowed = True
                 break
             reasons = list(candidate.reasons)
@@ -280,7 +291,40 @@ class RetrievalService:
                 )
             )
 
-        hits = tuple(eligible)
+        candidate_hits = tuple(eligible)
+        rendered_context = ""
+        packing: PackingTrace | None = None
+        if plan.token_budget is None:
+            hits = candidate_hits[: query.limit]
+            if len(candidate_hits) > query.limit:
+                overflowed = True
+        else:
+            rendered = tuple(
+                ("" if index == 0 else "\n\n") + render_recall_hit(hit)
+                for index, hit in enumerate(candidate_hits)
+            )
+            sizes = tuple(estimate_tokens(value) for value in rendered)
+            packed = pack_to_budget(sizes, plan.token_budget, policy="greedy")
+            kept_indices = packed.kept_indices[: query.limit]
+            limit_dropped = packed.kept_indices[query.limit :]
+            dropped_indices = tuple(dict.fromkeys((*packed.dropped_indices, *limit_dropped)))
+            hits = tuple(candidate_hits[index] for index in kept_indices)
+            rendered_context = "".join(rendered[index] for index in kept_indices).lstrip()
+            used_tokens = estimate_tokens(rendered_context)
+            packing = PackingTrace(
+                token_budget=plan.token_budget,
+                used_tokens=used_tokens,
+                candidate_token_counts={
+                    hit.memory.memory_id: size
+                    for hit, size in zip(candidate_hits, sizes, strict=True)
+                },
+                kept_ids=tuple(hit.memory.memory_id for hit in hits),
+                dropped_ids=tuple(
+                    candidate_hits[index].memory.memory_id for index in dropped_indices
+                ),
+            )
+            if dropped_indices or len(packed.kept_indices) > query.limit:
+                overflowed = True
         hydrated_ids = tuple(memory.memory_id for memory in hydrated)
         hydrated_set = frozenset(hydrated_ids)
         trace = RetrievalTrace(
@@ -299,10 +343,16 @@ class RetrievalService:
                 for candidate_id in candidate_ids
                 if candidate_id not in hydrated_set
             ),
+            packing=packing,
             final_ids=tuple(hit.memory.memory_id for hit in hits),
             degraded_lanes=frozenset(batch.lane for batch in batches if batch.degraded),
             abstained=not hits,
-            abstention_reason=self._abstention_reason(query, hits, relevance_scores),
+            abstention_reason=self._abstention_reason(
+                query,
+                hits,
+                relevance_scores,
+                token_budget_exhausted=(bool(candidate_hits) and not hits and packing is not None),
+            ),
             started_at=started_at,
             completed_at=completed_at,
         )
@@ -318,6 +368,7 @@ class RetrievalService:
                 truncated=(overflowed or any(batch.truncated for batch in batches)),
             ),
             trace=trace,
+            rendered_context=rendered_context,
         )
 
     @staticmethod
@@ -325,6 +376,8 @@ class RetrievalService:
         query: RecallQuery,
         hits: tuple[RecallHit, ...],
         relevance_scores: Sequence[CandidateRelevance],
+        *,
+        token_budget_exhausted: bool = False,
     ) -> str | None:
         """Name why an empty bundle is empty, separating the two causes.
 
@@ -336,6 +389,8 @@ class RetrievalService:
 
         if hits:
             return None
+        if token_budget_exhausted:
+            return "token_budget_exhausted"
         if query.min_score > 0.0 and relevance_scores:
             return "below_relevance_floor"
         return "no_relevant_recallable_candidates"

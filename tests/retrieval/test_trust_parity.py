@@ -115,3 +115,5 @@ async def test_mixed_trust_memory_survives_with_only_accepted_citation(
     assert target.evidence == ()
     metrics = await kernel.get_run_metrics(actor, actor.run_id)
     assert metrics.memories_reused == len(recalled.hits) + len(audited.hits)
+    assert metrics.memories_activated == 0
+    assert metrics.memory_activation_attempts == 0

@@ -2,6 +2,10 @@
 
 from .coding import CodingRuleExtractor
 from .in_memory import InMemoryWorkStore
+from .openai_compatible import (
+    OpenAICompatibleExtractionProvider,
+    OpenAICompatibleExtractionUnavailable,
+)
 from .provider import LazyExtractionProvider, ProviderUnavailable
 from .structured import (
     STRUCTURED_MEMORY_SOURCE_KIND,
@@ -14,6 +18,8 @@ __all__ = [
     "DefaultRuleExtractor",
     "InMemoryWorkStore",
     "LazyExtractionProvider",
+    "OpenAICompatibleExtractionProvider",
+    "OpenAICompatibleExtractionUnavailable",
     "ProviderUnavailable",
     "STRUCTURED_MEMORY_SOURCE_KIND",
     "StructuredMemoryEnvelope",

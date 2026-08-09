@@ -40,6 +40,7 @@ from swarmbrain.domain.evidence import (
     RejectSourceCommand,
     ReviewSourceCommand,
     SourceRejectionResult,
+    SourceReviewState,
 )
 from swarmbrain.domain.memory import (
     EmbeddingMatch,
@@ -340,6 +341,11 @@ class CockroachMemoryStore:
                     source_id=source.source_id,
                     expected_version=command.expected_version,
                     actual_version=source.version,
+                )
+            if source.review_state is SourceReviewState.REJECTED:
+                raise InvalidState(
+                    "source rejection is terminal",
+                    source_id=source.source_id,
                 )
             cursor = await connection.execute(
                 f"""
@@ -958,8 +964,6 @@ class CockroachMemoryStore:
         """
 
         reused = len(tuple(dict.fromkeys(memory_ids)))
-        if reused == 0:
-            return
 
         async def body(connection: Any) -> _ReuseAck:
             await connection.execute(

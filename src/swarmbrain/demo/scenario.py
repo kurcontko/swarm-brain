@@ -7,6 +7,7 @@ byte-stable for scripted demos and tests.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from uuid import uuid4
 
@@ -63,6 +64,15 @@ class DemoTask:
 
 
 @dataclass(frozen=True, slots=True)
+class DemoChallenge:
+    """Hidden verifier material; opaque values enter agent context only via memory."""
+
+    guard_token: str
+    procedure_token: str
+    expected_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class DemoScenario:
     tenant_id: str
     project_id: str
@@ -73,10 +83,11 @@ class DemoScenario:
     scout: DemoAgent
     workers: tuple[DemoAgent, ...]
     tasks: tuple[DemoTask, ...]
+    challenge: DemoChallenge | None = None
 
     @property
     def racers(self) -> tuple[DemoAgent, ...]:
-        return self.workers
+        return self.all_agents
 
     @property
     def all_agents(self) -> tuple[DemoAgent, ...]:
@@ -107,89 +118,77 @@ _VENDOR_MIX: tuple[tuple[str, str, str], ...] = (
 
 
 def build_scenario() -> DemoScenario:
-    """Twelve racing workers across four harness vendors, one lead, one scout."""
+    """Four agents across four vendors in a two-wave, memory-causal task DAG."""
 
+    guard_token = uuid4().hex
+    procedure_token = uuid4().hex
+    expected_sha256 = hashlib.sha256(f"{guard_token}\n{procedure_token}".encode()).hexdigest()
+    lead = DemoAgent(
+        name="investigator-01-claude-code",
+        harness=_VENDOR_MIX[0][0],
+        provider=_VENDOR_MIX[0][1],
+        model=_VENDOR_MIX[0][2],
+        capabilities=LEAD_CAPABILITIES,
+    )
+    scout = DemoAgent(
+        # ``scout`` is retained as a constructor/API compatibility slot. Here it
+        # is the second task-capable investigator, not a fifth observer.
+        name="investigator-02-codex-cli",
+        harness=_VENDOR_MIX[1][0],
+        provider=_VENDOR_MIX[1][1],
+        model=_VENDOR_MIX[1][2],
+        capabilities=WORKER_CAPABILITIES,
+    )
     workers = tuple(
         DemoAgent(
-            name=f"worker-{index + 1:02d}-{harness}",
+            name=name,
             harness=harness,
             provider=provider,
             model=model,
             capabilities=WORKER_CAPABILITIES,
         )
-        for index, (harness, provider, model) in enumerate(
-            _VENDOR_MIX[i % len(_VENDOR_MIX)] for i in range(12)
+        for name, (harness, provider, model) in zip(
+            ("builder-03-gemini-cli", "verifier-04-opencode"),
+            _VENDOR_MIX[2:],
+            strict=True,
         )
-    )
-    lead = DemoAgent(
-        name="lead-claude-code",
-        harness="claude-code",
-        provider="anthropic",
-        model="claude-fable-5",
-        capabilities=LEAD_CAPABILITIES,
-    )
-    scout = DemoAgent(
-        name="scout-untrusted",
-        harness="opencode",
-        provider="qwen",
-        model="qwen3-coder-27b",
-        capabilities=SCOUT_CAPABILITIES,
     )
     tasks = (
         DemoTask(
-            key="flaky-test",
-            title="Reproduce the flaky checkout retry test",
+            key="replay-invariant",
+            title="Identify the webhook replay identity invariant",
             description=(
-                "tests/integration/test_checkout_retry.py fails roughly one run in "
-                "five on CI. Reproduce locally, capture the failing seed, and record "
-                "what state the retry loop observes when it fails."
+                "Inspect the payment webhook trace and determine which stable delivery "
+                "identity must be reserved to prevent a replayed delivery from charging twice."
             ),
-            tags=("ci", "flaky-test", "checkout"),
-            priority=10,
-        ),
-        DemoTask(
-            key="duplicate-charge",
-            title="Trace the duplicate charge on webhook replay",
-            description=(
-                "Customers report double charges after payment-provider webhook "
-                "retries. Trace the replayed delivery through the payments worker "
-                "and identify why the second delivery is not treated as a replay."
-            ),
-            tags=("payments", "bug", "webhook"),
+            tags=("payments", "webhook", "replay", "identity"),
             priority=20,
         ),
         DemoTask(
-            key="pool-exhaustion",
-            title="Profile connection pool exhaustion under load",
+            key="replay-procedure",
+            title="Derive the safe webhook replay procedure",
             description=(
-                "The API returns 503 bursts at peak traffic. Profile the database "
-                "connection pool under load and report saturation, wait times, and "
-                "the queries holding connections longest."
+                "Reproduce the duplicate charge and establish the verified ordering "
+                "for reserving the replay guard before the charge side effect."
             ),
-            tags=("performance", "database"),
-            priority=0,
+            tags=("payments", "webhook", "replay", "procedure"),
+            priority=20,
         ),
         DemoTask(
-            key="replay-regression-test",
-            title="Add regression coverage for idempotent webhook replay",
-            description=(
-                "Add a deterministic regression test that replays an identical "
-                "webhook delivery twice and asserts exactly one charge is created."
-            ),
-            tags=("tests", "payments", "webhook"),
-            priority=5,
+            key="implement-replay-guard",
+            title="Implement the webhook replay identity guard procedure",
+            description="Webhook replay identity guard procedure: reserve before charge.",
+            tags=("webhook", "replay", "identity", "guard", "procedure"),
+            priority=10,
+            depends_on=("replay-invariant", "replay-procedure"),
         ),
         DemoTask(
-            key="apply-fix",
-            title="Apply the duplicate-charge fix behind a flag",
-            description=(
-                "Apply the fix for the duplicate webhook charge identified by the "
-                "trace task, gated behind a rollout flag, once the root cause is "
-                "confirmed."
-            ),
-            tags=("payments", "fix"),
-            priority=30,
-            depends_on=("duplicate-charge",),
+            key="verify-replay-guard",
+            title="Verify the webhook replay identity guard procedure",
+            description="Webhook replay identity guard procedure: reserve before charge.",
+            tags=("webhook", "replay", "identity", "guard", "procedure"),
+            priority=10,
+            depends_on=("replay-invariant", "replay-procedure"),
         ),
     )
     return DemoScenario(
@@ -202,6 +201,11 @@ def build_scenario() -> DemoScenario:
         scout=scout,
         workers=workers,
         tasks=tasks,
+        challenge=DemoChallenge(
+            guard_token=guard_token,
+            procedure_token=procedure_token,
+            expected_sha256=expected_sha256,
+        ),
     )
 
 
@@ -223,6 +227,7 @@ __all__ = [
     "SCOUT_CAPABILITIES",
     "WORKER_CAPABILITIES",
     "DemoAgent",
+    "DemoChallenge",
     "DemoScenario",
     "DemoTask",
     "actor_context",

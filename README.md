@@ -21,7 +21,8 @@ the original and rewritten commit IDs.
 See the [current retrieval status](docs/retrieval-status.md), the
 [standalone architecture](docs/retrieval-architecture.md), the full
 [PostgreSQL/CockroachDB SOTA research dump](docs/research/sota-retrieval-postgresql-cockroachdb-2026-08-02.md),
-and the [agent memory & retrieval SOTA research dump](docs/research/sota-agent-memory-retrieval-2026-08-07.md).
+the [agent memory & retrieval SOTA research dump](docs/research/sota-agent-memory-retrieval-2026-08-07.md),
+and the [paper-to-runtime implementation map](docs/paper-driven-memory-runtime.md).
 
 ## What it includes
 
@@ -34,10 +35,13 @@ and the [agent memory & retrieval SOTA research dump](docs/research/sota-agent-m
 - purpose-aware exact, FTS `simple`, trigram, versioned dense, bounded graph
   expansion, and weighted-RRF retrieval;
 - private canonical hydration with scope/state/trust/bitemporal revalidation;
+- selective confirmed-memory activation with token-bounded context packing and
+  content-free decision telemetry plus commit-time version/trust revalidation;
 - evidence-backed conflict reporting and resolution;
 - an in-memory adapter for deterministic local development and tests;
 - an explicit CockroachDB schema command and a pooled async composition seam;
-- durable, fenced extraction/embedding/artifact work with deterministic fallback;
+- durable, fenced deterministic and typed-provider extraction, embedding, and
+  artifact work with safe fallback;
 - the canonical FastAPI surface and a seven-tool stdio MCP bridge.
 
 Backend selection is fail-closed. `SWARMBRAIN_BACKEND` must be either `memory`
@@ -69,18 +73,34 @@ zero spans means a source-derived synthesis, not a fabricated quotation. Scope,
 visibility, lifecycle states, trust/review state, auth, lease fencing, and
 idempotency remain strict.
 
+An optional OpenAI-compatible compiler can propose typed memories through a
+strict JSON schema. It supplies semantics and verbatim quotations, while the
+runtime resolves offsets against immutable source chunks and validates bounds,
+relations, and candidate types locally. Provider output cannot assign memory
+identity, scope, lifecycle, trust, or policy outcomes; an unavailable or
+invalid provider falls back to the deterministic extractor with bounded
+provenance.
+
 ## Scripted swarm demo
 
-One command drives the full swarm story over the canonical HTTP API — twelve
-simulated heterogeneous workers (Claude Code / Codex / Gemini / Qwen roster
-labels) racing four ready tasks, cross-vendor evidence-backed recall, an
+One command drives the full swarm story over the canonical HTTP API — exactly
+four simulated heterogeneous agents (Claude Code / Codex / Gemini / Qwen
+roster labels) and four tasks in two causal waves. All four agents race the two
+independent Wave-A investigations while the two dependent Wave-B tasks remain
+blocked. The two waiting agents later own Wave B, where confirmed discoveries
+arrive through selective, token-bounded activation. The story also exercises an
 evidence-backed supersession with a rejected poisoning attempt, an idempotent
-duplicate completion, a crash handoff across vendors with stale-lease fencing,
-a dependency-blocked task unblocking, and the run's durable events and metrics:
+duplicate completion, a cross-provider crash handoff with stale-lease fencing,
+and the run's durable events and metrics:
 
 ```bash
 uv run --extra serve swarmbrain-demo
 ```
+
+Add `--ab` to compare the measured run with a deterministic uncoordinated
+baseline over the same fixture. The artifact labels Arm A as simulated and
+derives Arm B from the run's HTTP responses, durable events, and metrics; it
+does not present the simulated baseline as a live execution.
 
 The default run composes an in-process in-memory backend with a controllable
 clock, so lease expiry is demonstrated without waiting. With the CockroachDB
@@ -91,10 +111,14 @@ and lease expiry elapses in real time:
 uv run --extra serve --extra crdb swarmbrain-demo
 ```
 
-Every beat appends named checks to a JSON evidence artifact under
-`evidence/`. The simulated workers speak exactly the protocol a real harness
-speaks through the MCP bridge; the roster labels record the vendor mix the
-scenario stands in for.
+Every beat appends named checks to a JSON evidence artifact under `evidence/`.
+The hidden gate uses fresh opaque values and runs the same verifier with an
+empty context and with the exact `activation_context` delivered on a claim; it
+cannot inspect the raw in-process recall bundle. Checkpoints and completions
+then cite the memories actually used, so the report distinguishes activation,
+citation, and cross-agent use. The simulated agents speak exactly the protocol
+a real harness speaks through the MCP bridge; the roster labels record the
+vendor mix the scenario stands in for.
 
 ## Development
 
@@ -217,7 +241,10 @@ normal lease expiry and checkpoint handoff.
 The API serves a read-only swarm console at `GET /console`: a single
 self-contained page (no bundler, no CDN, no data baked in) that polls the
 canonical read routes every two seconds and draws task custody, crash handoffs,
-run counters, the durable event ledger, and memory lineage.
+run counters, the durable event ledger, and memory lineage. Its memory counters
+report activation attempts, memories activated, explicit citations, and proven
+cross-agent uses separately; the deprecated recall-return count is not labeled
+as reuse.
 
 The page is public; the data is not. Paste the run id and a viewer token into
 its connection dialog — the token stays in that tab's session storage. Issue one

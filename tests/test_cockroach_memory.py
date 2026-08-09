@@ -327,13 +327,23 @@ async def test_retrieval_reuse_write_is_scoped_deduplicated_and_content_free() -
 
 
 @pytest.mark.asyncio
-async def test_retrieval_reuse_write_is_skipped_without_hits() -> None:
+async def test_empty_retrieval_records_an_activation_attempt_without_activated_hits() -> None:
     database = _ReuseDatabase(datetime(2026, 8, 2, 8, 30, tzinfo=UTC))
     store = CockroachMemoryStore(database)  # type: ignore[arg-type]
 
-    await store.record_retrieval_reuse(_actor(), ())
+    actor = _actor()
+    await store.record_retrieval_reuse(actor, ())
 
-    assert database.calls == []
+    assert len(database.calls) == 1
+    _sql, parameters = database.calls[0]
+    assert parameters == (
+        actor.tenant_id,
+        actor.run_id,
+        actor.project_id,
+        actor.repository_id,
+        actor.swarm_id,
+        0,
+    )
 
 
 @pytest.mark.asyncio

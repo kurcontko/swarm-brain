@@ -15,11 +15,16 @@ from swarmbrain.adapters.memory import (
     in_memory_hybrid_retrieval_gateways,
     in_memory_retrieval_gateways,
 )
-from swarmbrain.config import ApiSettings, BackendKind, EmbeddingsKind
+from swarmbrain.config import (
+    ApiSettings,
+    BackendKind,
+    EmbeddingsKind,
+    ExtractionProviderKind,
+)
 from swarmbrain.domain.evidence import SourceTrust
 from swarmbrain.ports.coordination_store import CoordinationStore
 from swarmbrain.ports.embeddings import EmbeddingIndex, EmbeddingProvider
-from swarmbrain.ports.extraction import SourceIngestStore
+from swarmbrain.ports.extraction import ExtractionProvider, SourceIngestStore
 from swarmbrain.ports.work_queue import WorkQueueStore
 from swarmbrain.workers import ExtractionWorker, LeasedWorkWorker
 from swarmbrain.workers.embedding import EmbedMemoryHandler
@@ -229,6 +234,27 @@ def _build_embedding_provider(settings: ApiSettings) -> EmbeddingProvider | None
     )
 
 
+def _build_extraction_provider(settings: ApiSettings) -> ExtractionProvider | None:
+    """Compose provider configuration without opening a client or network connection."""
+
+    if settings.extraction_provider is ExtractionProviderKind.NONE:
+        return None
+    from swarmbrain.adapters.extraction.openai_compatible import (
+        OpenAICompatibleExtractionProvider,
+    )
+
+    assert settings.extraction_base_url is not None
+    assert settings.extraction_model is not None
+    return OpenAICompatibleExtractionProvider(
+        base_url=settings.extraction_base_url,
+        model_id=settings.extraction_model,
+        revision=settings.extraction_revision,
+        api_key=settings.extraction_api_key,
+        timeout_seconds=settings.extraction_timeout_seconds,
+        max_output_tokens=settings.extraction_max_output_tokens,
+    )
+
+
 def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     # Keep the optional driver and durable repositories out of memory-only imports.
     from swarmbrain.adapters.cockroach.coordination import CockroachCoordinationStore
@@ -276,6 +302,7 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     extraction = ExtractionService(
         work_queue,
         DefaultRuleExtractor(),
+        provider=_build_extraction_provider(settings),
         embedding_model=embeddings.model_name if embeddings is not None else None,
     )
     coordination = CoordinationService(coordination_store, memory_service=memory)

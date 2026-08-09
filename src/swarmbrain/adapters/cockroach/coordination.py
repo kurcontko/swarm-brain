@@ -8,7 +8,7 @@ import json
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from psycopg.types.json import Jsonb
 
@@ -18,6 +18,7 @@ from swarmbrain.application.errors import (
     NoTaskAvailable,
     ResourceNotFound,
 )
+from swarmbrain.domain.activation import MemoryActivationTelemetry
 from swarmbrain.domain.agents import ActorContext, Agent, AgentStatus
 from swarmbrain.domain.common import ContractModel, RunId
 from swarmbrain.domain.events import (
@@ -29,6 +30,7 @@ from swarmbrain.domain.events import (
     enriched_payload,
 )
 from swarmbrain.domain.leases import LeaseStatus, RenewLeaseCommand, RenewLeaseResult, TaskLease
+from swarmbrain.domain.memory import MemoryState, RecallQuery, Visibility
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
     CheckpointResult,
@@ -47,6 +49,7 @@ from swarmbrain.domain.tasks import (
 )
 
 from .database import CockroachDatabase
+from .retrieval import build_recall_predicates
 
 
 class _ClaimContention(RuntimeError):
@@ -407,7 +410,13 @@ SCOPED_MEMORY_IDS_SQL = """
       AND repository_id = %s
       AND (
           visibility = 'repository'
-          OR (swarm_id = %s AND run_id = %s)
+          OR (visibility = 'run' AND swarm_id = %s AND run_id = %s)
+          OR (
+              visibility = 'task'
+              AND swarm_id = %s
+              AND run_id = %s
+              AND task_id = %s::UUID
+          )
       )
 """
 NEXT_CHECKPOINT_SEQUENCE_SQL = """
@@ -599,6 +608,31 @@ EVENT_PAGE_AFTER_SQL = f"""
     ORDER BY occurred_at, id
     LIMIT %s
 """
+SELECT_ACTIVATION_SCOPE_SQL = """
+    SELECT now() AS occurred_at
+    FROM tasks AS task
+    JOIN task_leases AS lease ON lease.task_id = task.id
+    WHERE task.id = %s::UUID
+      AND task.tenant_id = %s
+      AND task.project_id = %s
+      AND task.repository_id = %s
+      AND task.swarm_id = %s
+      AND task.run_id = %s
+      AND lease.id = %s::UUID
+      AND lease.tenant_id = task.tenant_id
+      AND lease.run_id = task.run_id
+      AND lease.agent_id = %s
+      AND lease.status = 'active'
+      AND lease.expires_at > now()
+      AND task.state = 'claimed'
+      AND task.active_lease_id = lease.id
+      AND task.claimed_by_agent_id = lease.agent_id
+"""
+SELECT_EVENT_BY_ID_SQL = f"""
+    SELECT {EVENT_COLUMNS}
+    FROM swarm_events
+    WHERE id = %s::UUID
+"""
 RUN_METRICS_SQL = """
     WITH scoped_run AS (
         SELECT tenant_id, id, project_id, repository_id, swarm_id
@@ -681,6 +715,88 @@ RUN_METRICS_SQL = """
            AND memory.repository_id = run.repository_id
            AND memory.run_id = run.id
            AND memory.recorded_to IS NULL) AS memories_published,
+        COALESCE((
+            SELECT sum(jsonb_array_length(activation.payload->'memory_ids'))
+            FROM swarm_events AS activation
+            WHERE activation.tenant_id = run.tenant_id
+              AND activation.project_id = run.project_id
+              AND activation.repository_id = run.repository_id
+              AND activation.swarm_id = run.swarm_id
+              AND activation.run_id = run.id
+              AND activation.event_type = 'memory.activated'
+              AND jsonb_typeof(activation.payload->'memory_ids') = 'array'
+        ), 0) AS memories_activated,
+        (SELECT count(*)
+         FROM swarm_events AS activation
+         WHERE activation.tenant_id = run.tenant_id
+           AND activation.project_id = run.project_id
+           AND activation.repository_id = run.repository_id
+           AND activation.swarm_id = run.swarm_id
+           AND activation.run_id = run.id
+           AND activation.event_type = 'memory.activated') AS memory_activation_attempts,
+        (SELECT count(*)
+         FROM (
+             SELECT checkpoint.task_id, checkpoint.lease_id, checkpoint.agent_id,
+                    unnest(checkpoint.memory_ids) AS memory_id
+             FROM task_checkpoints AS checkpoint
+             WHERE checkpoint.tenant_id = run.tenant_id
+               AND checkpoint.run_id = run.id
+             UNION
+             SELECT completion.task_id, completion.lease_id, completion.agent_id,
+                    unnest(completion.memory_ids) AS memory_id
+             FROM task_completions AS completion
+             WHERE completion.tenant_id = run.tenant_id
+               AND completion.run_id = run.id
+         ) AS citation) AS memories_cited,
+        (SELECT count(*)
+         FROM (
+             SELECT checkpoint.task_id, checkpoint.lease_id, checkpoint.agent_id,
+                    unnest(checkpoint.memory_ids) AS memory_id
+             FROM task_checkpoints AS checkpoint
+             WHERE checkpoint.tenant_id = run.tenant_id
+               AND checkpoint.run_id = run.id
+             UNION
+             SELECT completion.task_id, completion.lease_id, completion.agent_id,
+                    unnest(completion.memory_ids) AS memory_id
+             FROM task_completions AS completion
+             WHERE completion.tenant_id = run.tenant_id
+               AND completion.run_id = run.id
+         ) AS citation
+         JOIN memories AS memory ON memory.id = citation.memory_id
+         WHERE memory.tenant_id = run.tenant_id
+           AND memory.project_id = run.project_id
+           AND memory.repository_id = run.repository_id
+           AND (
+               memory.visibility = 'repository'
+               OR (
+                   memory.visibility = 'run'
+                   AND memory.swarm_id = run.swarm_id
+                   AND memory.run_id = run.id
+               )
+               OR (
+                   memory.visibility = 'task'
+                   AND memory.swarm_id = run.swarm_id
+                   AND memory.run_id = run.id
+                   AND memory.task_id = citation.task_id
+               )
+           )
+           AND memory.agent_id != citation.agent_id
+           AND EXISTS (
+               SELECT 1
+               FROM swarm_events AS activation,
+                    jsonb_array_elements_text(activation.payload->'memory_ids')
+                        AS activated(memory_id)
+               WHERE activation.tenant_id = run.tenant_id
+                 AND activation.project_id = run.project_id
+                 AND activation.repository_id = run.repository_id
+                 AND activation.swarm_id = run.swarm_id
+                 AND activation.run_id = run.id
+                 AND activation.event_type = 'memory.activated'
+                 AND activation.task_id = citation.task_id
+                 AND activation.agent_id = citation.agent_id
+                 AND activation.payload->>'lease_id' = citation.lease_id::STRING
+                 AND activated.memory_id = citation.memory_id::STRING
+           )) AS cross_agent_memory_uses,
         COALESCE((
             SELECT counter.reuse_count
             FROM retrieval_reuse_counters AS counter
@@ -1096,7 +1212,12 @@ class CockroachCoordinationStore:
         outbox_id = str(uuid4())
 
         async def transaction(connection: Any) -> CheckpointResult:
-            await _validate_memory_ids(connection, actor, command.memory_ids)
+            await _validate_memory_ids(
+                connection,
+                actor,
+                command.task_id,
+                command.memory_ids,
+            )
             task, lease = await _load_owned_task_and_lease(
                 connection,
                 actor,
@@ -1148,7 +1269,12 @@ class CockroachCoordinationStore:
                 occurred_at=checkpoint.created_at,
                 task_id=task.task_id,
                 task_title=task.title,
-                payload={"checkpoint_id": checkpoint.checkpoint_id},
+                payload={
+                    "checkpoint_id": checkpoint.checkpoint_id,
+                    **(
+                        {"memory_ids": list(checkpoint.memory_ids)} if checkpoint.memory_ids else {}
+                    ),
+                },
                 idempotency_key=command.idempotency_key,
             )
             return CheckpointResult(task=task, lease=lease, checkpoint=checkpoint)
@@ -1171,7 +1297,12 @@ class CockroachCoordinationStore:
         outbox_id = str(uuid4())
 
         async def transaction(connection: Any) -> CompletionResult:
-            await _validate_memory_ids(connection, actor, command.memory_ids)
+            await _validate_memory_ids(
+                connection,
+                actor,
+                command.task_id,
+                command.memory_ids,
+            )
             task, lease = await _load_owned_task_and_lease(
                 connection,
                 actor,
@@ -1247,7 +1378,12 @@ class CockroachCoordinationStore:
                 occurred_at=completion.completed_at,
                 task_id=task.task_id,
                 task_title=task.title,
-                payload={"outcome": command.outcome.value},
+                payload={
+                    "outcome": command.outcome.value,
+                    **(
+                        {"memory_ids": list(completion.memory_ids)} if completion.memory_ids else {}
+                    ),
+                },
                 idempotency_key=command.idempotency_key,
             )
             return CompletionResult(task=task, lease=lease, completion=completion)
@@ -1423,6 +1559,10 @@ class CockroachCoordinationStore:
                 checkpoints=int(row["checkpoints"]),
                 crash_handoffs=int(row["crash_handoffs"]),
                 memories_published=int(row["memories_published"]),
+                memories_activated=int(row["memories_activated"]),
+                memory_activation_attempts=int(row["memory_activation_attempts"]),
+                memories_cited=int(row["memories_cited"]),
+                cross_agent_memory_uses=int(row["cross_agent_memory_uses"]),
                 memories_reused=int(row["memories_reused"]),
                 conflicts_open=int(row["conflicts_open"]),
                 conflicts_resolved=int(row["conflicts_resolved"]),
@@ -1431,6 +1571,184 @@ class CockroachCoordinationStore:
             )
 
         return await self.database.run(transaction)
+
+    async def record_memory_activation(
+        self,
+        actor: ActorContext,
+        telemetry: MemoryActivationTelemetry,
+    ) -> None:
+        """Persist an idempotent, content-free activation audit event."""
+
+        if telemetry.run_id != actor.run_id or telemetry.agent_id != actor.agent_id:
+            raise InvalidState("memory activation actor does not match telemetry")
+        outbox_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                f"swarmbrain-memory-activation-outbox-v1:{telemetry.activation_id}",
+            )
+        )
+
+        async def transaction(connection: Any) -> None:
+            existing_cursor = await connection.execute(
+                SELECT_EVENT_BY_ID_SQL,
+                (telemetry.activation_id,),
+            )
+            existing_row = await existing_cursor.fetchone()
+            if existing_row is not None:
+                existing = _event_from_row(existing_row)
+                if not _activation_event_matches(existing, actor, telemetry):
+                    raise InvalidState(
+                        "memory activation identity is already used by another event",
+                        activation_id=telemetry.activation_id,
+                    )
+                return
+
+            scope_cursor = await connection.execute(
+                SELECT_ACTIVATION_SCOPE_SQL,
+                (
+                    telemetry.task_id,
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    actor.swarm_id,
+                    actor.run_id,
+                    telemetry.lease_id,
+                    actor.agent_id,
+                ),
+            )
+            scope_row = await scope_cursor.fetchone()
+            if scope_row is None:
+                raise ResourceNotFound("active activation lease", telemetry.lease_id)
+
+            if telemetry.memory_ids:
+                query = RecallQuery(
+                    text="activation eligibility check",
+                    task_id=telemetry.task_id,
+                    states=frozenset({MemoryState.CONFIRMED}),
+                    visibilities=frozenset(Visibility),
+                    limit=len(telemetry.memory_ids),
+                )
+                predicates = build_recall_predicates(
+                    actor,
+                    query,
+                    now=scope_row["occurred_at"],
+                    candidate_ids=telemetry.memory_ids,
+                )
+                memory_cursor = await connection.execute(
+                    f"SELECT m.id, m.version FROM memories AS m "
+                    f"WHERE {' AND '.join(predicates.clauses)}",
+                    predicates.parameters,
+                )
+                recallable_versions = {
+                    str(row["id"]): int(row["version"]) for row in await memory_cursor.fetchall()
+                }
+                stale_ids = sorted(
+                    memory_id
+                    for memory_id, expected_version in telemetry.memory_versions.items()
+                    if recallable_versions.get(memory_id) != expected_version
+                )
+                if stale_ids:
+                    raise InvalidState(
+                        "activated memory selection is no longer current and recallable",
+                        memory_ids=stale_ids,
+                    )
+
+            await _append_event(
+                connection,
+                actor,
+                event_id=telemetry.activation_id,
+                outbox_id=outbox_id,
+                event_type=EventType.MEMORY_ACTIVATED,
+                aggregate_type=AggregateType.RUN,
+                aggregate_id=actor.run_id,
+                aggregate_version=1,
+                occurred_at=scope_row["occurred_at"],
+                task_id=telemetry.task_id,
+                payload=telemetry.model_dump(mode="json"),
+            )
+
+        try:
+            await self.database.run(transaction)
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) != "23505":
+                raise
+            collision = exc
+
+            # Concurrent retries use the same deterministic event and outbox
+            # IDs. A uniqueness race is successful only when the committed
+            # winner carries equivalent telemetry.
+            async def resolve(connection: Any) -> None:
+                cursor = await connection.execute(
+                    SELECT_EVENT_BY_ID_SQL,
+                    (telemetry.activation_id,),
+                )
+                row = await cursor.fetchone()
+                if row is None or not _activation_event_matches(
+                    _event_from_row(row),
+                    actor,
+                    telemetry,
+                ):
+                    raise collision
+
+            await self.database.run(resolve)
+
+    async def get_memory_activation(
+        self,
+        actor: ActorContext,
+        activation_id: str,
+    ) -> MemoryActivationTelemetry | None:
+        """Return canonical telemetry for a scoped deterministic activation ID."""
+
+        async def transaction(connection: Any) -> MemoryActivationTelemetry | None:
+            cursor = await connection.execute(SELECT_EVENT_BY_ID_SQL, (activation_id,))
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            event = _event_from_row(row)
+            if (
+                event.tenant_id != actor.tenant_id
+                or event.project_id != actor.project_id
+                or event.repository_id != actor.repository_id
+                or event.swarm_id != actor.swarm_id
+                or event.run_id != actor.run_id
+                or event.agent_id != actor.agent_id
+                or str(event.event_type) != EventType.MEMORY_ACTIVATED.value
+            ):
+                raise ResourceNotFound("memory activation", activation_id)
+            try:
+                return MemoryActivationTelemetry.model_validate(
+                    {
+                        key: event.payload[key]
+                        for key in MemoryActivationTelemetry.model_fields
+                        if key in event.payload
+                    }
+                )
+            except ValueError as exc:
+                raise InvalidState(
+                    "stored memory activation telemetry is invalid",
+                    activation_id=activation_id,
+                ) from exc
+
+        return await self.database.run(transaction)
+
+
+def _activation_event_matches(
+    event: SwarmEvent,
+    actor: ActorContext,
+    telemetry: MemoryActivationTelemetry,
+) -> bool:
+    expected = telemetry.model_dump(mode="json")
+    return (
+        event.tenant_id == actor.tenant_id
+        and event.project_id == actor.project_id
+        and event.repository_id == actor.repository_id
+        and event.swarm_id == actor.swarm_id
+        and event.run_id == actor.run_id
+        and event.agent_id == actor.agent_id
+        and event.task_id == telemetry.task_id
+        and str(event.event_type) == EventType.MEMORY_ACTIVATED.value
+        and all(event.payload.get(key) == value for key, value in expected.items())
+    )
 
 
 async def _ensure_run_scope(
@@ -1585,6 +1903,7 @@ async def _load_owned_task_and_lease(
 async def _validate_memory_ids(
     connection: Any,
     actor: ActorContext,
+    task_id: str,
     memory_ids: tuple[str, ...],
 ) -> None:
     if not memory_ids:
@@ -1598,6 +1917,9 @@ async def _validate_memory_ids(
             actor.repository_id,
             actor.swarm_id,
             actor.run_id,
+            actor.swarm_id,
+            actor.run_id,
+            task_id,
         ),
     )
     rows = await cursor.fetchall()

@@ -25,6 +25,7 @@ from swarmbrain.domain.extraction import (
     SourceChunk,
     SourceIngestResult,
 )
+from swarmbrain.domain.memory import Memory, MemoryLinkKind, MemoryState, Visibility
 from swarmbrain.domain.work import (
     AppliedWorkEffect,
     ApplyEmbeddingWorkCommand,
@@ -54,6 +55,7 @@ from swarmbrain.domain.work import (
 from swarmbrain.retrieval.dense import dense_projection_signature
 
 from .database import CockroachDatabase
+from .retrieval import upsert_memory_retrieval_projection
 from .vector import upsert_memory_dense_projection, vector_literal
 
 WORK_COLUMNS = """
@@ -730,6 +732,7 @@ class CockroachWorkStore:
                     item,
                     source_row,
                     effect,
+                    command.provenance,
                 )
                 applied.append(applied_effect)
                 if isinstance(item.payload.get("embedding_model"), str):
@@ -739,6 +742,13 @@ class CockroachWorkStore:
                         effect,
                         applied_effect,
                     )
+
+            await self._apply_candidate_relations(
+                connection,
+                item,
+                command.effects,
+                applied,
+            )
 
             update_cursor = await connection.execute(
                 f"""
@@ -1194,6 +1204,7 @@ class CockroachWorkStore:
         item: WorkItem,
         source_row: Mapping[str, Any],
         effect: WorkEffect,
+        provenance: Sequence[ExtractionProvenance],
     ) -> AppliedWorkEffect:
         existing_cursor = await connection.execute(
             """
@@ -1276,6 +1287,13 @@ class CockroachWorkStore:
             )
 
         candidate = effect.candidate
+        memory_metadata = self._effect_memory_metadata(item.work_id, effect, provenance)
+        valid_from = (
+            candidate.valid_from
+            or candidate.event_time
+            or source_row.get("valid_at")
+            or source_row["recorded_at"]
+        )
         memory_cursor = await connection.execute(
             """
             INSERT INTO memories (
@@ -1308,33 +1326,23 @@ class CockroachWorkStore:
                 bytes.fromhex(memory_text_sha256(candidate.content)),
                 f"run:{item.run_id}",
                 candidate.confidence,
-                candidate.valid_from or source_row.get("valid_at") or source_row["recorded_at"],
+                valid_from,
                 candidate.valid_to,
                 _uuid(item.subject_id),
                 "validated extraction candidate; confirmation requires review",
-                Jsonb({"extraction": {"work_id": item.work_id, "effect_key": effect.effect_key}}),
+                Jsonb(memory_metadata),
             ),
         )
         inserted = await memory_cursor.fetchone()
-        inserted_new_memory = inserted is not None
-        memory_recorded_at = inserted.get("recorded_from") if inserted is not None else None
-        memory_version = int(inserted.get("version", 1)) if inserted is not None else 1
         if inserted is None:
-            existing_memory_cursor = await connection.execute(
-                """
-                SELECT id, recorded_from, version
-                FROM memories
-                WHERE id = %s
-                FOR UPDATE
-                """,
-                (memory_id,),
-            )
-            existing_memory = await existing_memory_cursor.fetchone()
-            if existing_memory is None:
-                raise RuntimeError("memory effect conflict did not resolve by effect identity")
-            memory_id = _uuid(str(existing_memory["id"]))
-            memory_recorded_at = existing_memory["recorded_from"]
-            memory_version = int(existing_memory["version"])
+            # The memory row and effect ledger are committed atomically. A
+            # deterministic memory ID without its effect row is therefore not
+            # a retry; attaching new evidence would mutate an unproved revision
+            # without advancing its version and could invalidate activation
+            # selection proofs. Treat the orphan/collision as corruption.
+            raise WorkEffectConflict(effect.effect_key)
+        memory_recorded_at = inserted["recorded_from"]
+        memory_version = int(inserted["version"])
 
         for evidence_id in evidence_ids:
             await connection.execute(
@@ -1346,15 +1354,41 @@ class CockroachWorkStore:
                 (memory_id, evidence_id),
             )
 
-        if inserted_new_memory:
-            await self._emit_memory_effect(
-                connection,
-                item,
-                effect,
-                memory_id,
-                memory_version,
-                memory_recorded_at,
-            )
+        assert memory_recorded_at is not None
+        await upsert_memory_retrieval_projection(
+            connection,
+            Memory(
+                memory_id=str(memory_id),
+                tenant_id=item.tenant_id,
+                project_id=item.project_id,
+                repository_id=item.repository_id,
+                swarm_id=item.swarm_id,
+                run_id=item.run_id,
+                task_id=item.task_id,
+                author_agent_id=item.requested_by_agent_id,
+                kind=candidate.kind,
+                state=MemoryState.TENTATIVE,
+                visibility=Visibility.RUN,
+                content=candidate.content,
+                title=candidate.title,
+                tags=candidate.tags,
+                confidence=candidate.confidence,
+                valid_from=valid_from,
+                valid_to=candidate.valid_to,
+                recorded_from=memory_recorded_at,
+                version=memory_version,
+                metadata=memory_metadata,
+            ),
+        )
+
+        await self._emit_memory_effect(
+            connection,
+            item,
+            effect,
+            memory_id,
+            memory_version,
+            memory_recorded_at,
+        )
 
         await connection.execute(
             """
@@ -1378,6 +1412,90 @@ class CockroachWorkStore:
             payload_sha256=effect.payload_sha256,
             resource_id=str(memory_id),
         )
+
+    @staticmethod
+    def _effect_memory_metadata(
+        work_id: str,
+        effect: WorkEffect,
+        provenance: Sequence[ExtractionProvenance],
+    ) -> dict[str, Any]:
+        candidate = effect.candidate
+        metadata = dict(candidate.metadata)
+        metadata["extraction"] = {
+            "work_id": work_id,
+            "effect_key": effect.effect_key,
+            "candidate_origin": effect.candidate_origin.value,
+            "candidate_key": candidate.candidate_key,
+            "event_time": candidate.event_time.isoformat() if candidate.event_time else None,
+            "provenance": [item.model_dump(mode="json") for item in provenance],
+        }
+        if candidate.aliases:
+            metadata["aliases"] = list(candidate.aliases)
+        return metadata
+
+    @staticmethod
+    async def _apply_candidate_relations(
+        connection: Any,
+        item: WorkItem,
+        effects: Sequence[WorkEffect],
+        applied: Sequence[AppliedWorkEffect],
+    ) -> None:
+        allowed = {
+            MemoryLinkKind.DERIVED_FROM,
+            MemoryLinkKind.SUPPORTS,
+            MemoryLinkKind.CONTRADICTS,
+            MemoryLinkKind.RELATED_TO,
+        }
+        by_candidate_key = {
+            effect.candidate.candidate_key: (effect, applied_effect)
+            for effect, applied_effect in zip(effects, applied, strict=True)
+            if effect.candidate.candidate_key is not None
+        }
+        for effect, applied_effect in zip(effects, applied, strict=True):
+            for relation in effect.candidate.relations:
+                if relation.kind not in allowed:
+                    raise WorkEffectConflict(f"candidate_relation:{effect.effect_key}")
+                target = by_candidate_key.get(relation.target_candidate_key)
+                if target is None:
+                    raise WorkEffectConflict(f"candidate_relation:{effect.effect_key}")
+                target_effect, target_applied = target
+                link_id = uuid5(
+                    _uuid(item.work_id),
+                    ":".join(
+                        (
+                            "effect-link",
+                            effect.effect_key,
+                            target_effect.effect_key,
+                            relation.kind.value,
+                        )
+                    ),
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO memory_links (
+                        id, source_memory_id, target_memory_id, link_type,
+                        reason, metadata
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (source_memory_id, target_memory_id, link_type)
+                    DO NOTHING
+                    """,
+                    (
+                        link_id,
+                        _uuid(applied_effect.resource_id),
+                        _uuid(target_applied.resource_id),
+                        relation.kind.value,
+                        relation.reason,
+                        Jsonb(
+                            {
+                                "extraction": {
+                                    "work_id": item.work_id,
+                                    "source_candidate_key": effect.candidate.candidate_key,
+                                    "target_candidate_key": relation.target_candidate_key,
+                                }
+                            }
+                        ),
+                    ),
+                )
 
     @staticmethod
     async def _enqueue_effect_embedding(

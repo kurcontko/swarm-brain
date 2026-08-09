@@ -28,6 +28,7 @@ from swarmbrain.domain.evidence import (
     EvidenceKind,
     RegisterEvidenceSourceCommand,
     RejectSourceCommand,
+    ReviewSourceCommand,
     SourceReviewState,
 )
 from swarmbrain.domain.memory import (
@@ -265,6 +266,17 @@ async def test_temporal_memory_evidence_conflicts_and_outbox_are_atomic(
     assert rejection_retry.triggered is True
     assert rejected.source.review_state is SourceReviewState.REJECTED
     assert rejected.rolled_back_memory_ids == (correction.memory.memory_id,)
+    with pytest.raises(InvalidState, match="rejection is terminal"):
+        await store.review_source(
+            actor,
+            ReviewSourceCommand(
+                idempotency_key=f"source-reapprove-{_id()}",
+                source_id=rejected.source.source_id,
+                expected_version=rejected.source.version,
+                review_state=SourceReviewState.APPROVED,
+                reason="attempt to restore rolled-back evidence",
+            ),
+        )
 
     after_rejection = await store.recall(actor, RecallQuery(text="database port"))
     assert [hit.memory.memory_id for hit in after_rejection.hits] == [first.memory.memory_id]

@@ -30,6 +30,7 @@ from swarmbrain.application.errors import (
     ResourceNotFound,
 )
 from swarmbrain.application.memory_policy import memory_content_text
+from swarmbrain.domain.activation import MemoryActivationTelemetry
 from swarmbrain.domain.agents import ActorContext, Agent
 from swarmbrain.domain.common import MemoryId, RunId, SourceId, utc_now
 from swarmbrain.domain.conflicts import (
@@ -382,8 +383,7 @@ class InMemoryKernel:
             replay = self._replay(actor, "task.checkpoint", command)
             if replay is not None:
                 return replay
-            for memory_id in command.memory_ids:
-                self._memory_target(actor, memory_id, require_current=False)
+            self._validate_citation_memory_ids(actor, command.task_id, command.memory_ids)
             task, lease = self._owned_task_and_lease(
                 actor,
                 command.task_id,
@@ -422,7 +422,12 @@ class InMemoryKernel:
                 task.version,
                 task_id=task.task_id,
                 task_title=task.title,
-                payload={"checkpoint_id": checkpoint.checkpoint_id},
+                payload={
+                    "checkpoint_id": checkpoint.checkpoint_id,
+                    **(
+                        {"memory_ids": list(checkpoint.memory_ids)} if checkpoint.memory_ids else {}
+                    ),
+                },
                 idempotency_key=command.idempotency_key,
             )
             return self._remember_result(actor, "task.checkpoint", command, result)
@@ -436,8 +441,7 @@ class InMemoryKernel:
             replay = self._replay(actor, "task.complete", command)
             if replay is not None:
                 return replay
-            for memory_id in command.memory_ids:
-                self._memory_target(actor, memory_id, require_current=False)
+            self._validate_citation_memory_ids(actor, command.task_id, command.memory_ids)
             task, lease = self._owned_task_and_lease(
                 actor,
                 command.task_id,
@@ -492,7 +496,12 @@ class InMemoryKernel:
                 task.version,
                 task_id=task.task_id,
                 task_title=task.title,
-                payload={"outcome": command.outcome.value},
+                payload={
+                    "outcome": command.outcome.value,
+                    **(
+                        {"memory_ids": list(completion.memory_ids)} if completion.memory_ids else {}
+                    ),
+                },
                 idempotency_key=command.idempotency_key,
             )
             return self._remember_result(actor, "task.complete", command, result)
@@ -584,6 +593,58 @@ class InMemoryKernel:
                 for item in self.conflicts.values()
                 if item.tenant_id == actor.tenant_id and item.run_id == run_id
             ]
+            citation_records = {
+                (
+                    checkpoint.task_id,
+                    checkpoint.lease_id,
+                    checkpoint.agent_id,
+                    memory_id,
+                )
+                for task in tasks
+                for checkpoint in self.checkpoints[task.task_id]
+                for memory_id in checkpoint.memory_ids
+            }
+            citation_records.update(
+                (
+                    completion.task_id,
+                    completion.lease_id,
+                    completion.agent_id,
+                    memory_id,
+                )
+                for task in tasks
+                if (completion := self.completions.get(task.task_id)) is not None
+                for memory_id in completion.memory_ids
+            )
+            activation_events = [
+                event
+                for event in self.events
+                if event.tenant_id == actor.tenant_id
+                and event.project_id == actor.project_id
+                and event.repository_id == actor.repository_id
+                and event.swarm_id == actor.swarm_id
+                and event.run_id == run_id
+                and event.event_type is EventType.MEMORY_ACTIVATED
+            ]
+            activation_keys = {
+                (
+                    event.task_id,
+                    str(event.payload.get("lease_id") or ""),
+                    event.agent_id,
+                    str(memory_id),
+                )
+                for event in activation_events
+                for memory_id in event.payload.get("memory_ids", ())
+            }
+            cross_agent_uses = sum(
+                (memory := self.memories.get(memory_id)) is not None
+                and memory.author_agent_id != consumer_agent_id
+                and (task_id, lease_id, consumer_agent_id, memory_id) in activation_keys
+                for task_id, lease_id, consumer_agent_id, memory_id in citation_records
+            )
+            activated_count = sum(
+                len(tuple(dict.fromkeys(event.payload.get("memory_ids", ()))))
+                for event in activation_events
+            )
             return RunMetrics(
                 run_id=run_id,
                 measured_at=now,
@@ -601,6 +662,10 @@ class InMemoryKernel:
                     memory.run_id == run_id and memory.recorded_to is None
                     for memory in self.memories.values()
                 ),
+                memories_activated=activated_count,
+                memory_activation_attempts=len(activation_events),
+                memories_cited=len(citation_records),
+                cross_agent_memory_uses=cross_agent_uses,
                 memories_reused=self._memory_reuses[run_id],
                 conflicts_open=sum(item.status is ConflictStatus.OPEN for item in conflicts),
                 conflicts_resolved=sum(
@@ -609,6 +674,124 @@ class InMemoryKernel:
                 duplicate_claims_prevented=self._duplicate_claims[run_id],
                 duplicate_mutations_replayed=self._duplicate_replays[run_id],
             )
+
+    async def record_memory_activation(
+        self,
+        actor: ActorContext,
+        telemetry: MemoryActivationTelemetry,
+    ) -> None:
+        """Persist one content-free activation decision per lease trigger."""
+
+        async with self._lock:
+            if telemetry.run_id != actor.run_id or telemetry.agent_id != actor.agent_id:
+                raise InvalidState("memory activation actor does not match telemetry")
+            existing = next(
+                (event for event in self.events if event.event_id == telemetry.activation_id),
+                None,
+            )
+            if existing is not None:
+                expected = telemetry.model_dump(mode="json")
+                if (
+                    existing.tenant_id != actor.tenant_id
+                    or existing.project_id != actor.project_id
+                    or existing.repository_id != actor.repository_id
+                    or existing.swarm_id != actor.swarm_id
+                    or existing.run_id != actor.run_id
+                    or existing.agent_id != actor.agent_id
+                    or existing.task_id != telemetry.task_id
+                    or existing.event_type is not EventType.MEMORY_ACTIVATED
+                    or any(existing.payload.get(key) != value for key, value in expected.items())
+                ):
+                    raise InvalidState(
+                        "memory activation identity is already used by another event",
+                        activation_id=telemetry.activation_id,
+                    )
+                return
+            task = self.tasks.get(telemetry.task_id)
+            if task is None or not self._task_in_scope(actor, task):
+                raise ResourceNotFound("task", telemetry.task_id)
+            lease = self.leases.get(telemetry.lease_id)
+            now = self._now()
+            if (
+                lease is None
+                or lease.task_id != task.task_id
+                or lease.run_id != actor.run_id
+                or lease.owner_agent_id != actor.agent_id
+                or lease.status is not LeaseStatus.ACTIVE
+                or lease.expires_at <= now
+                or task.status is not TaskStatus.CLAIMED
+                or task.active_lease_id != lease.lease_id
+                or task.claimed_by_agent_id != actor.agent_id
+            ):
+                raise ResourceNotFound("active activation lease", telemetry.lease_id)
+            if telemetry.memory_ids:
+                query = RecallQuery(
+                    text="activation eligibility check",
+                    task_id=telemetry.task_id,
+                    memory_ids=frozenset(telemetry.memory_ids),
+                    states=frozenset({MemoryState.CONFIRMED}),
+                    visibilities=frozenset(Visibility),
+                    limit=len(telemetry.memory_ids),
+                )
+                recallable_versions = {
+                    memory.memory_id: memory.version
+                    for memory in self._recallable_memories_locked(actor, query, now)
+                }
+                stale_ids = sorted(
+                    memory_id
+                    for memory_id, expected_version in telemetry.memory_versions.items()
+                    if recallable_versions.get(memory_id) != expected_version
+                )
+                if stale_ids:
+                    raise InvalidState(
+                        "activated memory selection is no longer current and recallable",
+                        memory_ids=stale_ids,
+                    )
+            self._emit(
+                actor,
+                EventType.MEMORY_ACTIVATED,
+                AggregateType.RUN,
+                actor.run_id,
+                1,
+                task_id=task.task_id,
+                payload=telemetry.model_dump(mode="json"),
+                event_id=telemetry.activation_id,
+            )
+
+    async def get_memory_activation(
+        self,
+        actor: ActorContext,
+        activation_id: str,
+    ) -> MemoryActivationTelemetry | None:
+        """Return canonical telemetry for a scoped deterministic activation ID."""
+
+        async with self._lock:
+            event = next((item for item in self.events if item.event_id == activation_id), None)
+            if event is None:
+                return None
+            if (
+                event.tenant_id != actor.tenant_id
+                or event.project_id != actor.project_id
+                or event.repository_id != actor.repository_id
+                or event.swarm_id != actor.swarm_id
+                or event.run_id != actor.run_id
+                or event.agent_id != actor.agent_id
+                or event.event_type is not EventType.MEMORY_ACTIVATED
+            ):
+                raise ResourceNotFound("memory activation", activation_id)
+            try:
+                return MemoryActivationTelemetry.model_validate(
+                    {
+                        key: event.payload[key]
+                        for key in MemoryActivationTelemetry.model_fields
+                        if key in event.payload
+                    }
+                )
+            except ValueError as exc:
+                raise InvalidState(
+                    "stored memory activation telemetry is invalid",
+                    activation_id=activation_id,
+                ) from exc
 
     # ------------------------------------------------------------------
     # Memory
@@ -876,8 +1059,6 @@ class InMemoryKernel:
         """Account final public hits once when RetrievalService owns recall."""
 
         count = len(tuple(dict.fromkeys(memory_ids)))
-        if count == 0:
-            return
         async with self._lock:
             self._memory_reuses[actor.run_id] += count
 
@@ -1152,6 +1333,11 @@ class InMemoryKernel:
                     source_id=source.source_id,
                     expected_version=command.expected_version,
                     actual_version=source.version,
+                )
+            if source.review_state is SourceReviewState.REJECTED:
+                raise InvalidState(
+                    "source rejection is terminal",
+                    source_id=source.source_id,
                 )
             source = source.model_copy(
                 update={
@@ -1651,6 +1837,17 @@ class InMemoryKernel:
             raise InvalidState("memory is not current", memory_id=memory_id)
         return memory
 
+    def _validate_citation_memory_ids(
+        self,
+        actor: ActorContext,
+        task_id: str,
+        memory_ids: Sequence[str],
+    ) -> None:
+        for memory_id in memory_ids:
+            memory = self.memories.get(memory_id)
+            if memory is None or not self._memory_accessible(actor, memory, task_id):
+                raise ResourceNotFound("memory", memory_id)
+
     def _source_accessible(self, actor: ActorContext, source_id: str) -> bool:
         scope = self._source_scope.get(source_id)
         return scope == (
@@ -1731,10 +1928,12 @@ class InMemoryKernel:
         task_title: str | None = None,
         payload: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
+        event_id: str | None = None,
+        outbox_id: str | None = None,
     ) -> SwarmEvent:
         now = self._now()
         event = SwarmEvent(
-            event_id=_uuid(),
+            event_id=event_id or _uuid(),
             event_type=event_type,
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
@@ -1758,7 +1957,9 @@ class InMemoryKernel:
             idempotency_key=idempotency_key,
         )
         self.events.append(event)
-        self.outbox.append(OutboxEvent(outbox_id=_uuid(), event=event, available_at=now))
+        self.outbox.append(
+            OutboxEvent(outbox_id=outbox_id or _uuid(), event=event, available_at=now)
+        )
         return event
 
 

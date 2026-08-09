@@ -221,6 +221,23 @@ class HydrationRejection(ContractModel):
     reason: SemanticLabel = "not_recallable"
 
 
+class PackingTrace(ContractModel):
+    """Auditable record of the context-window decision after retrieval.
+
+    Candidate generation and ranking answer whether useful evidence was found;
+    this record answers which of those candidates actually survived the
+    reader's token budget.  It deliberately stores IDs and token estimates,
+    never rendered memory content.
+    """
+
+    policy: SemanticLabel = "greedy"
+    token_budget: int = Field(ge=1)
+    used_tokens: int = Field(ge=0)
+    candidate_token_counts: dict[MemoryId, int] = Field(default_factory=dict)
+    kept_ids: tuple[MemoryId, ...] = ()
+    dropped_ids: tuple[MemoryId, ...] = ()
+
+
 class RetrievalTrace(ContractModel):
     """Auditable internal trace; never serialized in the v1 recall response."""
 
@@ -237,6 +254,7 @@ class RetrievalTrace(ContractModel):
     candidate_relevance: tuple[CandidateRelevance, ...] = ()
     hydrated_ids: tuple[MemoryId, ...] = ()
     hydration_rejections: tuple[HydrationRejection, ...] = ()
+    packing: PackingTrace | None = None
     final_ids: tuple[MemoryId, ...] = ()
     degraded_lanes: frozenset[RetrievalSignal] = frozenset()
     abstained: bool = False
@@ -253,6 +271,7 @@ __all__ = [
     "FusedCandidate",
     "FusionContribution",
     "HydrationRejection",
+    "PackingTrace",
     "RetrievalPlan",
     "RetrievalPurpose",
     "RetrievalScope",

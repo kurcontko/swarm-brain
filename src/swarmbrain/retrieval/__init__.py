@@ -19,6 +19,7 @@ from .packing import (
     answer_in_context,
     estimate_tokens,
     pack_to_budget,
+    render_recall_hit,
 )
 from .planner import RetrievalPlanner, parse_query_identifiers
 from .projection import (
@@ -64,6 +65,7 @@ __all__ = [
     "projection_scope_key",
     "relevance_query",
     "relevance_reranked",
+    "render_recall_hit",
     "search_text",
     "trigram_similarity",
     "weighted_rrf",

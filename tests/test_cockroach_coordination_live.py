@@ -12,9 +12,17 @@ from swarmbrain.adapters.cockroach import coordination
 from swarmbrain.adapters.cockroach.coordination import CockroachCoordinationStore
 from swarmbrain.adapters.cockroach.database import CockroachDatabase
 from swarmbrain.application.errors import InvalidState, LeaseLost, NoTaskAvailable
+from swarmbrain.domain.activation import (
+    ActivationDecision,
+    ActivationReason,
+    ActivationTrigger,
+    MemoryActivationTelemetry,
+    memory_activation_id,
+)
 from swarmbrain.domain.common import ContractModel
 from swarmbrain.domain.events import EventType
 from swarmbrain.domain.leases import LeaseStatus, RenewLeaseCommand
+from swarmbrain.domain.retrieval import RetrievalPurpose
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
     ClaimTaskCommand,
@@ -434,5 +442,68 @@ async def test_dependency_gating_cycle_guard_keyset_events_and_explain(
             return _Ack()
 
         await database.run(explain)
+    finally:
+        await _cleanup(database, scope_ids)
+
+
+async def test_memory_activation_event_is_scoped_content_free_and_idempotent(
+    database: CockroachDatabase,
+    scope_ids: dict[str, str],
+) -> None:
+    store = CockroachCoordinationStore(database)
+    actor = make_actor(scope_ids)
+    try:
+        await store.join_agent(actor)
+        task = await store.add_task(make_task(scope_ids, title="Activation event"))
+        claim = await store.claim_task(
+            actor,
+            ClaimTaskCommand(idempotency_key="activation-event-claim"),
+        )
+        activation_id = memory_activation_id(
+            task.task_id,
+            claim.lease.lease_id,
+            ActivationTrigger.TASK_CLAIM,
+        )
+        telemetry = MemoryActivationTelemetry(
+            activation_id=activation_id,
+            run_id=actor.run_id,
+            agent_id=actor.agent_id,
+            task_id=task.task_id,
+            lease_id=claim.lease.lease_id,
+            trigger=ActivationTrigger.TASK_CLAIM,
+            decision=ActivationDecision.SKIP,
+            purpose=RetrievalPurpose.TASK_BOOTSTRAP,
+            reason=ActivationReason.NO_RELEVANT_MEMORY,
+            token_budget=2_048,
+            min_score=0.4,
+        )
+
+        await asyncio.gather(*(store.record_memory_activation(actor, telemetry) for _ in range(8)))
+        assert await store.get_memory_activation(actor, activation_id) == telemetry
+
+        async def read_activation(connection: Any) -> dict[str, Any]:
+            cursor = await connection.execute(
+                """
+                SELECT event.id, event.payload, count(outbox.id) AS outbox_count
+                FROM swarm_events AS event
+                LEFT JOIN outbox_events AS outbox ON outbox.event_id = event.id
+                WHERE event.id = %s::UUID
+                  AND event.tenant_id = %s
+                  AND event.run_id = %s
+                GROUP BY event.id, event.payload
+                """,
+                (activation_id, actor.tenant_id, actor.run_id),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return dict(row)
+
+        row = await database.run(read_activation)
+        assert str(row["id"]) == activation_id
+        assert int(row["outbox_count"]) == 1
+        assert row["payload"]["decision"] == ActivationDecision.SKIP.value
+        serialized = str(row["payload"])
+        assert "query" not in serialized
+        assert "content" not in serialized
     finally:
         await _cleanup(database, scope_ids)

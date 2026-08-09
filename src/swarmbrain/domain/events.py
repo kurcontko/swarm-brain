@@ -44,6 +44,7 @@ class EventType(StrEnum):
     MEMORY_SUPERSEDED = "memory.superseded"
     MEMORY_CONFIRMED = "memory.confirmed"
     MEMORY_REFUTED = "memory.refuted"
+    MEMORY_ACTIVATED = "memory.activated"
     SOURCE_REJECTED = "source.rejected"
     CONFLICT_REPORTED = "conflict.reported"
     CONFLICT_RESOLVED = "conflict.resolved"
@@ -203,7 +204,20 @@ class RunMetrics(ContractModel):
     checkpoints: int = Field(default=0, ge=0)
     crash_handoffs: int = Field(default=0, ge=0)
     memories_published: int = Field(default=0, ge=0)
-    memories_reused: int = Field(default=0, ge=0)
+    memories_activated: int = Field(default=0, ge=0)
+    memory_activation_attempts: int = Field(default=0, ge=0)
+    memories_cited: int = Field(default=0, ge=0)
+    cross_agent_memory_uses: int = Field(default=0, ge=0)
+    memories_reused: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Deprecated compatibility metric. This counts memories returned by recall, "
+            "not memories proven to have affected an agent outcome; use memories_activated, "
+            "memories_cited, and cross_agent_memory_uses instead."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
     conflicts_open: int = Field(default=0, ge=0)
     conflicts_resolved: int = Field(default=0, ge=0)
     duplicate_claims_prevented: int = Field(default=0, ge=0)

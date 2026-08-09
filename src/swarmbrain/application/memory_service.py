@@ -27,7 +27,7 @@ from swarmbrain.ports.retrieval import CanonicalMemoryReader
 
 from .capabilities import require_capability
 from .memory_policy import memory_content_text
-from .retrieval_service import RetrievalService
+from .retrieval_service import RetrievalExecution, RetrievalService
 from .work import DurableWorkService
 
 SEMANTIC_MATCH_REASON = "semantic_match"
@@ -97,9 +97,52 @@ class MemoryService:
         *,
         purpose: RetrievalPurpose = RetrievalPurpose.INTERACTIVE_RECALL,
         seed_memory_ids: tuple[MemoryId, ...] = (),
+        token_budget: int | None = None,
     ) -> RecallBundle:
+        recalled = await self._recall(
+            actor,
+            query,
+            purpose=purpose,
+            seed_memory_ids=seed_memory_ids,
+            token_budget=token_budget,
+            include_execution=False,
+        )
+        assert isinstance(recalled, RecallBundle)
+        return recalled
+
+    async def recall_for_activation(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        *,
+        purpose: RetrievalPurpose,
+        seed_memory_ids: tuple[MemoryId, ...],
+        token_budget: int | None,
+    ) -> RecallBundle | RetrievalExecution:
+        """Recall while retaining the trace used by selective activation."""
+
+        return await self._recall(
+            actor,
+            query,
+            purpose=purpose,
+            seed_memory_ids=seed_memory_ids,
+            token_budget=token_budget,
+            include_execution=True,
+        )
+
+    async def _recall(
+        self,
+        actor: ActorContext,
+        query: RecallQuery,
+        *,
+        purpose: RetrievalPurpose,
+        seed_memory_ids: tuple[MemoryId, ...],
+        token_budget: int | None,
+        include_execution: bool,
+    ) -> RecallBundle | RetrievalExecution:
         require_capability(actor, Capability.MEMORY_RECALL)
         used_retrieval = self.retrieval is not None
+        execution: RetrievalExecution | None = None
         if self.retrieval is None:
             bundle = await self.store.recall(actor, query)
             bundle = await self._merge_semantic_if_eligible(actor, query, bundle)
@@ -134,6 +177,7 @@ class MemoryService:
                     purpose=purpose,
                     seed_memory_ids=seed_memory_ids,
                     dense_query=dense_query,
+                    token_budget=token_budget,
                 )
                 bundle = execution.bundle
                 # Transitional compatibility for callers that compose a v1
@@ -150,6 +194,10 @@ class MemoryService:
                             bundle,
                             query_vector=query_vector,
                         )
+                        # The compatibility merge did not participate in the
+                        # recorded trace, so do not expose that trace as if it
+                        # described the final bundle.
+                        execution = None
         if used_retrieval:
             recorder = getattr(self.store, "record_retrieval_reuse", None)
             if recorder is not None:
@@ -157,6 +205,8 @@ class MemoryService:
                     actor,
                     tuple(hit.memory.memory_id for hit in bundle.hits),
                 )
+        if include_execution and execution is not None:
+            return execution
         return bundle
 
     async def _merge_semantic_if_eligible(

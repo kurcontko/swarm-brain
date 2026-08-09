@@ -7,6 +7,7 @@ from typing import Self
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
+from .activation import MemoryActivationTelemetry
 from .common import (
     AgentId,
     ArtifactId,
@@ -195,7 +196,12 @@ class ClaimTaskResult(ContractModel):
     task: Task
     lease: TaskLease
     checkpoint: TaskCheckpoint | None = None
-    memory: RecallBundle | None = None
+    # Kept for in-process compatibility only. The structured bundle repeats
+    # the query and carries metadata outside the activation token budget, so it
+    # must never cross HTTP/MCP serialization boundaries.
+    memory: RecallBundle | None = Field(default=None, exclude=True, repr=False)
+    activation: MemoryActivationTelemetry | None = None
+    activation_context: str | None = Field(default=None, max_length=524_288, repr=False)
     replayed: bool = False
 
     @property
