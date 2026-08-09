@@ -224,3 +224,7 @@ its connection dialog — the token stays in that tab's session storage. Issue o
 with the same `swarmbrain-token` command as above, keeping the grant to
 `--capability events:read --capability metrics:read --capability memory:recall`
 and matching `--run` to the run you want to watch.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Security policy: [SECURITY.md](SECURITY.md).
