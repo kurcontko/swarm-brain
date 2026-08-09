@@ -41,17 +41,25 @@ from urllib.parse import urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from swarmbrain.adapters.embeddings import DeterministicEmbeddingProvider
+from swarmbrain.adapters.embeddings.openai_compatible import OpenAICompatibleEmbeddingProvider
 from swarmbrain.adapters.extraction.in_memory import InMemoryWorkStore
 from swarmbrain.adapters.memory import InMemoryKernel, in_memory_hybrid_retrieval_gateways
-from swarmbrain.application.memory_policy import ConservativeMemoryPolicy
+from swarmbrain.application.memory_policy import ConservativeMemoryPolicy, memory_content_text
 from swarmbrain.application.memory_service import MemoryService
 from swarmbrain.application.retrieval_service import RetrievalExecution, RetrievalService
 from swarmbrain.application.work import DurableWorkService
 from swarmbrain.domain.agents import ActorContext, Capability
 from swarmbrain.domain.memory import MemoryState, RecallQuery, RememberCommand, Visibility
 from swarmbrain.domain.retrieval import DenseQuery, RetrievalPurpose, RetrievalSignal
-from swarmbrain.retrieval import RetrievalPlanner, weighted_rrf
-from swarmbrain.retrieval.evaluation import ann_recall_at_k, evaluate_lanes
+from swarmbrain.ports.embeddings import EmbeddingProvider
+from swarmbrain.retrieval import RetrievalPlanner, estimate_tokens, weighted_rrf
+from swarmbrain.retrieval.evaluation import (
+    RankingCase,
+    ann_recall_at_k,
+    evaluate_bundle,
+    evaluate_lanes,
+)
+from swarmbrain.retrieval.packing import answer_in_context
 from swarmbrain.workers.durable import LeasedWorkWorker
 from swarmbrain.workers.embedding import EmbedMemoryHandler
 
@@ -60,6 +68,57 @@ CORPUS_DIR = REPO_ROOT / "tests" / "fixtures" / "retrieval_eval_corpus"
 DEFAULT_OUT_DIR = REPO_ROOT / "benchmarks" / "retrieval"
 EMBEDDING_MODEL = "deterministic-eval-1024-v0"
 EMBEDDING_DIMENSIONS = 1024
+
+# Selected once in ``_main`` from ``--embeddings``; the deterministic default
+# keeps the original 2026-08-07 runs byte-reproducible.  A single shared
+# instance serves every composition site so the openai provider reuses one
+# HTTP client across the whole run.
+_provider_singleton: EmbeddingProvider | None = None
+
+
+def configure_embeddings(
+    kind: str, *, base_url: str | None = None, model_id: str | None = None
+) -> None:
+    global _provider_singleton
+    if kind == "deterministic":
+        _provider_singleton = DeterministicEmbeddingProvider(
+            dimensions=EMBEDDING_DIMENSIONS,
+            model_name=EMBEDDING_MODEL,
+        )
+        return
+    if base_url is None:
+        raise SystemExit("--embeddings openai requires --embeddings-base-url")
+    _provider_singleton = OpenAICompatibleEmbeddingProvider(
+        base_url=base_url,
+        model_id=model_id or "Qwen/Qwen3-Embedding-0.6B",
+        dimensions=EMBEDDING_DIMENSIONS,
+    )
+
+
+def _make_provider() -> EmbeddingProvider:
+    if _provider_singleton is None:
+        configure_embeddings("deterministic")
+    assert _provider_singleton is not None
+    return _provider_singleton
+
+
+def _embedding_metadata(use_dense: bool) -> dict[str, Any] | None:
+    if not use_dense:
+        return None
+    provider = _make_provider()
+    deterministic = isinstance(provider, DeterministicEmbeddingProvider)
+    return {
+        "provider": type(provider).__name__,
+        "model": provider.model_name,
+        "dimensions": provider.dimensions,
+        "note": (
+            "hash bag-of-words; not a semantic model"
+            if deterministic
+            else "semantic model served over an OpenAI-compatible endpoint"
+        ),
+    }
+
+
 DEFAULT_K = (5, 10)
 ALL_CAPABILITIES = frozenset(item.value for item in Capability)
 LANE_ORDER = ("exact", "lexical", "fuzzy", "dense", "graph", "direct_fused", "fused", "final")
@@ -230,6 +289,23 @@ class CaseRun:
     wall_ms: float
     lane_latency_ms: dict[str, float]
     degraded_lanes: tuple[str, ...]
+    # Calibrated relevance behind each returned hit, in hit order.  Recorded on
+    # both tracks so bundle precision under a relevance floor — how much of what
+    # the caller is handed is actually relevant — is measurable on the public
+    # dataset and not only on the hand-judged corpus.
+    final_relevance: tuple[float, ...] = ()
+    # Estimated reader cost of each returned hit, in hit order, so
+    # answer-in-context can be replayed at any token budget offline.
+    final_tokens: tuple[int, ...] = ()
+
+
+def _hit_tokens(execution: RetrievalExecution) -> tuple[int, ...]:
+    """Estimated tokens for each hit, over the text a reader would be shown."""
+
+    return tuple(
+        estimate_tokens(f"{hit.memory.title}\n{memory_content_text(hit.memory.content)}")
+        for hit in execution.bundle.hits
+    )
 
 
 def _rankings(
@@ -265,7 +341,7 @@ def _rankings(
 
 async def _execute_case(
     retrieval: RetrievalService,
-    provider: DeterministicEmbeddingProvider | None,
+    provider: EmbeddingProvider | None,
     actor: ActorContext,
     text: str,
     *,
@@ -302,16 +378,11 @@ async def _publish_corpus_in_memory(
     corpus: EvalCorpus,
     *,
     scope_seed: str | None,
-) -> tuple[
-    MemoryService, RetrievalService, ActorContext, dict[str, str], DeterministicEmbeddingProvider
-]:
+) -> tuple[MemoryService, RetrievalService, ActorContext, dict[str, str], EmbeddingProvider]:
     clock = SteppingClock(corpus.clock)
     kernel = InMemoryKernel(clock=clock)
     work_queue = InMemoryWorkStore()
-    provider = DeterministicEmbeddingProvider(
-        dimensions=EMBEDDING_DIMENSIONS,
-        model_name=EMBEDDING_MODEL,
-    )
+    provider = _make_provider()
     retrieval = RetrievalService(
         in_memory_hybrid_retrieval_gateways(kernel, work_queue),
         kernel,
@@ -413,7 +484,7 @@ async def _publish_corpus_cockroach(
     RetrievalService,
     ActorContext,
     dict[str, str],
-    DeterministicEmbeddingProvider,
+    EmbeddingProvider,
 ]:
     from swarmbrain.adapters.cockroach.database import CockroachDatabase
     from swarmbrain.adapters.cockroach.memory import CockroachMemoryStore
@@ -424,10 +495,7 @@ async def _publish_corpus_cockroach(
     await database.start()
     memory_store = CockroachMemoryStore(database)
     work_store = CockroachWorkStore(database)
-    provider = DeterministicEmbeddingProvider(
-        dimensions=EMBEDDING_DIMENSIONS,
-        model_name=EMBEDDING_MODEL,
-    )
+    provider = _make_provider()
     retrieval = RetrievalService(
         cockroach_hybrid_retrieval_gateways(database),
         memory_store,
@@ -577,10 +645,7 @@ async def _run_longmemeval_question(
     clock = SteppingClock(datetime(2026, 8, 7, 9, tzinfo=UTC))
     kernel = InMemoryKernel(clock=clock)
     work_queue = InMemoryWorkStore()
-    provider = DeterministicEmbeddingProvider(
-        dimensions=EMBEDDING_DIMENSIONS,
-        model_name=EMBEDDING_MODEL,
-    )
+    provider = _make_provider()
     retrieval = RetrievalService(
         in_memory_hybrid_retrieval_gateways(kernel, work_queue),
         kernel,
@@ -642,6 +707,7 @@ async def _run_longmemeval_question(
         [hit.memory.memory_id for hit in execution.bundle.hits],
         memory_key_by_id.get,
     )
+    relevance_by_id = {item.canonical_id: item for item in execution.trace.candidate_relevance}
     return CaseRun(
         case_id=str(record["question_id"]),
         category=str(record["question_type"]),
@@ -649,6 +715,12 @@ async def _run_longmemeval_question(
         wall_ms=wall_ms,
         lane_latency_ms={batch.lane.value: batch.latency_ms for batch in execution.trace.batches},
         degraded_lanes=tuple(sorted(lane.value for lane in execution.trace.degraded_lanes)),
+        final_relevance=tuple(
+            round(relevance_by_id[hit.memory.memory_id].relevance, 6)
+            for hit in execution.bundle.hits
+            if hit.memory.memory_id in relevance_by_id
+        ),
+        final_tokens=_hit_tokens(execution),
     )
 
 
@@ -687,6 +759,8 @@ async def run_longmemeval(
                     lane: round(value, 3) for lane, value in run.lane_latency_ms.items()
                 },
                 "degraded_lanes": list(run.degraded_lanes),
+                "final_relevance": list(run.final_relevance),
+                "final_tokens": list(run.final_tokens),
                 "rankings": run.rankings,
             }
         )
@@ -706,16 +780,7 @@ async def run_longmemeval(
         "recall_limit": limit,
         "saved_ranking_depth": SAVED_RANKING_DEPTH,
         "dense_lane_enabled": use_dense,
-        "embedding": (
-            {
-                "provider": "DeterministicEmbeddingProvider",
-                "model": EMBEDDING_MODEL,
-                "dimensions": EMBEDDING_DIMENSIONS,
-                "note": "hash bag-of-words; not a semantic model",
-            }
-            if use_dense
-            else None
-        ),
+        "embedding": _embedding_metadata(use_dense),
         "cases": cases,
     }
 
@@ -727,7 +792,7 @@ async def run_longmemeval(
 
 async def _relevance_sweep(
     retrieval: RetrievalService,
-    provider: DeterministicEmbeddingProvider | None,
+    provider: EmbeddingProvider | None,
     actor: ActorContext,
     corpus: EvalCorpus,
     key_by_id: dict[str, str],
@@ -859,6 +924,7 @@ async def run_swarm_track(
                         for hit in bundle.hits
                         if hit.memory.memory_id in relevance_by_id
                     ],
+                    "final_tokens": list(_hit_tokens(execution)),
                     "wall_ms": round(wall_ms, 3),
                     "lane_latency_ms": {
                         batch.lane.value: round(batch.latency_ms, 3)
@@ -904,16 +970,7 @@ async def run_swarm_track(
         "recall_limit": limit,
         "saved_ranking_depth": SAVED_RANKING_DEPTH,
         "dense_lane_enabled": use_dense,
-        "embedding": (
-            {
-                "provider": "DeterministicEmbeddingProvider",
-                "model": EMBEDDING_MODEL,
-                "dimensions": EMBEDDING_DIMENSIONS,
-                "note": "hash bag-of-words; not a semantic model",
-            }
-            if use_dense
-            else None
-        ),
+        "embedding": _embedding_metadata(use_dense),
         "cases": cases,
     }
     return payload, ann, sweep
@@ -1041,12 +1098,96 @@ def slice_metrics(
             "cases": value.cases,
             "answerable_cases": value.answerable_cases,
             "recall_at_k": round(value.recall_at_k, 4),
+            "precision_at_k": round(value.precision_at_k, 4),
             "mrr_at_k": round(value.mrr_at_k, 4),
             "ndcg_at_k": round(value.ndcg_at_k, 4),
             "no_answer_precision": round(value.no_answer_precision, 4),
             "no_answer_recall": round(value.no_answer_recall, 4),
         }
         for lane, value in metrics.items()
+    }
+
+
+# Floors reported for every run.  0.0 is the shipped default and anchors the
+# "no floor" column; the rest bracket the calibrated range where the swarm
+# corpus trades bundle size against answerable recall.
+BUNDLE_FLOORS = (0.0, 0.3, 0.4, 0.5, 0.6, 0.7)
+
+
+def bundle_metrics(
+    cases: Sequence[dict[str, Any]],
+    *,
+    k: int,
+    floor: float,
+) -> dict[str, Any]:
+    """Replay the relevance floor over a saved run's final bundle."""
+
+    ranking_cases = tuple(
+        RankingCase(
+            case_id=str(case["case_id"]),
+            relevant_ids=frozenset(str(value) for value in case.get("relevant_ids", ())),
+            returned_ids=tuple(
+                str(value) for value in (case.get("rankings") or {}).get("final", ())
+            ),
+        )
+        for case in cases
+    )
+    relevance = {
+        str(case["case_id"]): tuple(float(value) for value in case.get("final_relevance", ()))
+        for case in cases
+        if case.get("final_relevance")
+    }
+    result = evaluate_bundle(ranking_cases, relevance, k=k, floor=floor)
+    return {
+        "cases": result.cases,
+        "answerable_cases": result.answerable_cases,
+        "mean_bundle_size": round(result.mean_bundle_size, 4),
+        "precision": round(result.precision, 4),
+        "recall": round(result.recall, 4),
+        "abstained_cases": result.abstained_cases,
+        "no_answer_precision": round(result.no_answer_precision, 4),
+        "no_answer_recall": round(result.no_answer_recall, 4),
+    }
+
+
+# Reader context budgets, in estimated tokens.  ``None`` is the shipped
+# unbounded default and anchors the "no budget" row; the rest span from a tight
+# agent context to a generous one.  The swarm corpus barely notices them; on
+# LongMemEval-S a single hit is a whole conversation session and they bind hard.
+ANSWER_IN_CONTEXT_BUDGETS: tuple[int | None, ...] = (None, 32000, 16000, 8000, 4000, 2000)
+
+
+def answer_in_context_metrics(
+    cases: Sequence[dict[str, Any]],
+    *,
+    k: int,
+    budget: int | None,
+    policy: str = "greedy",
+) -> dict[str, Any]:
+    """Replay token-budgeted packing over a saved run's final bundle."""
+
+    packed = answer_in_context(
+        (
+            (
+                frozenset(str(value) for value in case.get("relevant_ids", ())),
+                [str(value) for value in (case.get("rankings") or {}).get("final", ())][:k],
+                [int(value) for value in case.get("final_tokens", ())][:k],
+            )
+            for case in cases
+        ),
+        budget=budget,
+        policy=policy,
+    )
+    return {
+        "budget": packed.budget,
+        "policy": packed.policy,
+        "cases": packed.cases,
+        "answerable_cases": packed.answerable_cases,
+        "any_gold_in_context": round(packed.any_gold, 4),
+        "all_gold_in_context": round(packed.all_gold, 4),
+        "mean_hits_kept": round(packed.mean_kept, 4),
+        "mean_tokens": round(packed.mean_tokens, 1),
+        "truncated_cases": packed.truncated_cases,
     }
 
 
@@ -1086,6 +1227,27 @@ def build_report(
             },
         },
     }
+    # Quality per token: what the caller is handed once the floor is applied,
+    # rather than what the ranking could have found at unbounded depth.
+    report["bundle_by_floor"] = {
+        f"k={k}": {
+            f"floor={floor}": bundle_metrics(cases, k=k, floor=floor) for floor in BUNDLE_FLOORS
+        }
+        for k in k_values
+    }
+    # Answer-in-context: did the evidence survive the reader's context window,
+    # rather than merely place inside k.  Only meaningful once a run records
+    # per-hit token sizes; older runs report as untruncated.
+    if any(case.get("final_tokens") for case in cases):
+        report["answer_in_context"] = {
+            f"k={k}": {
+                ("budget=none" if budget is None else f"budget={budget}"): (
+                    answer_in_context_metrics(cases, k=k, budget=budget)
+                )
+                for budget in ANSWER_IN_CONTEXT_BUDGETS
+            }
+            for k in k_values
+        }
     degraded = sorted({lane for case in cases for lane in case.get("degraded_lanes", ())})
     report["degraded_lanes"] = degraded
     return report
@@ -1129,13 +1291,30 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--lme-download", action="store_true")
     parser.add_argument("--lme-sample", type=int, default=150)
     parser.add_argument("--lme-seed", type=int, default=20260807)
+    parser.add_argument(
+        "--embeddings",
+        choices=("deterministic", "openai"),
+        default="deterministic",
+        help="dense-lane embedder; openai targets any /v1/embeddings-compatible server",
+    )
+    parser.add_argument("--embeddings-base-url", default=None)
+    parser.add_argument("--embeddings-model", default=None)
     return parser
 
 
 async def _main(args: argparse.Namespace) -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     k_values = tuple(sorted(set(args.k)))
+    configure_embeddings(
+        args.embeddings,
+        base_url=args.embeddings_base_url,
+        model_id=args.embeddings_model,
+    )
+    # Non-default embedders write to their own file family so the checked-in
+    # deterministic baselines stay untouched for comparison.
     suffix = "-nodense" if args.no_dense else ""
+    if args.embeddings != "deterministic":
+        suffix = f"-{args.embeddings}{suffix}"
     use_dense = not args.no_dense
 
     if args.track in {"swarm", "both"}:

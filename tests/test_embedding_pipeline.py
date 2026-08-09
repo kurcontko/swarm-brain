@@ -15,6 +15,10 @@ from swarmbrain.adapters.embeddings.bedrock import (
     BedrockUnavailable,
 )
 from swarmbrain.adapters.embeddings.deterministic import DeterministicEmbeddingProvider
+from swarmbrain.adapters.embeddings.openai_compatible import (
+    OpenAICompatibleEmbeddingProvider,
+    OpenAICompatibleUnavailable,
+)
 from swarmbrain.adapters.extraction.in_memory import InMemoryWorkStore
 from swarmbrain.adapters.memory import InMemoryKernel
 from swarmbrain.application.memory_policy import ConservativeMemoryPolicy, memory_content_text
@@ -421,3 +425,98 @@ async def test_bedrock_provider_shapes_titan_requests_and_checks_dimensions() ->
     wrong = BedrockEmbeddingProvider(dimensions=16, client=fake)
     with pytest.raises(BedrockUnavailable, match="dimensions"):
         await wrong.embed_query("hello")
+
+
+class _FakeOpenAIResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, object]:
+        return self._payload
+
+
+class _FakeOpenAIClient:
+    def __init__(self, dimensions: int) -> None:
+        self.dimensions = dimensions
+        self.calls: list[dict[str, object]] = []
+
+    async def post(self, url: str, **kwargs: object) -> _FakeOpenAIResponse:
+        self.calls.append({"url": url, **kwargs})
+        body = kwargs["json"]
+        assert isinstance(body, dict)
+        inputs = body["input"]
+        assert isinstance(inputs, list)
+        # Reversed order proves the adapter re-sorts rows by their index field.
+        rows = [
+            {"index": index, "embedding": [2.0] + [0.0] * (self.dimensions - 1)}
+            for index in reversed(range(len(inputs)))
+        ]
+        return _FakeOpenAIResponse({"data": rows})
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_instructs_queries_and_normalizes() -> None:
+    fake = _FakeOpenAIClient(dimensions=8)
+    provider = OpenAICompatibleEmbeddingProvider(
+        base_url="http://embed.local:8100/",
+        dimensions=8,
+        client=fake,
+    )
+
+    query_vector = await provider.embed_query("hello")
+    documents = await provider.embed_documents(["one", "two"])
+
+    # L2-normalized client-side: the fake's [2, 0, ...] becomes [1, 0, ...].
+    assert query_vector == tuple([1.0] + [0.0] * 7)
+    assert documents == (tuple([1.0] + [0.0] * 7),) * 2
+    first, second = fake.calls
+    assert first["url"] == "http://embed.local:8100/v1/embeddings"
+    assert first["headers"] == {}
+    query_body = first["json"]
+    assert isinstance(query_body, dict)
+    assert query_body["model"] == "Qwen/Qwen3-Embedding-0.6B"
+    (sent_query,) = query_body["input"]
+    assert sent_query.startswith("Instruct: ") and sent_query.endswith("\nQuery: hello")
+    document_body = second["json"]
+    assert isinstance(document_body, dict)
+    assert document_body["input"] == ["one", "two"]
+
+    wrong = OpenAICompatibleEmbeddingProvider(
+        base_url="http://embed.local:8100", dimensions=16, client=fake
+    )
+    with pytest.raises(OpenAICompatibleUnavailable, match="dimensions"):
+        await wrong.embed_query("hello")
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_retries_transient_network_faults() -> None:
+    inner = _FakeOpenAIClient(dimensions=8)
+
+    class _Flaky:
+        def __init__(self) -> None:
+            self.failures = 2
+
+        async def post(self, url: str, **kwargs: object) -> _FakeOpenAIResponse:
+            if self.failures:
+                self.failures -= 1
+                raise ConnectionResetError("dropped")
+            return await inner.post(url, **kwargs)
+
+    flaky = _Flaky()
+    provider = OpenAICompatibleEmbeddingProvider(
+        base_url="http://embed.local:8100", dimensions=8, client=flaky
+    )
+    assert await provider.embed_query("hello") == tuple([1.0] + [0.0] * 7)
+
+    # A dimension mismatch is a protocol error, not a transient fault: it
+    # surfaces on the first attempt instead of burning retries.
+    wrong = OpenAICompatibleEmbeddingProvider(
+        base_url="http://embed.local:8100", dimensions=16, client=inner
+    )
+    calls_before = len(inner.calls)
+    with pytest.raises(OpenAICompatibleUnavailable, match="dimensions"):
+        await wrong.embed_query("hello")
+    assert len(inner.calls) == calls_before + 1

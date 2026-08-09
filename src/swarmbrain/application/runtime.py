@@ -208,6 +208,18 @@ def _build_embedding_provider(settings: ApiSettings) -> EmbeddingProvider | None
             dimensions=settings.embeddings_dimensions,
             model_name=settings.embeddings_model or "deterministic-v0",
         )
+    if settings.embeddings is EmbeddingsKind.OPENAI:
+        from swarmbrain.adapters.embeddings.openai_compatible import (
+            OpenAICompatibleEmbeddingProvider,
+        )
+
+        assert settings.embeddings_base_url is not None
+        return OpenAICompatibleEmbeddingProvider(
+            base_url=settings.embeddings_base_url,
+            model_id=settings.embeddings_model or "Qwen/Qwen3-Embedding-0.6B",
+            dimensions=settings.embeddings_dimensions,
+            api_key=settings.embeddings_api_key,
+        )
     from swarmbrain.adapters.embeddings.bedrock import BedrockEmbeddingProvider
 
     return BedrockEmbeddingProvider(

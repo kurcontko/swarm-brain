@@ -13,11 +13,12 @@ from uuid import uuid4
 
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.common import MemoryId, utc_now
-from swarmbrain.domain.memory import RecallBundle, RecallHit, RecallQuery
+from swarmbrain.domain.memory import Memory, RecallBundle, RecallHit, RecallQuery
 from swarmbrain.domain.retrieval import (
     CandidateBatch,
     CandidateRelevance,
     DenseQuery,
+    FusedCandidate,
     HydrationRejection,
     RetrievalPurpose,
     RetrievalSignal,
@@ -35,6 +36,7 @@ from swarmbrain.retrieval import (
     candidate_relevance,
     parse_query_identifiers,
     relevance_query,
+    relevance_reranked,
     weighted_rrf,
 )
 
@@ -202,29 +204,62 @@ class RetrievalService:
         candidate_domain = self._candidate_domains(tuple(batches))
 
         # ``min_score`` is a floor on calibrated relevance, not on the public
-        # score.  The public score is normalised weighted RRF: it is anchored to
-        # the best possible rank in the strongest configured lane, so it is a
-        # rank statement, and thresholding it cannot express "nothing here is
-        # actually about the query".  Relevance is the rank-independent
-        # per-hit quantity defined in ``swarmbrain.retrieval.relevance``; the
-        # published ``RecallHit.score`` keeps its previous meaning and value.
+        # score.  The public score is a ranking statement — weighted RRF, then
+        # the relevance blend applied below — so thresholding it cannot express
+        # "nothing here is actually about the query": it says where a candidate
+        # placed, not whether the field was any good.  Relevance is the
+        # rank-independent per-hit quantity defined in
+        # ``swarmbrain.retrieval.relevance``, and it is what the floor reads.
         #
-        # ``min_score = 0.0`` (the default) admits every relevance, so callers
-        # who do not opt in see exactly the ranking they saw before.
+        # ``min_score = 0.0`` (the default) admits every relevance, so the floor
+        # itself never changes a ranking.
         #
-        # Candidates are evaluated lazily in fused order and the walk stops one
-        # past the public limit, which is also how ``truncated`` is decided, so
-        # the default path pays for at most ``limit + 1`` relevance
-        # computations and no extra queries.
+        # Cost: with reranking disabled, candidates are evaluated lazily in
+        # fused order and the walk stops one past the public limit — at most
+        # ``limit + 1`` relevance computations.  With reranking enabled the
+        # window is evaluated up front instead, so the bound becomes
+        # ``plan.rerank_window`` (four times the limit, floored at 32).  Both
+        # paths reuse one cache and neither issues an extra query, because the
+        # whole fused list was hydrated above.
         terms = relevance_query(query.text)
+        scored: dict[str, CandidateRelevance] = {}
+
+        def _relevance(candidate: FusedCandidate, memory: Memory) -> CandidateRelevance:
+            cached = scored.get(candidate.canonical_id)
+            if cached is None:
+                cached = candidate_relevance(terms, memory, candidate.contributions)
+                scored[candidate.canonical_id] = cached
+            return cached
+
+        # Reranking needs relevance for the whole window up front rather than
+        # lazily, because the point is to promote candidates the fused order
+        # would never have walked to.  Every candidate in the window was
+        # already hydrated above, so this costs relevance arithmetic and no
+        # extra queries; the plan bounds the window and the walk below still
+        # stops one past the public limit.
+        ranked = fused
+        if plan.rerank:
+            window: dict[str, float] = {}
+            for candidate in fused[: plan.rerank_window]:
+                memory = hydrated_by_id.get(candidate.canonical_id)
+                if memory is None:
+                    continue
+                window[candidate.canonical_id] = _relevance(candidate, memory).relevance
+            ranked = relevance_reranked(
+                fused,
+                window,
+                alpha=plan.rerank_alpha,
+                window=plan.rerank_window,
+            )
+
         relevance_scores: list[CandidateRelevance] = []
         eligible: list[RecallHit] = []
         overflowed = False
-        for candidate in fused:
+        for candidate in ranked:
             memory = hydrated_by_id.get(candidate.canonical_id)
             if memory is None:
                 continue
-            relevance = candidate_relevance(terms, memory, candidate.contributions)
+            relevance = _relevance(candidate, memory)
             relevance_scores.append(relevance)
             if relevance.relevance < query.min_score:
                 continue

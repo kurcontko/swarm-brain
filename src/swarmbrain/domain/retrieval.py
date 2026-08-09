@@ -85,6 +85,8 @@ LaneWeight = Annotated[FiniteFloat, Field(gt=0.0, le=100.0)]
 GraphSeedLimit = Annotated[int, Field(ge=0, le=64)]
 GraphFanout = Annotated[int, Field(ge=0, le=64)]
 GraphEdgeBudget = Annotated[int, Field(ge=0, le=10000)]
+RerankAlpha = Annotated[FiniteFloat, Field(ge=0.0, le=1.0)]
+RerankWindow = Annotated[int, Field(ge=0, le=512)]
 
 
 class RetrievalPlan(ContractModel):
@@ -104,6 +106,8 @@ class RetrievalPlan(ContractModel):
     graph_edge_budget: GraphEdgeBudget = 0
     graph_link_types: frozenset[SemanticLabel] = frozenset()
     rerank: bool = False
+    rerank_alpha: RerankAlpha = 0.0
+    rerank_window: RerankWindow = 0
     diversify: bool = False
     token_budget: int | None = Field(default=None, ge=1)
 
@@ -124,6 +128,20 @@ class RetrievalPlan(ContractModel):
             or RetrievalSignal.GRAPH.value not in self.lane_weights
         ):
             raise ValueError("graph lane requires a candidate budget and fusion weight")
+        return self
+
+    @model_validator(mode="after")
+    def rerank_is_fully_bounded(self) -> Self:
+        """``rerank`` and its two bounds are one switch, not three knobs.
+
+        A plan that asks for reranking without a window would silently reorder
+        nothing, and a window without the flag would be dead configuration that
+        a later reader could mistake for an active setting.
+        """
+
+        configured = self.rerank_alpha > 0.0 and self.rerank_window > 0
+        if self.rerank != configured:
+            raise ValueError("rerank selection requires a positive alpha and window together")
         return self
 
 

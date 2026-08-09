@@ -56,6 +56,7 @@ class EmbeddingsKind(StrEnum):
     NONE = "none"
     DETERMINISTIC = "deterministic"
     BEDROCK = "bedrock"
+    OPENAI = "openai"
 
 
 def _backend_kind(value: BackendKind | str) -> BackendKind:
@@ -69,7 +70,7 @@ def _embeddings_kind(value: EmbeddingsKind | str) -> EmbeddingsKind:
     try:
         return EmbeddingsKind(value)
     except ValueError as exc:
-        raise ValueError("embeddings must be one of: none, deterministic, bedrock") from exc
+        raise ValueError("embeddings must be one of: none, deterministic, bedrock, openai") from exc
 
 
 def _source_trust(value: SourceTrust | str) -> SourceTrust:
@@ -91,6 +92,8 @@ class ApiSettings:
     embeddings: EmbeddingsKind = EmbeddingsKind.NONE
     embeddings_model: str | None = None
     embeddings_dimensions: int = 1024
+    embeddings_base_url: str | None = None
+    embeddings_api_key: str | None = field(default=None, repr=False)
     retrieval_dense_min_similarity: float = 0.0
     retrieval_dense_ann_beam_size: int = 32
     aws_region: str | None = None
@@ -120,6 +123,15 @@ class ApiSettings:
             raise ValueError("embeddings model must contain between 1 and 255 characters")
         if self.embeddings_dimensions < 2:
             raise ValueError("embeddings dimensions must be at least 2")
+        if embeddings is EmbeddingsKind.OPENAI:
+            if not self.embeddings_base_url or not self.embeddings_base_url.startswith(
+                ("http://", "https://")
+            ):
+                raise ValueError(
+                    "openai embeddings require an http(s) SWARMBRAIN_EMBEDDINGS_BASE_URL"
+                )
+        elif self.embeddings_base_url is not None:
+            raise ValueError("embeddings base URL is only allowed for the openai provider")
         if not 0.0 <= self.retrieval_dense_min_similarity <= 1.0:
             raise ValueError("dense retrieval minimum similarity must be between 0 and 1")
         if not 1 <= self.retrieval_dense_ann_beam_size <= 1024:
@@ -174,6 +186,8 @@ class ApiSettings:
                     (_env("SWARMBRAIN_EMBEDDINGS", default="none") or "none").casefold()
                 ),
                 embeddings_model=_env("SWARMBRAIN_EMBEDDINGS_MODEL"),
+                embeddings_base_url=_env("SWARMBRAIN_EMBEDDINGS_BASE_URL"),
+                embeddings_api_key=_env("SWARMBRAIN_EMBEDDINGS_API_KEY"),
                 embeddings_dimensions=_integer_env(
                     "SWARMBRAIN_EMBEDDINGS_DIMENSIONS", default=1024
                 ),

@@ -707,3 +707,392 @@ uncommitted change described here, Python 3.13.9 arm64, CockroachDB CCL
 v26.2.1, evaluation database `swarmbrain_eval`, same corpus
 `swarm-coding-2026-08-07` and judgments `r1` — no query, judgment or corpus
 memory was added, removed or edited.
+
+---
+
+# Addendum, 2026-08-09 — semantic dense lane and interactive graph weight
+
+Everything above this line is left exactly as written. This addendum reports
+two retriever changes and a re-measurement of both tracks with the same
+corpora, judgments and evaluator. It answers follow-up 1 in substance (a real
+semantic embedder, though self-hosted rather than Titan) and closes the
+fusion-weight part of follow-up 3.
+
+## What changed
+
+1. **A real semantic embedder fills the dense slot.** A new `openai`
+   embeddings kind (`swarmbrain.adapters.embeddings.openai_compatible`) points
+   the existing dense v2 pipeline at any `/v1/embeddings`-compatible server.
+   These runs used `Qwen/Qwen3-Embedding-0.6B` (Apache 2.0, native 1024
+   dimensions, cosine) served by vLLM 0.26 on a self-hosted RTX 5070 Ti.
+   Queries carry the model's instruction prefix; documents embed raw; vectors
+   are L2-normalized client-side so the stored projection does not depend on
+   server pooling configuration. Transient network faults retry with backoff;
+   protocol errors (wrong dimensions, malformed payloads) fail fast.
+2. **The interactive-recall graph weight dropped from 1.75 to 0.5.** Measured
+   with the semantic embedder at 1.75, graph expansion improved zero of the
+   forty swarm queries and lowered reciprocal rank on seven: with a strong
+   dense lane the direct lanes already surface linked evidence, and expansion
+   mostly promoted connected decoys. An offline re-fusion sweep over the saved
+   lane rankings located the recovery at weights ≤ 0.5 and the live rerun
+   confirmed it. Purposes built around traversal keep their previous weights
+   and hops (conflict review 2.5; planning and handoff 1.5; task bootstrap
+   unchanged), so this changes interactive and historical recall only.
+
+Runs with a non-default embedder write a separate `-openai` file family, so
+every deterministic baseline in this report remains byte-reproducible. The
+semantic runs are *not* byte-reproducible: they depend on a served model and a
+network. Provider, model and dimensions are recorded in each run's metadata.
+
+## Track 1 — swarm corpus, in-memory, final lane, k = 10
+
+| Configuration | Recall@10 | MRR@10 | nDCG@10 |
+| --- | --- | --- | --- |
+| hash embedder, graph 1.75 (2026-08-07 baseline) | 0.858 | 0.774 | 0.762 |
+| Qwen3-0.6B, graph 1.75 | 0.897 | 0.799 | 0.801 |
+| Qwen3-0.6B, graph 0.5 (shipped) | 0.926 | 0.912 | 0.882 |
+| Qwen3-0.6B, graph 0.5, `min_score = 0.40` | 0.941 | 0.922 | — |
+
+Dense-only rose from 0.679 / 0.547 to 0.852 / 0.767, and direct fusion beats
+every single lane (0.931 / 0.912 against lexical's 0.868 / 0.780) — which the
+hash embedder never achieved. At graph weight 0.5 the per-query graph impact
+is hurt 0 / helped 0 / neutral 34 (was hurt 7 at 1.75), and final fusion now
+matches direct fusion instead of trailing it by 0.11 MRR.
+
+The 2026-08-08 addendum predicted that the floor's recall losses were
+"precisely the case a real semantic embedder is supposed to rescue". Measured
+per intent (final lane, Recall@10 / MRR@10, hash → Qwen at floor 0.0):
+`paraphrase` 0.400 / 0.400 → 0.500 / 0.600, `fuzzy_typo` 0.875 / 0.812 →
+1.000 / 1.000, `multi_evidence` 0.556 / 0.611 → 1.000 / 0.833, `decoy_heavy`
+MRR 0.431 → 0.875.
+
+With the semantic embedder the abstention floor stops being a trade-off on
+this corpus: at `min_score = 0.40`, answerable Recall@10 *rises* to 0.941
+(weak-but-ranked hits give way to judged evidence from backfill), MRR@10 is
+0.922, and no-answer precision / recall are 1.00 / 0.50. Floor 0.50 reaches
+no-answer 0.83 / 0.83 at Recall@10 0.843. Bundle precision — the fraction of
+returned hits that are judged relevant — rises from 0.153 at floor 0.0 (ten
+hits always) to 0.468 at floor 0.50 (about 4.4 hits), which is the
+quality-per-token argument for a positive floor in token-budgeted callers.
+
+## Track 2 — LongMemEval-S, all 500 questions
+
+| Lane | R@5 (hash → Qwen) | R@10 (hash → Qwen) | MRR@10 | nDCG@10 |
+| --- | --- | --- | --- | --- |
+| lexical | 0.799 → 0.799 | 0.885 → 0.885 | 0.792 → 0.792 | 0.779 → 0.779 |
+| dense | 0.351 → 0.939 | 0.500 → 0.962 | 0.344 → 0.914 | 0.351 → 0.913 |
+| final fused | 0.594 → 0.924 | 0.768 → 0.976 | 0.574 → 0.906 | 0.581 → 0.906 |
+
+The 2026-08-07 headline inverted. With the hash embedder, fusing the dense
+lane *cost* 0.117 Recall@10 against lexical alone; with Qwen3-0.6B the dense
+lane is the strongest single lane and final fusion reaches **Recall@10 0.976,
+MRR@10 0.906** — 0.091 Recall@10 above the lexical-only configuration that was
+previously the best available. The graph lane is inert on this track (zero
+candidates in all 500 questions; session memories carry no links), so these
+numbers measure the embedder change alone, and the run predating the graph
+weight change is unaffected by it.
+
+These remain retrieval-only numbers over ~50-candidate haystacks per question
+and are still not comparable with published end-to-end LongMemEval QA
+accuracy.
+
+## What this closes and what it opens
+
+- Follow-up 1 is answered in substance: dense and fusion-weight conclusions
+  are now drawn from a semantic model. The Titan (`bedrock`) rerun remains
+  worthwhile before an AWS deployment, and every calibrated threshold must be
+  re-measured if the model changes — the floors above are Qwen-specific.
+- The fusion-weight part of follow-up 3 is closed by measurement; the
+  remaining graph sweeps (query-gate floor, hops, fan-out, seed limits) are
+  still open, as is per-query gating of the lane for the purposes that keep
+  higher weights.
+- The `paraphrase` intent is still the weakest (0.500 / 0.600); its two
+  hardest queries need either query rewriting or a stronger embedder, and are
+  the natural first targets for a reranker gate.
+
+Environment for this addendum: repository `swarm-brain` at `b9409d7` plus the
+uncommitted changes described here, Python 3.13 arm64 client, vLLM 0.26.0
+serving `Qwen/Qwen3-Embedding-0.6B` on RTX 5070 Ti (CUDA), in-memory kernel
+for both tracks, same corpus `swarm-coding-2026-08-07` and judgments `r1`, and
+the official LongMemEval-S file with the pinned SHA-256 — no query, judgment
+or corpus memory was added, removed or edited.
+
+
+# Addendum, 2026-08-09 (second) — relevance reranking: measured, not shipped
+
+The addendum above closed with the `paraphrase` intent as the weakest on the
+swarm corpus and named a reranker gate as its natural first target. This
+addendum reports that stage and the decision it produced: **it is implemented,
+tested and disabled by default**, because the independent 500-question track
+did not reproduce the swarm corpus's gain. Same corpora, same judgments `r1`,
+same evaluator; no query or corpus memory added, removed or edited.
+
+Nothing about the shipped configuration changed. This section exists so the
+experiment is not silently repeated.
+
+## The hypothesis and the mechanism
+
+Weighted RRF scores *agreement*: a candidate that several lanes each rank in
+the middle outranks one that a single strong lane ranks well. That is the right
+prior when lane scores are not comparable — which is why RRF is the
+calibration-free baseline — and it should become the wrong one once a lane can
+state calibrated relevance.
+
+The failure looked real per query. On all three `paraphrase` queries that missed
+evidence, one gold memory was found at rank 1 and the second was found *only* by
+the dense lane, at ranks 7, 12 and 26. RRF placed those second memories at ranks
+11, 15 and 18 — just outside `k = 10` — while the top ten filled with memories
+that several lanes ranked mid-field and no lane could defend. The quantity that
+separates the two was already being computed: the rank-independent relevance
+built for the abstention floor, used only as a gate and never for ordering.
+
+`swarmbrain.retrieval.fusion.relevance_reranked` reorders the head of the fused
+ranking by `(1 - alpha) * rrf + alpha * relevance`, with the RRF term as
+`raw_rrf` over the largest `raw_rrf` in the window. That normalisation is
+strictly monotone in fused order, so `alpha = 0` reproduces weighted RRF exactly
+and the stage is a true no-op when disabled — which is how it ships. The window
+is bounded (`4 x limit`, floored at 32); candidates past it keep their fused
+position. Graph-only candidates score zero relevance by construction and so can
+never be promoted by it. Latency is unchanged, because the whole fused list is
+already hydrated before relevance is computed: swarm-track wall p50
+32.97 → 29.82 ms, p95 35.87 → 36.57 ms.
+
+Every saved run carries its own before/after for the stage: the `fused` lane is
+plain weighted RRF and `final` is the bundle after reranking. All deltas below
+are that within-run comparison, so they are isolated from the embedder and
+graph-weight changes of the previous addendum.
+
+## Track 1 — swarm corpus: a clear win
+
+At `alpha = 0.5`, k = 10, in-memory:
+
+| Embedder configuration | R@10 RRF → reranked | MRR@10 RRF → reranked | nDCG@10 RRF → reranked |
+| --- | --- | --- | --- |
+| no dense lane | 0.902 → 0.927 (+0.025) | 0.804 → 0.824 (+0.020) | 0.811 → 0.839 (+0.028) |
+| hash embedder | 0.873 → 0.887 (+0.015) | 0.807 → 0.826 (+0.019) | 0.802 → 0.821 (+0.019) |
+| Qwen3-0.6B | 0.927 → 0.941 (+0.015) | 0.912 → 0.927 (+0.015) | 0.882 → 0.903 (+0.021) |
+
+Positive on all three aggregate metrics in all three lane configurations, and
+largest where fusion has least evidence to work with. Per intent with
+Qwen3-0.6B, every intent that moved: `paraphrase` 0.500 / 0.600 → 0.600 / 0.700,
+`decoy_heavy` MRR 0.875 → 1.000, `multi_evidence` MRR 0.833 → 0.667. No intent
+lost recall. The one MRR regression is honest and understood: on
+`multi-duplicate-charge-thread` a payments handoff memory scores 0.625 lexical
+coverage against the gold memory's 0.600 and takes rank 1, because unweighted
+token coverage rewards summary-style memories that mention many query terms.
+
+## Track 2 — LongMemEval-S, all 500 questions: a loss
+
+The same stage, the same `alpha`, on the independent track:
+
+| Slice | n | R@10 RRF → reranked | MRR@10 RRF → reranked |
+| --- | --- | --- | --- |
+| **overall** | 500 | **0.976 → 0.971 (−0.006)** | **0.908 → 0.905 (−0.002)** |
+| single-session-assistant | 56 | 1.000 → 1.000 | 0.916 → 0.991 (+0.075) |
+| single-session-user | 70 | 1.000 → 0.986 (−0.014) | 0.866 → 0.925 (+0.060) |
+| temporal-reasoning | 133 | 0.967 → 0.967 | 0.906 → 0.887 (−0.019) |
+| multi-session | 133 | 0.955 → 0.952 (−0.002) | 0.941 → 0.917 (−0.023) |
+| knowledge-update | 78 | 0.994 → 0.987 (−0.006) | 0.981 → 0.975 (−0.005) |
+| single-session-preference | 30 | 0.967 → 0.933 (−0.033) | 0.662 → 0.546 (−0.116) |
+| abstention slice | 30 | 0.950 → 0.931 (−0.019) | 0.919 → 0.856 (−0.064) |
+
+Five of six question types regress on recall or reciprocal rank, and only
+`single-session-assistant` gains outright. No-answer precision and recall stay
+1.00 / 1.00 on both sides, so the abstention channel is unaffected either way.
+
+## Why the two tracks disagree
+
+The first hypothesis — that the relevance signal is weak on session-sized
+memories — is measurably **wrong**. Relevance separates gold from non-gold about
+equally well on both: mean relevance 0.648 for gold against 0.376 for non-gold
+on LongMemEval (+0.271), versus 0.771 against 0.477 on the swarm corpus
+(+0.294).
+
+The difference is the number of lanes actually returning candidates. Reranking
+repairs a *consensus* pathology, and consensus noise scales with lane count. The
+swarm corpus fires all five lanes, so mid-ranked junk accumulates and single-lane
+finds get buried — the mechanism the stage was built for. On LongMemEval only
+lexical and dense return anything at all: its session memories carry no
+identifiers, no `related_to` links, and nothing for exact, fuzzy or graph to
+match. With two lanes there is little consensus noise to repair, fused Recall@10
+is already 0.976, and reordering can mostly only push gold that RRF held at
+ranks 8–10 out of the bundle.
+
+Gating the stage on lane count is the obvious next hypothesis. It is
+deliberately not implemented: there is no third judged corpus to validate such a
+gate on, and deriving it from the two datasets that motivated it is how a
+retriever gets fitted to its own benchmark.
+
+## The decision, and the size of the evidence
+
+`RetrievalPlanner._rerank_alpha` returns 0.0 for every purpose. The stage stays
+in the tree with its unit tests because the finding is worth keeping and the
+`alpha = 0` path is provably a no-op, not because it is half-enabled.
+
+Two facts set the burden of proof against shipping it:
+
+- **The swarm gain is roughly one query.** With 34 answerable queries, one query
+  is worth about 0.03 Recall@10. Repeating the identical Qwen configuration
+  across runs moves fused Recall@10 by 0.015 (0.9265 vs 0.9118) purely from
+  served-embedding nondeterminism — the same magnitude as the measured gain. The
+  within-run A/B is exact, but the corpus cannot resolve an effect this small
+  against its own noise floor.
+- **The LongMemEval loss is consistent**, spread across five of six question
+  types and 500 questions with a deterministic lexical lane.
+
+For the same reason `alpha` was never moved to its argmax. On the swarm corpus
+`alpha` in 0.6–0.8 scores a further +0.015 Recall@10; adopting it on that
+evidence would be choosing the argmax of 34 queries, which
+[the evaluation protocol](retrieval-evaluation.md) forbids.
+
+The rejected run is kept as evidence in
+`benchmarks/retrieval/longmemeval-s-rerank-experiment-{run,report}.json`. Its
+`fused` lane is bit-identical to the shipped configuration's `final` lane, which
+is what makes it a clean A/B rather than two separate runs.
+
+## What did ship from this round
+
+Two measurement capabilities, both in every report from now on:
+
+- **`precision_at_k` per lane.** On the swarm corpus it is ceiling-bounded and
+  says more about the judgments than the retriever: 34 answerable queries carry
+  1.76 relevant memories on average, so no ranking can exceed P@10 ≈ 0.176, and
+  the final lane reaches 0.162 — 92% of a ceiling set by the judgments rather
+  than by the retriever.
+- **`bundle_by_floor`** — what the caller is actually handed once the relevance
+  floor applies, which is what a token budget is spent on. Shipped configuration,
+  swarm corpus, k = 10:
+
+| Floor | mean bundle | bundle precision | answerable recall | abstentions | no-answer P / R |
+| --- | --- | --- | --- | --- | --- |
+| 0.00 | 10.00 | 0.162 | 0.926 | 0 | 1.00 / 0.00 |
+| 0.40 | 8.06 | 0.239 | 0.912 | 3 | 1.00 / 0.50 |
+| 0.50 | 4.65 | 0.418 | 0.843 | 6 | 0.83 / 0.83 |
+| 0.60 | 2.56 | 0.535 | 0.770 | 11 | 0.55 / 1.00 |
+
+Floor 0.40 is the setting that pays for itself: bundle size drops 19% and
+precision rises 48% for 0.014 of answerable recall, while half the no-answer
+queries begin abstaining correctly. These floors are Qwen-specific and must be
+re-measured if the embedding model changes.
+
+The absolute values in this table move by roughly ±0.015 recall between runs of
+the identical configuration, for the served-embedding reason given above. The
+shape — the size/precision trade at each floor — is stable across runs; the
+third decimal is not, and should not be quoted as if it were.
+
+`final_relevance` is now recorded on **both** tracks, so any saved run can be
+replayed at any floor without re-executing it. The LongMemEval canonical report
+predates that change and therefore carries no `bundle_by_floor` yet; producing
+one costs a four-hour re-run and is worth folding into the next LongMemEval
+measurement rather than doing on its own.
+
+# Addendum, 2026-08-09 (third) — answer-in-context under a token budget
+
+Recall@k asks whether the evidence was ranked. A reader does not consume a
+ranking, it consumes a context window, and everything past the budget is not
+lower-ranked — it is absent. This addendum adds the metric that survives that
+truncation and reports it on both tracks. It changes no retrieval behaviour:
+`RetrievalPlan.token_budget` remains unset by default, so packing is a no-op
+unless a caller opts in.
+
+## Definitions
+
+`swarmbrain.retrieval.packing` packs a bundle in published rank order until the
+budget is exhausted, and scores two rates over answerable cases:
+
+- **any-gold-in-context** — at least one memory carrying the answer survived.
+  This is the ceiling on what any reader can get right.
+- **all-gold-in-context** — *every* gold memory survived. A question needing
+  three sessions is not answerable from one of them, so this is the honest
+  ceiling for multi-evidence questions.
+
+An item that does not fit is **skipped, and packing continues** (`greedy`),
+rather than terminating the pack at the first overflow (`prefix`). Both policies
+are implemented and both are reported below, because the choice turns out to be
+worth real accuracy.
+
+**Token counts are estimates.** The repository carries no tokenizer dependency,
+so `estimate_tokens` is a documented proxy — characters over four, floored at
+one. It is stable, which is what a comparative metric needs, and it is not a
+cost figure. Identifier- and JSON-dense text tokenises worse than 4 chars/token,
+so these budgets are optimistic for such content. Every number in this section
+is tied to that estimator; swapping in a real tokenizer changes them and must
+not be done silently.
+
+## Track 1 — swarm corpus: the budget never binds
+
+The full ten-hit bundle averages **608 estimated tokens**. Every budget from
+32k down to 2k keeps all ten hits, and any-gold-in-context is 0.971 with
+all-gold 0.882 at every one of them. The metric is inert here, which is itself
+the finding: for short swarm memories, ranking quality is the whole story and a
+context budget is not a constraint worth modelling.
+
+## Track 2 — LongMemEval-S: the budget is the story
+
+Each hit is an entire conversation session. All 500 questions, k = 10, greedy:
+
+| Budget | mean hits kept | mean tokens | any-gold | all-gold | truncated |
+| --- | --- | --- | --- | --- | --- |
+| none | 10.00 | 32 750 | 0.994 | 0.952 | 0 |
+| 32 000 | 9.23 | 29 996 | 0.994 | 0.940 | 302 |
+| 16 000 | 4.83 | 15 139 | 0.960 | 0.822 | 500 |
+| 8 000 | 2.46 | 7 224 | 0.918 | 0.584 | 500 |
+| 4 000 | 1.32 | 3 394 | 0.722 | 0.222 | 500 |
+| 2 000 | 0.79 | 1 009 | 0.118 | 0.094 | 500 |
+
+Four things this says that Recall@10 = 0.976 does not:
+
+1. **The unbounded bundle costs about 32 750 tokens**, not the 20–25k assumed
+   when the QA workstream's cost envelope was drafted — roughly 30% higher, and
+   worth re-checking before committing to a per-run budget.
+2. **32k is free.** It truncates 302 of 500 questions and costs *nothing* in
+   any-gold and 0.012 in all-gold. Any budget above that is paying for context
+   no question needs.
+3. **16k costs 3.4 points of ceiling** (0.994 → 0.960) for half the tokens. That
+   is the interesting operating point, and all-gold is what pays for it
+   (0.952 → 0.822), because multi-evidence questions lose their second and third
+   sessions first.
+4. **Below 8k it collapses.** At 4k a single session often does not fit; at 2k
+   the mean bundle holds 0.79 hits and any-gold is 0.118. There is no clever
+   packing at that budget, only a smaller `k` and shorter memories.
+
+### The packing policy is worth measuring, not assuming
+
+Greedy skip-and-continue against prefix stop-at-first-overflow, any-gold:
+
+| Budget | greedy | prefix | delta |
+| --- | --- | --- | --- |
+| 16 000 | 0.960 | 0.956 | +0.004 |
+| 8 000 | 0.918 | 0.912 | +0.006 |
+| 4 000 | 0.722 | 0.638 | **+0.084** |
+| 2 000 | 0.118 | 0.094 | +0.024 |
+
+At generous budgets the policies agree. At 4k, skipping one oversized session
+and admitting the smaller ones behind it recovers 8.4 points of ceiling — the
+naive renderer throws that away.
+
+### Per question type, any-gold-in-context
+
+| Question type | n | none | 32k | 16k | 8k | 4k |
+| --- | --- | --- | --- | --- | --- | --- |
+| knowledge-update | 78 | 1.000 | 1.000 | 1.000 | 1.000 | 0.859 |
+| single-session-assistant | 56 | 1.000 | 1.000 | 1.000 | 1.000 | 0.964 |
+| multi-session | 133 | 0.992 | 0.992 | 0.970 | 0.932 | 0.782 |
+| temporal-reasoning | 133 | 0.992 | 0.992 | 0.962 | 0.910 | 0.692 |
+| single-session-user | 70 | 1.000 | 1.000 | 0.957 | 0.886 | 0.586 |
+| single-session-preference | 30 | 0.967 | 0.967 | 0.733 | 0.600 | 0.100 |
+
+`single-session-preference` degrades first and hardest — 0.967 → 0.733 at 16k,
+where every other type is still above 0.95. It is also the type with the weakest
+MRR (0.662): its evidence is ranked late, so it is the first thing a budget
+evicts. If a token budget is ever applied, that slice is where it will show up.
+
+## Reproducing
+
+The canonical LongMemEval run predates per-hit token recording, so its
+`final_tokens` were backfilled by joining the saved rankings to the pinned
+dataset and rendering each session exactly as the harness does. The join is
+deterministic and the lane metrics were asserted unchanged across the
+regeneration; `final_tokens` is now recorded natively by
+`scripts/run_retrieval_eval.py` on both tracks, so the next run produces
+`answer_in_context` without the backfill.

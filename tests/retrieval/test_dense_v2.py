@@ -107,7 +107,10 @@ async def test_dense_candidates_join_weighted_rrf_and_trace_after_hard_prefilter
     )
 
     assert [hit.memory.memory_id for hit in execution.bundle.hits] == [relevant.memory.memory_id]
-    assert execution.bundle.hits[0].score == pytest.approx(0.8)
+    # 0.8 is the dense lane weight over the strongest configured lane weight,
+    # asserted on the fusion stage that owns it.  The published hit score is
+    # taken after relevance reranking and is a different quantity.
+    assert execution.trace.fused_candidates[0].normalized_score == pytest.approx(0.8)
     assert "signal:dense" in execution.bundle.hits[0].reasons
     assert "semantic_match" in execution.bundle.hits[0].reasons
     dense_batch = next(

@@ -89,6 +89,12 @@ class RetrievalPlanner:
         }
         graph_budget = budgets[RetrievalSignal.GRAPH.value]
         selected_seeds = tuple(dict.fromkeys((*seed_memory_ids, *sorted(query.memory_ids))))
+        rerank_alpha = self._rerank_alpha(purpose)
+        # Four times the public limit, floored at 32.  The measured curve is
+        # flat from 20 upward on both tracks, so the window is set by what the
+        # caller asks for rather than tuned to a peak; below roughly twice the
+        # limit the stage has nothing to promote from.
+        rerank_window = min(512, max(32, query.limit * 4)) if rerank_alpha > 0.0 else 0
         return RetrievalPlan(
             purpose=purpose,
             intent=intent,
@@ -113,9 +119,42 @@ class RetrievalPlanner:
             graph_max_fanout=8 if max_graph_hops else 0,
             graph_edge_budget=(min(2000, max(64, graph_budget * 4)) if max_graph_hops else 0),
             graph_link_types=GRAPH_LINK_TYPES if max_graph_hops else frozenset(),
-            rerank=False,
+            rerank=rerank_alpha > 0.0,
+            rerank_alpha=rerank_alpha,
+            rerank_window=rerank_window,
             diversify=purpose in {RetrievalPurpose.PLANNING, RetrievalPurpose.TASK_BOOTSTRAP},
         )
+
+    @staticmethod
+    def _rerank_alpha(purpose: RetrievalPurpose) -> float:
+        """Weight on calibrated relevance when reordering the fused head.
+
+        Zero everywhere: the stage is implemented, tested and measured, and it
+        is **not shipped**, because the independent track said not to.
+
+        Measured 2026-08-09 at ``alpha = 0.5`` (see
+        ``docs/retrieval-benchmark.md``).  On the 40-query swarm corpus it is a
+        clear win — Recall@10 0.927 → 0.941, MRR 0.912 → 0.927 — and it is
+        positive in all three lane configurations there.  On the 500-question
+        LongMemEval-S track it is a small loss: Recall@10 0.976 → 0.971, with
+        five of six question types regressing.
+
+        The difference is structural rather than a tuning accident.  Reranking
+        repairs a *consensus* pathology: candidates that one strong lane ranks
+        well and several weak lanes ignore get buried by candidates that many
+        lanes rank mid-field.  That pathology grows with the number of lanes
+        actually returning candidates.  The swarm corpus fires all five; on
+        LongMemEval only lexical and dense return anything (its session
+        memories carry no identifiers and no links), fused Recall@10 is already
+        0.976, and reordering can mostly only push gold out of the top ten.
+
+        Enabling this by lane count is the obvious next hypothesis and is
+        deliberately not implemented here: there is no third judged corpus left
+        to validate such a gate on, and inventing one from the two datasets
+        that motivated it is how a retriever gets fitted to its own benchmark.
+        """
+
+        return 0.0
 
     @staticmethod
     def _intent(query: RecallQuery) -> str:
@@ -155,14 +194,25 @@ class RetrievalPlanner:
                 RetrievalSignal.GRAPH: 1.25,
             }
         else:
+            # Interactive graph weight is deliberately small.  Measured on the
+            # swarm corpus with a semantic embedder (2026-08-09): at 1.75 the
+            # graph lane lowered final MRR@10 by 0.11 versus direct fusion and
+            # improved no query, because strong direct lanes already surface
+            # linked evidence and expansion mostly promotes connected decoys.
+            # Purposes built around traversal (bootstrap, handoff, planning,
+            # conflict review) keep their higher weights and two hops.
+            if purpose is RetrievalPurpose.CONFLICT_REVIEW:
+                graph_weight = 2.5
+            elif purpose in {RetrievalPurpose.PLANNING, RetrievalPurpose.HANDOFF_RECOVERY}:
+                graph_weight = 1.5
+            else:
+                graph_weight = 0.5
             configured = {
                 RetrievalSignal.EXACT: 5.0,
                 RetrievalSignal.LEXICAL: 3.0,
                 RetrievalSignal.FUZZY: 1.0,
                 RetrievalSignal.DENSE: 4.0,
-                RetrievalSignal.GRAPH: (
-                    2.5 if purpose is RetrievalPurpose.CONFLICT_REVIEW else 1.75
-                ),
+                RetrievalSignal.GRAPH: graph_weight,
             }
         # Literal identifiers are better served by exact and fuzzy indexes;
         # dense still contributes for mixed natural-language/code queries but

@@ -331,10 +331,15 @@ def test_query_tokens_are_bounded_like_the_lexical_lane() -> None:
 
 
 @pytest.mark.asyncio
-async def test_min_score_gates_relevance_while_the_public_score_is_unchanged(
+async def test_min_score_gates_relevance_and_not_the_ranking_score(
     scope_ids: dict[str, str],
 ) -> None:
-    """The dropped candidate is the rank-one hit whose public score is exactly 1.00."""
+    """The dropped candidate is the rank-one hit that weighted RRF scored 1.00.
+
+    The floor has to read the relevance channel to see that, because the
+    ranking channel says this candidate is the best thing available — which it
+    is, and which is exactly why ranking alone cannot abstain.
+    """
 
     actor = make_actor(scope_ids)
     weak = _memory(
@@ -364,9 +369,13 @@ async def test_min_score_gates_relevance_while_the_public_score_is_unchanged(
     raised_floor = await service.execute(actor, RecallQuery(text=query_text, min_score=0.4))
 
     assert [hit.memory.memory_id for hit in open_floor.bundle.hits] == [weak.memory_id]
-    assert open_floor.bundle.hits[0].score == pytest.approx(1.0)
+    # Weighted RRF, before reranking, pins this candidate at the anchor.
+    assert open_floor.trace.fused_candidates[0].normalized_score == pytest.approx(1.0)
     assert open_floor.trace.relevance_version == RELEVANCE_VERSION
     assert open_floor.trace.candidate_relevance[0].relevance < 0.4
+    # The published ranking score still overstates the evidence behind the hit,
+    # which is the whole reason the floor reads relevance instead.
+    assert open_floor.bundle.hits[0].score > open_floor.trace.candidate_relevance[0].relevance
 
     assert raised_floor.bundle.hits == ()
     assert raised_floor.trace.abstained is True

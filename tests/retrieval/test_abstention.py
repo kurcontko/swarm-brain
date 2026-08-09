@@ -137,15 +137,59 @@ async def test_no_answer_queries_still_return_hits_at_the_default_floor(
         )
         assert execution.bundle.hits, case.case_id  # type: ignore[attr-defined]
         assert execution.trace.abstained is False
-        # The defect this feature answers: the top hit's public score is a rank
-        # statement and stays high while nothing in the field is relevant.
+        # The defect this feature answers: the top hit's public score overstates
+        # the evidence behind it, because it is dominated by rank position while
+        # nothing in the field is actually relevant.  Asserting the relationship
+        # rather than a fixed number keeps this honest across fusion changes:
+        # relevance reranking moved the absolute value without touching the
+        # defect, and a magic threshold would have hidden that.
         top = execution.trace.candidate_relevance[0]
-        assert execution.bundle.hits[0].score >= 0.6, case.case_id  # type: ignore[attr-defined]
+        assert execution.bundle.hits[0].score > top.relevance, case.case_id  # type: ignore[attr-defined]
         assert top.relevance < NO_DENSE_ABSTENTION_FLOOR, case.case_id  # type: ignore[attr-defined]
         assert (
             max(item.relevance for item in execution.trace.candidate_relevance)
             < NO_DENSE_ABSTENTION_FLOOR
         ), case.case_id  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_public_score_cannot_separate_no_answer_from_answerable(
+    corpus: object,
+    published: tuple[RetrievalService, object, dict[str, str]],
+) -> None:
+    """The load-bearing reason ``min_score`` gates on relevance and not on score.
+
+    Relevance reranking blends calibrated relevance into the published score, so
+    it would be reasonable to ask whether a floor on that score could now
+    abstain.  It cannot: the two groups' top-1 scores still overlap, which means
+    no threshold separates them.  If this ever starts passing in the other
+    direction the abstention design is due for a rewrite, and this test is the
+    place that should say so.
+    """
+
+    retrieval, actor, _ = published
+
+    async def top_scores(category: str) -> list[float]:
+        scores: list[float] = []
+        for case in _cases(corpus, category):
+            execution = await retrieval.execute(
+                actor,
+                RecallQuery(text=case.text, limit=10),  # type: ignore[attr-defined]
+            )
+            assert execution.bundle.hits, case.case_id  # type: ignore[attr-defined]
+            scores.append(execution.bundle.hits[0].score)
+        return scores
+
+    no_answer = await top_scores("no_answer")
+    answerable: list[float] = []
+    for category in ("paraphrase", "multi_evidence", "decoy_heavy"):
+        answerable.extend(await top_scores(category))
+
+    assert no_answer and answerable
+    assert max(no_answer) >= min(answerable), (
+        "the public score now separates no-answer from answerable queries; "
+        "revisit the relevance-gated abstention design"
+    )
 
 
 @pytest.mark.asyncio

@@ -329,9 +329,9 @@ filtruje teraz po skalibrowanym, niezależnym od rangi sygnale trafności
 (`swarmbrain.retrieval.relevance`, `lane-max-v1`): maksimum z własnych dowodów
 lane'ów — exact-term equality, pokrycie tokenów zapytania, podobieństwo
 trigramowe i dense cosine — przy czym graph nie wnosi nic, bo jego aktywacja
-jest funkcją rangi seeda. Publiczny `RecallHit.score` nie zmienił znaczenia ani
-wartości, a domyślne `min_score = 0.0` zwraca dokładnie ten sam ranking co
-wcześniej (wszystkie metryki lane'ów w zapisanych runach są identyczne).
+jest funkcją rangi seeda. Wtedy publiczny `RecallHit.score` nie zmienił ani
+znaczenia, ani wartości, i nadal ich nie zmienia: relevance rerank opisany
+niżej został zmierzony i **nie jest włączony**.
 Komponenty leksykalny i trigramowy są przeliczane z kanonicznego tekstu, a nie
 odczytywane z raw score'ów lane'ów, bo adaptery mają różne skale (token overlap
 vs `ts_rank`) — dzięki temu ten sam próg znaczy to samo na obu backendach, co
@@ -341,6 +341,38 @@ w wysyłanej konfiguracji i kosztuje Recall@10 `0.882 → 0.784` na CockroachDB
 (bez lane'u dense: próg `0.25`, `0.838 → 0.799`). Krzywa kompromisu, rozbicie
 per intent i to, co pozostaje otwarte, są w dodatku z 2026-08-08 w
 [retrieval benchmark](retrieval-benchmark.md).
+
+Drugi problem (graph lane psujący MRR) jest zamknięty pomiarowo: waga graph
+dla interactive recall spadła z 1.75 na 0.5, a purposes oparte na trawersowaniu
+zachowały swoje wagi. Szczegóły w dodatku z 2026-08-09.
+
+### Relevance rerank (2026-08-09) — zmierzony, niewłączony
+
+Ważony RRF premiuje *zgodność* lane'ów: kandydat, którego kilka lane'ów ustawia
+w środku stawki, wygrywa z kandydatem, którego jeden mocny lane ustawia wysoko.
+`swarmbrain.retrieval.fusion.relevance_reranked` przestawia głowę rankingu
+według `(1 - alpha) * rrf + alpha * relevance`, gdzie człon RRF to `raw_rrf`
+podzielony przez maksimum w oknie — ściśle monotoniczny względem kolejności
+fuzji, więc `alpha = 0` odtwarza RRF dokładnie.
+
+Wynik pomiaru jest rozbieżny między torami i to on zdecydował:
+
+- korpus swarm (40 zapytań): Recall@10 `0.927 → 0.941`, MRR `0.912 → 0.927`,
+  dodatni we wszystkich trzech konfiguracjach lane'ów;
+- LongMemEval-S (500 pytań): Recall@10 `0.976 → 0.971`, regresja w pięciu z
+  sześciu typów pytań.
+
+Przyczyna rozbieżności jest strukturalna, nie przypadkowa: rerank naprawia
+patologię *konsensusu*, a szum konsensusu rośnie z liczbą lane'ów zwracających
+kandydatów. Korpus swarm uruchamia wszystkie pięć; LongMemEval tylko lexical i
+dense (sesje nie mają identyfikatorów ani linków), a fused Recall@10 wynosi tam
+już 0.976, więc przestawianie może głównie wypchnąć gold poza top-10.
+
+`RetrievalPlanner._rerank_alpha` zwraca 0.0 dla każdego purpose. Etap zostaje w
+drzewie razem z testami, bo ścieżka `alpha = 0` jest dowodliwie no-opem, a samo
+ustalenie jest warte zachowania. Publiczny `RecallHit.score` pozostaje więc
+niezmieniony względem stanu z 2026-08-08. Liczby i uzasadnienie: drugi dodatek z
+2026-08-09 w [retrieval benchmark](retrieval-benchmark.md).
 
 ### P3 — dług ewaluacyjny dense
 

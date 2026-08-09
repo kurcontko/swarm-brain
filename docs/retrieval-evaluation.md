@@ -63,6 +63,11 @@ Record:
 - exact/lexical/fuzzy/dense/graph/direct-fused/final-fused metrics at the
   product context depths;
 - no-answer precision and recall;
+- bundle precision, mean bundle size and answerable recall at each relevance
+  floor. Precision@k alone is ceiling-bounded by the judgments — a corpus
+  averaging 1.6 relevant memories per query caps P@10 near 0.16 however good
+  the ranking is — so it must be read next to the bundle the floor actually
+  returns, which is what a token-budgeted caller pays for;
 - CockroachDB version, corpus/scope sizes, selectivity buckets, beam and
   partition settings, candidate overfetch, and ANN Recall@k versus exact;
 - p50/p95/p99 latency, CPU, rows/bytes read, projection freshness lag, and
@@ -78,6 +83,14 @@ weights from a single aggregate score: compare per-intent ablations and retain
 no-answer/security gates. A learned convex fusion or reranker is eligible only
 after enough judged cases exist to tune it without evaluating on its training
 set.
+
+The relevance rerank stage is held to the same rule. It has no learned
+parameters — it blends weighted RRF with the calibrated relevance already
+computed for the abstention floor — but its one constant is still a constant,
+so it may not be set at the argmax of the 34 answerable swarm queries. Report
+its effect as `fused` (plain RRF) against `final` (reranked) within a single
+run, per intent, on both tracks; the independent 500-question track is what
+decides whether a swarm-corpus gain generalises.
 
 ## Live CockroachDB gate
 
