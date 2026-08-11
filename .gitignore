@@ -11,3 +11,13 @@ build/
 dist/
 cockroach-data/
 cockroach-logs/
+# CockroachDB writes these profile/dump directories beside the data dir when a
+# node is started from the repository root.
+heap_profiler/
+goroutine_dump/
+pprof_dump/
+inflight_trace_dump/
+executiontrace_dump/
+# Local agent-harness state: machine-specific permissions and scratch worktrees.
+.claude/settings.local.json
+.claude/worktrees/
