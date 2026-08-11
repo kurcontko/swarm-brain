@@ -1,10 +1,10 @@
-"""Seven model-visible tools; all behavior remains in the authenticated API."""
+"""Thin model-visible tools; all behavior remains in the authenticated API."""
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -78,13 +78,17 @@ def create_server(
         include_refuted: bool = False,
         include_superseded: bool = False,
         world_at: str | None = None,
+        referenced_valid_from: str | None = None,
+        referenced_valid_to: str | None = None,
+        occurrence_time_prior_from: str | None = None,
+        occurrence_time_prior_to: str | None = None,
         recorded_at: str | None = None,
         min_score: float = 0.0,
         limit: int = 10,
         include_evidence: bool = True,
         include_lineage: bool = False,
     ) -> dict[str, Any]:
-        """Recall scoped current memory; historical/refuted rows are opt-in."""
+        """Search scoped memory; result reasons retain retrieval-lane provenance."""
 
         return await client().recall_memory(
             text=text,
@@ -95,11 +99,67 @@ def create_server(
             include_refuted=include_refuted,
             include_superseded=include_superseded,
             world_at=world_at,
+            referenced_valid_from=referenced_valid_from,
+            referenced_valid_to=referenced_valid_to,
+            occurrence_time_prior_from=occurrence_time_prior_from,
+            occurrence_time_prior_to=occurrence_time_prior_to,
             recorded_at=recorded_at,
             min_score=min_score,
             limit=limit,
             include_evidence=include_evidence,
             include_lineage=include_lineage,
+        )
+
+    @server.tool()
+    async def activate_memory(
+        task_id: str,
+        trigger: Literal["tool_error", "repeated_failure", "explicit"],
+        query_text: str,
+        seed_memory_ids: list[str] | None = None,
+        token_budget: int = 2_048,
+        min_score: float = 0.4,
+        limit: int = 12,
+        referenced_valid_from: str | None = None,
+        referenced_valid_to: str | None = None,
+    ) -> dict[str, Any]:
+        """Recall bounded context after a tool error, repeated failure, or explicit need."""
+
+        return await client().activate_memory(
+            task_id=task_id,
+            trigger=trigger,
+            query_text=query_text,
+            seed_memory_ids=seed_memory_ids,
+            token_budget=token_budget,
+            min_score=min_score,
+            limit=limit,
+            referenced_valid_from=referenced_valid_from,
+            referenced_valid_to=referenced_valid_to,
+        )
+
+    @server.tool()
+    async def read_expand_memory(
+        task_id: str,
+        query_text: str,
+        memory_ids: list[str],
+        max_depth: int = 1,
+        max_fanout: int = 4,
+        token_budget: int = 4_096,
+        include_evidence: bool = True,
+        referenced_valid_from: str | None = None,
+        referenced_valid_to: str | None = None,
+    ) -> dict[str, Any]:
+        """Read exact search hits and follow up to two bounded canonical link hops."""
+
+        return await client().read_expand_memory(
+            task_id=task_id,
+            query_text=query_text,
+            memory_ids=memory_ids,
+            max_depth=max_depth,
+            max_fanout=max_fanout,
+            token_budget=token_budget,
+            include_evidence=include_evidence,
+            referenced_valid_from=referenced_valid_from,
+            referenced_valid_to=referenced_valid_to,
         )
 
     @server.tool()
@@ -115,6 +175,8 @@ def create_server(
         evidence: list[dict[str, Any]] | None = None,
         supersedes_memory_id: str | None = None,
         related_memory_ids: list[str] | None = None,
+        derived_from_memory_ids: list[str] | None = None,
+        occurred_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
         confidence: float = 0.5,
@@ -133,6 +195,8 @@ def create_server(
             evidence=evidence,
             supersedes_memory_id=supersedes_memory_id,
             related_memory_ids=related_memory_ids,
+            derived_from_memory_ids=derived_from_memory_ids,
+            occurred_at=occurred_at,
             valid_from=valid_from,
             valid_to=valid_to,
             confidence=confidence,

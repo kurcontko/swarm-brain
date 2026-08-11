@@ -8,13 +8,15 @@ import pytest
 
 from conftest import make_actor, new_id
 from swarmbrain.application.retrieval_service import RetrievalService
-from swarmbrain.domain.memory import Memory, MemoryState, RecallQuery, Visibility
+from swarmbrain.domain.memory import Memory, MemoryState, RecallHit, RecallQuery, Visibility
 from swarmbrain.domain.retrieval import (
     Candidate,
     CandidateBatch,
+    PackingPolicy,
     RetrievalSignal,
     RetrievalTrace,
 )
+from swarmbrain.retrieval import estimate_tokens, render_recall_hit
 
 
 class _Gateway:
@@ -293,6 +295,92 @@ async def test_runtime_budget_skips_oversized_top_hit_and_keeps_smaller_evidence
         compact.memory_id,
     ]
     assert unbounded.trace.packing is None
+
+
+@pytest.mark.asyncio
+async def test_facility_location_is_an_explicit_runtime_policy(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    now = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    memories = tuple(
+        Memory(
+            memory_id=new_id(),
+            **scope_ids,
+            author_agent_id=actor.agent_id,
+            kind="observation",
+            state=MemoryState.CONFIRMED,
+            visibility=Visibility.REPOSITORY,
+            content=content,
+            valid_from=now,
+            recorded_from=now,
+        )
+        for content in ("alpha shared", "alpha shared", "beta distinct")
+    )
+    candidates = tuple(
+        Candidate(
+            resource_type="memory",
+            resource_id=memory.memory_id,
+            resource_version=1,
+            canonical_id=memory.memory_id,
+            domain_lane="knowledge",
+            signal=RetrievalSignal.LEXICAL,
+            rank=rank,
+            raw_score=1.0 / rank,
+        )
+        for rank, memory in enumerate(memories, start=1)
+    )
+    gateway = _Gateway(
+        RetrievalSignal.LEXICAL,
+        CandidateBatch(
+            lane=RetrievalSignal.LEXICAL,
+            candidates=candidates,
+            examined_count=3,
+            latency_ms=0.1,
+        ),
+    )
+    reader = _MultiReader(memories)
+    greedy = RetrievalService((gateway,), reader)
+    facility = RetrievalService(
+        (gateway,),
+        reader,
+        packing_policy=PackingPolicy.FACILITY_LOCATION,
+    )
+    # Scores do not affect rendering; these lightweight copies mirror the
+    # service's rank-order context blocks.
+    rendered_hits = tuple(RecallHit(memory=memory, score=1.0) for memory in memories)
+    rendered_sizes = tuple(
+        estimate_tokens(("" if index == 0 else "\n\n") + render_recall_hit(hit))
+        for index, hit in enumerate(rendered_hits)
+    )
+    budget = max(
+        rendered_sizes[0] + rendered_sizes[1],
+        rendered_sizes[0] + rendered_sizes[2],
+    )
+
+    greedy_execution = await greedy.execute(
+        actor,
+        RecallQuery(text="alpha beta", limit=2),
+        token_budget=budget,
+    )
+    facility_execution = await facility.execute(
+        actor,
+        RecallQuery(text="alpha beta", limit=2),
+        token_budget=budget,
+    )
+
+    assert [hit.memory.memory_id for hit in greedy_execution.bundle.hits] == [
+        memories[0].memory_id,
+        memories[1].memory_id,
+    ]
+    assert [hit.memory.memory_id for hit in facility_execution.bundle.hits] == [
+        memories[0].memory_id,
+        memories[2].memory_id,
+    ]
+    assert greedy_execution.trace.packing is not None
+    assert facility_execution.trace.packing is not None
+    assert greedy_execution.trace.packing.policy is PackingPolicy.GREEDY
+    assert facility_execution.trace.packing.policy is PackingPolicy.FACILITY_LOCATION
 
 
 @pytest.mark.asyncio

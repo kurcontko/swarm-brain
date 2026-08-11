@@ -160,6 +160,10 @@ class SwarmBrainHttpClient:
         include_refuted: bool = False,
         include_superseded: bool = False,
         world_at: str | None = None,
+        referenced_valid_from: str | None = None,
+        referenced_valid_to: str | None = None,
+        occurrence_time_prior_from: str | None = None,
+        occurrence_time_prior_to: str | None = None,
         recorded_at: str | None = None,
         min_score: float = 0.0,
         limit: int = 10,
@@ -180,9 +184,83 @@ class SwarmBrainHttpClient:
             "include_evidence": include_evidence,
             "include_lineage": include_lineage,
         }
+        if referenced_valid_from is not None:
+            payload["referenced_valid_from"] = referenced_valid_from
+        if referenced_valid_to is not None:
+            payload["referenced_valid_to"] = referenced_valid_to
+        if occurrence_time_prior_from is not None:
+            payload["occurrence_time_prior_from"] = occurrence_time_prior_from
+        if occurrence_time_prior_to is not None:
+            payload["occurrence_time_prior_to"] = occurrence_time_prior_to
         if states is not None:
             payload["states"] = states
         return await self._request("POST", "/v1/memories:recall", json=payload)
+
+    async def activate_memory(
+        self,
+        *,
+        task_id: str,
+        trigger: str,
+        query_text: str,
+        seed_memory_ids: list[str] | None = None,
+        token_budget: int = 2_048,
+        min_score: float = 0.4,
+        limit: int = 12,
+        referenced_valid_from: str | None = None,
+        referenced_valid_to: str | None = None,
+    ) -> dict[str, Any]:
+        binding = self._binding(task_id)
+        payload: dict[str, Any] = {
+            "lease_id": binding.lease_id,
+            "trigger": trigger,
+            "query_text": query_text,
+            "seed_memory_ids": seed_memory_ids or [],
+            "token_budget": token_budget,
+            "min_score": min_score,
+            "limit": limit,
+        }
+        if referenced_valid_from is not None:
+            payload["referenced_valid_from"] = referenced_valid_from
+        if referenced_valid_to is not None:
+            payload["referenced_valid_to"] = referenced_valid_to
+        return await self._request(
+            "POST",
+            f"/v1/tasks/{task_id}/memories:activate",
+            json=payload,
+        )
+
+    async def read_expand_memory(
+        self,
+        *,
+        task_id: str,
+        query_text: str,
+        memory_ids: list[str],
+        max_depth: int = 1,
+        max_fanout: int = 4,
+        token_budget: int = 4_096,
+        include_evidence: bool = True,
+        referenced_valid_from: str | None = None,
+        referenced_valid_to: str | None = None,
+    ) -> dict[str, Any]:
+        binding = self._binding(task_id)
+        payload: dict[str, Any] = {
+            "lease_id": binding.lease_id,
+            "query_text": query_text,
+            "memory_ids": memory_ids,
+            "max_depth": max_depth,
+            "max_fanout": max_fanout,
+            "token_budget": token_budget,
+            "include_evidence": include_evidence,
+        }
+        if referenced_valid_from is not None:
+            payload["referenced_valid_from"] = referenced_valid_from
+        if referenced_valid_to is not None:
+            payload["referenced_valid_to"] = referenced_valid_to
+        return await self._request(
+            "POST",
+            f"/v1/tasks/{task_id}/memories:read-expand",
+            json=payload,
+        )
 
     async def publish_memory(
         self,
@@ -197,6 +275,8 @@ class SwarmBrainHttpClient:
         evidence: list[dict[str, Any]] | None = None,
         supersedes_memory_id: str | None = None,
         related_memory_ids: list[str] | None = None,
+        derived_from_memory_ids: list[str] | None = None,
+        occurred_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
         confidence: float = 0.5,
@@ -221,6 +301,8 @@ class SwarmBrainHttpClient:
                 ),
                 "supersedes_memory_id": supersedes_memory_id,
                 "related_memory_ids": related_memory_ids or [],
+                "derived_from_memory_ids": derived_from_memory_ids or [],
+                **({"occurred_at": occurred_at} if occurred_at is not None else {}),
                 "valid_from": valid_from,
                 "valid_to": valid_to,
                 "confidence": confidence,

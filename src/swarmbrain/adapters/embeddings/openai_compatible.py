@@ -6,6 +6,7 @@ import asyncio
 import math
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 _MAX_BATCH_SIZE = 64
 _REQUEST_TIMEOUT_SECONDS = 60.0
@@ -38,6 +39,7 @@ class OpenAICompatibleEmbeddingProvider:
         model_id: str = "Qwen/Qwen3-Embedding-0.6B",
         dimensions: int = 1024,
         api_key: str | None = None,
+        required_response_model: str | None = None,
         query_instruction: str | None = (
             "Given a coding-agent memory search query, retrieve relevant memories"
         ),
@@ -47,15 +49,39 @@ class OpenAICompatibleEmbeddingProvider:
             raise ValueError("dimensions must be at least 2")
         if not model_id or len(model_id) > 255:
             raise ValueError("model_id must contain between 1 and 255 characters")
+        if required_response_model is not None and (
+            not required_response_model.strip() or len(required_response_model) > 255
+        ):
+            raise ValueError("required_response_model must contain between 1 and 255 characters")
         stripped = base_url.strip().rstrip("/")
         if not stripped or not stripped.startswith(("http://", "https://")):
             raise ValueError("base_url must be an http:// or https:// URL")
+        parsed = urlsplit(stripped)
+        if (
+            not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "base_url must not contain credentials, query parameters, or a fragment"
+            )
+        if stripped.endswith("/v1"):
+            stripped = stripped[: -len("/v1")]
         self._base_url = stripped
         self._model_id = model_id
         self._dimensions = dimensions
         self._api_key = api_key
+        self._required_response_model = required_response_model
         self._query_instruction = query_instruction
         self._client = client
+        self._owns_client = client is None
+        self._document_inputs = 0
+        self._document_batch_calls = 0
+        self._query_calls = 0
+        self._http_attempts = 0
+        self._successful_http_calls = 0
 
     @property
     def model_name(self) -> str:
@@ -65,13 +91,45 @@ class OpenAICompatibleEmbeddingProvider:
     def dimensions(self) -> int:
         return self._dimensions
 
+    @property
+    def required_response_model(self) -> str | None:
+        return self._required_response_model
+
+    @property
+    def call_accounting(self) -> dict[str, int]:
+        return {
+            "document_inputs": self._document_inputs,
+            "document_batch_calls": self._document_batch_calls,
+            "query_calls": self._query_calls,
+            "successful_http_calls": self._successful_http_calls,
+            "http_attempts": self._http_attempts,
+        }
+
+    def reset_call_accounting(self) -> None:
+        self._document_inputs = 0
+        self._document_batch_calls = 0
+        self._query_calls = 0
+        self._http_attempts = 0
+        self._successful_http_calls = 0
+
+    async def close(self) -> None:
+        if not self._owns_client or self._client is None:
+            return
+        close = getattr(self._client, "aclose", None)
+        if callable(close):
+            await close()
+        self._client = None
+
     async def embed_query(self, text: str) -> tuple[float, ...]:
+        self._query_calls += 1
         if self._query_instruction:
             text = f"Instruct: {self._query_instruction}\nQuery: {text}"
         vectors = await self._embed_batch([text])
         return vectors[0]
 
     async def embed_documents(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        self._document_batch_calls += 1
+        self._document_inputs += len(texts)
         vectors: list[tuple[float, ...]] = []
         for start in range(0, len(texts), _MAX_BATCH_SIZE):
             vectors.extend(await self._embed_batch(list(texts[start : start + _MAX_BATCH_SIZE])))
@@ -85,6 +143,7 @@ class OpenAICompatibleEmbeddingProvider:
         payload: Any = None
         for attempt in range(_TRANSIENT_ATTEMPTS):
             try:
+                self._http_attempts += 1
                 response = await client.post(
                     f"{self._base_url}/v1/embeddings",
                     json={"model": self._model_id, "input": texts},
@@ -103,6 +162,12 @@ class OpenAICompatibleEmbeddingProvider:
                         f"{_TRANSIENT_ATTEMPTS} attempts: {type(exc).__name__}"
                     ) from exc
                 await asyncio.sleep(_TRANSIENT_BACKOFF_SECONDS[attempt])
+        if self._required_response_model is not None and payload.get("model") != (
+            self._required_response_model
+        ):
+            raise OpenAICompatibleUnavailable(
+                "embedding endpoint response model does not match the required revision"
+            )
         rows = payload.get("data")
         if not isinstance(rows, list) or len(rows) != len(texts):
             raise OpenAICompatibleUnavailable(
@@ -124,6 +189,7 @@ class OpenAICompatibleEmbeddingProvider:
         complete = [vector for vector in ordered if vector is not None]
         if len(complete) != len(texts):
             raise OpenAICompatibleUnavailable("endpoint returned duplicate embedding indexes")
+        self._successful_http_calls += 1
         return complete
 
     def _normalize(self, values: list[Any]) -> tuple[float, ...]:

@@ -11,6 +11,7 @@ from .memory_store import (
     MemoryReviewStore,
     MemoryStore,
 )
+from .reranking import LearnedRerankerProvider
 from .retrieval import (
     CanonicalMemoryReader,
     GraphExpansionGateway,
@@ -37,6 +38,7 @@ __all__ = [
     "MetricsReader",
     "OutboxStore",
     "GraphExpansionGateway",
+    "LearnedRerankerProvider",
     "RetrievalGateway",
     "RetrievalTraceSink",
 ]

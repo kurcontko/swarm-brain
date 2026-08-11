@@ -15,6 +15,7 @@ REQUIRED_TABLES = {
     "task_checkpoints",
     "task_completions",
     "memories",
+    "memory_outcome_associations",
     "memory_embeddings",
     "memory_vector_embeddings",
     "retrieval_vectors_1024",
@@ -68,6 +69,8 @@ def test_memory_schema_keeps_lifecycle_strict_but_semantics_open() -> None:
     blocks = _create_table_blocks(schema)
 
     assert "content_json JSONB NULL" in blocks["memories"]
+    assert "occurred_at TIMESTAMPTZ NULL" in blocks["memories"]
+    assert "ALTER TABLE memories ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ NULL" in schema
     assert "memories_state_check" in blocks["memories"]
     assert "memories_visibility_check" in blocks["memories"]
     assert "memories_kind_check CHECK" not in blocks["memories"]
@@ -160,6 +163,33 @@ def test_retrieval_v9_reuse_counter_is_run_keyed_scoped_and_content_free() -> No
     # Recall text and memory content must never reach a telemetry table.
     for forbidden in ("query", "text", "content", "memory_id"):
         assert forbidden not in counters.lower()
+
+
+def test_v11_outcome_associations_are_scoped_content_free_and_observational() -> None:
+    schema = read_schema()
+    associations = _create_table_blocks(schema)["memory_outcome_associations"]
+
+    for field in (
+        "kind STRING NOT NULL DEFAULT 'observational_silver'",
+        "tenant_id STRING NOT NULL",
+        "project_id STRING NOT NULL",
+        "repository_id STRING NOT NULL",
+        "swarm_id STRING NOT NULL",
+        "run_id STRING NOT NULL",
+        "task_id UUID NOT NULL",
+        "lease_id UUID NOT NULL",
+        "consumer_agent_id STRING NOT NULL",
+        "memory_id UUID NOT NULL",
+        "memory_version INT8 NOT NULL",
+        "outcome STRING NOT NULL",
+        "observed_at TIMESTAMPTZ NOT NULL",
+    ):
+        assert field in associations
+    assert "outcome IN ('succeeded', 'failed')" in associations
+    assert "kind = 'observational_silver'" in associations
+    assert "memory_outcome_associations_scope" in schema
+    for forbidden in ("query", "content", "summary", "prompt", "causal"):
+        assert forbidden not in associations.lower()
 
 
 def test_reuse_counter_verifier_rejects_a_widened_primary_key() -> None:

@@ -36,6 +36,8 @@ from swarmbrain.domain.work import (
     FailWorkCommand,
     PreparedWorkEnqueue,
     SourceExtractionStatus,
+    StageConsolidationPlanCommand,
+    StageConsolidationPlanResult,
     WorkCompletionConflict,
     WorkEffect,
     WorkEffectConflict,
@@ -500,10 +502,14 @@ class InMemoryWorkStore:
                     "candidate": effect.candidate.model_dump(mode="json"),
                     "valid_from": (
                         effect.candidate.valid_from
-                        or effect.candidate.event_time
                         or self.sources[item.subject_id].source.observed_at
                         or self.sources[item.subject_id].source.recorded_at
                     ).isoformat(),
+                    "occurred_at": (
+                        effect.candidate.event_time.isoformat()
+                        if effect.candidate.event_time is not None
+                        else None
+                    ),
                     "metadata": self._effect_memory_metadata(
                         command.work_id,
                         effect,
@@ -709,6 +715,60 @@ class InMemoryWorkStore:
             self.items[item.work_id] = completed
             return CompleteWorkResult(item=completed)
 
+    async def stage_consolidation_plan(
+        self,
+        command: StageConsolidationPlanCommand,
+    ) -> StageConsolidationPlanResult:
+        async with self._lock:
+            item = self.items.get(command.work_id)
+            staged_payload = {"staged_consolidation": command.reflection.model_dump(mode="json")}
+            if (
+                item is not None
+                and item.status is WorkStatus.LEASED
+                and item.kind is WorkKind.CONSOLIDATE_MEMORY
+                and item.locked_by == command.worker_id
+                and item.lease_token == command.lease_token
+                and item.lease_version == command.lease_version
+                and item.attempts == command.attempt
+                and item.result is not None
+            ):
+                if item.result != staged_payload:
+                    raise WorkCompletionConflict("consolidation_plan_changed")
+                if item.version not in {
+                    command.expected_work_version,
+                    command.expected_work_version + 1,
+                }:
+                    raise WorkLeaseLost(command.work_id)
+                return StageConsolidationPlanResult(
+                    item=item,
+                    reflection=command.reflection,
+                    replayed=True,
+                )
+
+            self._require_lease(
+                item,
+                worker_id=command.worker_id,
+                lease_token=command.lease_token,
+                lease_version=command.lease_version,
+                work_version=command.expected_work_version,
+                attempt=command.attempt,
+            )
+            assert item is not None
+            if item.kind is not WorkKind.CONSOLIDATE_MEMORY:
+                raise WorkCompletionConflict("stage_requires_consolidate_memory")
+            staged = item.model_copy(
+                update={
+                    "result": staged_payload,
+                    "updated_at": self._clock(),
+                    "version": item.version + 1,
+                }
+            )
+            self.items[item.work_id] = staged
+            return StageConsolidationPlanResult(
+                item=staged,
+                reflection=command.reflection,
+            )
+
     async def complete_work(self, command: CompleteWorkCommand) -> CompleteWorkResult:
         async with self._lock:
             item = self.items.get(command.work_id)
@@ -729,6 +789,10 @@ class InMemoryWorkStore:
             assert item is not None
             if item.kind in {WorkKind.EXTRACT_SOURCE, WorkKind.EMBED_MEMORY}:
                 raise WorkCompletionConflict(f"{item.kind.value}_requires_fenced_apply")
+            if item.kind is WorkKind.CONSOLIDATE_MEMORY and not (item.result or {}).get(
+                "staged_consolidation"
+            ):
+                raise WorkCompletionConflict("consolidation_requires_staged_plan")
             now = self._clock()
             completed = item.model_copy(
                 update={

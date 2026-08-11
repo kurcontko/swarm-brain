@@ -146,8 +146,9 @@ a non-empty reason.
 
 Results are:
 
-- `ClaimTaskResult(task, lease, checkpoint?, activation?:
-  MemoryActivationTelemetry, activation_context?: string, replayed=false)`;
+- `ClaimTaskResult(task, lease, checkpoint?, unblocked_by_task_ids=[],
+  activation?: MemoryActivationTelemetry, activation_context?: string,
+  replayed=false)`;
 - `CheckpointResult(task, lease, checkpoint, replayed=false)`;
 - `CompletionResult(task, lease, completion, replayed=false)`;
 - `ReleaseResult(task, lease, replayed=false)`.
@@ -158,7 +159,7 @@ excluded from model serialization. HTTP and MCP therefore never return the raw
 `RecallBundle`; wire consumers receive only the bounded `activation_context`
 and content-free `activation` telemetry.
 
-#### Selective task-claim activation
+#### Selective task and in-task activation
 
 `MemoryActivationRequest` identifies the task, lease, trigger, optional
 retrieval purpose and checkpoint seed IDs, plus a token budget, relevance floor,
@@ -348,6 +349,7 @@ title?: string(max 500)
 tags: normalized unique lowercase string[] = []
 confidence: number[0,1] = 0.5
 evidence: EvidenceRef[] = []
+occurred_at?: aware datetime     # provenance-backed event observation
 valid_from: aware datetime
 valid_to?: aware datetime (> valid_from)
 recorded_from: aware datetime = now
@@ -363,8 +365,15 @@ Task visibility requires a task ID; superseded state requires
 `RememberCommand` intentionally omits actor-owned scope. It contains
 `idempotency_key`, kind/content, `desired_state=tentative`, visibility, optional
 task/title/world interval, tags, confidence, evidence, optional
-`supersedes_memory_id`, related memory IDs, and metadata. A newly appended row
-cannot request `desired_state=superseded`; confirmation/refutation and an
+`occurred_at`, `supersedes_memory_id`, related memory IDs, and metadata.
+`occurred_at` is accepted only with at least one immutable evidence reference;
+it has no required ordering relationship with the world-validity or
+system-recording intervals. A newly appended row
+may also carry `derived_from_memory_ids`; those typed lineage targets must be
+current confirmed memories, every target must contribute at least one exact
+immutable evidence ref, and the output evidence must be a subset of their
+combined refs. A newly appended row cannot request `desired_state=superseded`;
+confirmation/refutation and an
 explicit predecessor remain capability- and policy-gated. Tenant, repository,
 run, author, system time, version, and policy outcome are server-owned.
 
@@ -394,7 +403,12 @@ visibilities: Visibility[] = [task,run,repository]
 states?: MemoryState[]         # default effective states: tentative,confirmed
 include_refuted: boolean = false
 include_superseded: boolean = false
-world_at?, recorded_at?: aware datetime
+world_at?: aware datetime        # valid at one world-time instant
+referenced_valid_from?, referenced_valid_to?: aware datetime
+                                # supplied together; half-open overlap routing
+occurrence_time_prior_from?, occurrence_time_prior_to?: aware datetime
+                                # supplied together; soft event-time prior only
+recorded_at?: aware datetime     # system-time/as-of selector
 min_score: number[0,1] = 0     # floors calibrated per-hit relevance
                                # (lane-max-v1), not the ranked score; 0 keeps
                                # today's behavior, higher values allow abstention
@@ -420,6 +434,42 @@ through canonical scope/state/trust/world/system-time predicates. The
 deprecated `memory_ids` field remains accepted by HTTP v1 for compatibility but
 is no longer used as an internal hydration transport. No zero-score
 `scope_match` is emitted.
+
+`world_at` and the referenced-validity pair are mutually exclusive valid-time
+selectors. The interval pair matches `[memory.valid_from, memory.valid_to)` by
+strict half-open overlap; unlike default recall it does not also require the
+memory to be valid now. `recorded_at` is orthogonal and may be combined with
+either selector. The occurrence-prior pair is also orthogonal: when explicitly
+provided, it adds a reciprocal-distance temporal candidate lane over non-null
+`memory.occurred_at`. It is never copied into canonical validity predicates,
+and a memory with no occurrence time remains eligible and receives no temporal
+contribution. Without the pair, occurrence time is not read by ranking. The
+server does not infer either interval from query text.
+
+`MemoryActivationCommand(task_id, lease_id, trigger, query_text,
+seed_memory_ids=[], token_budget=2048, min_score=0.4, limit=12,
+referenced_valid_from?, referenced_valid_to?)` exposes only
+`tool_error|repeated_failure|explicit`; automatic claim, resume, and dependency
+triggers remain server-owned. Query text is bounded to 8,192 characters and is
+discarded before telemetry persistence. The content-free referenced interval is
+retained in telemetry only so the commit-time proof can reapply the same
+selector. The task/lease must be the caller's active owned lease before recall
+begins, and storage revalidates that lease plus each selected memory's exact
+version and canonical eligibility before returning `MemoryActivationDelivery`.
+A deterministic replay returns stored telemetry without historical context.
+
+`recall_memory` is the iterative search step and retains bounded lane reasons.
+`ReadExpandMemoryRequest` is its exact read step: 1–8 IDs, graph depth `0..2`,
+fanout `1..8`, a total 1–16,384-token budget, and the same optional referenced
+validity interval. Seeds and neighbors are
+hydrated under one canonical snapshot and confirmed/current/scope/time/trust
+filters. `ReadExpandMemoryResult` contains exact selected versions, bounded
+provenance, dropped IDs, estimated tokens, truncation, and one canonical context.
+Canonical activation/read-expand blocks render the memory's `valid_from` and,
+when finite, `valid_to` alongside recorded time; `occurred_at` is rendered only
+when provenance supplied it.
+HTTP routes are `/v1/tasks/{task_id}/memories:activate` and
+`/v1/tasks/{task_id}/memories:read-expand`.
 
 `MemoryLink` has a server ID, source/target IDs, kind, evidence, optional
 reason, and creation time; self-links are invalid. `MemoryLineage` contains the
@@ -508,6 +558,14 @@ deliberately different meanings:
 
 `memories_reused` is deprecated compatibility telemetry: it counts memories
 returned by recall and is not evidence that an agent saw, cited, or used them.
+
+`MemoryOutcomeAssociation` is a separate content-free, read-only offline
+contract. It is emitted only when a completion citation intersects an exact
+same-task/same-lease/same-consumer activation and the activated memory version
+is still canonically recallable. Its `observational_silver` kind is not a
+causal quality label. It stores scope IDs, memory/version, outcome, and time;
+query, memory content, task summary, and prompt text are absent. Neither
+successful nor failed associations affect retrieval ranking.
 
 ## Application service protocols
 
@@ -684,6 +742,12 @@ after lease expiry. If the last allowed attempt expires with its worker, the
 next claim cycle terminalizes it as `failed` with `lease_expired` instead of
 leaving an unclaimable leased row.
 
+When consolidation is enabled, the same supervisor also claims
+`consolidate_memory` work. It stages the exact bounded reflection plan under
+the lease fence before publishing any effect, reuses that plan after a crash,
+and completes only after every deterministic action idempotency key has passed
+through normal memory governance. See [the consolidation runtime](consolidation-runtime.md).
+
 `SWARMBRAIN_EMBEDDINGS=none|deterministic|bedrock|openai` controls the optional
 dense lane. CockroachDB schema v8 introduced an additive `retrieval_vectors_1024`
 projection with canonical resource version/content digest, repository/run/task
@@ -748,7 +812,7 @@ idempotency_key)` inside the business transaction.
 
 ## Model-visible MCP tools
 
-The stdio server registers exactly seven tools. It reads the API URL/token from
+The stdio server registers exactly nine tools. It reads the API URL/token from
 its environment and calls canonical HTTP. No input contains tenant, project,
 repository, swarm, run, agent, harness, provider, model, token, capability, or
 author fields.
@@ -757,6 +821,8 @@ author fields.
 | --- | --- | --- |
 | `claim_task` | `idempotency_key`, optional task ID/required tags/required capabilities/lease seconds/expected task version | `ClaimTaskResult`, including checkpoint, activation telemetry, and bounded activation context (never a raw recall bundle) |
 | `recall_memory` | `RecallQuery` fields | `RecallBundle` |
+| `activate_memory` | task ID, caller-selectable trigger, ephemeral query, seeds and bounded policy; lease is bridge-owned | `MemoryActivationDelivery` |
+| `read_expand_memory` | task ID, ephemeral query, 1–8 IDs, depth/fanout/budget/evidence controls; lease is bridge-owned | `ReadExpandMemoryResult` |
 | `publish_memory` | `RememberCommand` fields | `RememberResult` |
 | `checkpoint_task` | `CheckpointCommand` fields | `CheckpointResult` |
 | `complete_task` | `CompleteTaskCommand` fields | `CompletionResult` |
@@ -845,7 +911,7 @@ existence is required.
 ## Current conformance boundary
 
 The current tree implements the strict models/ports, capability-gated services,
-signed-token codec, canonical FastAPI routes, seven MCP functions, CockroachDB
+signed-token codec, canonical FastAPI routes, nine MCP functions, CockroachDB
 repositories, and separate durable worker described above. The checked-in live
 gates cover API→worker→API restart, scope-safe status/recall, spanless evidence,
 source rejection, effect-once replay, source→child-embedding→semantic recall,

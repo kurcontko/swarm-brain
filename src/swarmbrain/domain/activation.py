@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import Self
 from uuid import NAMESPACE_URL, uuid5
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from .common import (
     AgentId,
@@ -92,28 +92,124 @@ def memory_activation_id(
 class MemoryActivationRequest(ContractModel):
     """Safe-to-record policy input for a memory intervention.
 
-    The retrieval query is intentionally absent.  Callers pass it ephemerally
-    to :meth:`MemoryActivationService.activate`; telemetry may serialize this
-    model without storing task text, errors, prompts, or memory content.
+    Retrieval text is intentionally absent. Callers pass it ephemerally to
+    :meth:`MemoryActivationService.activate`; the explicit content-free valid
+    interval may be retained so commit-time hydration can reapply it without
+    storing task text, errors, prompts, or memory content.
     """
 
     task_id: TaskId
     lease_id: LeaseId
     trigger: ActivationTrigger
     purpose: RetrievalPurpose | None = None
-    seed_memory_ids: tuple[MemoryId, ...] = ()
+    seed_memory_ids: tuple[MemoryId, ...] = Field(default=(), max_length=100)
     token_budget: int = Field(default=2048, ge=1, le=131_072)
     min_score: float = Field(default=0.4, ge=0.0, le=1.0, allow_inf_nan=False)
     limit: int = Field(default=12, ge=1, le=100)
+    referenced_valid_from: AwareDatetime | None = None
+    referenced_valid_to: AwareDatetime | None = None
 
     @field_validator("seed_memory_ids")
     @classmethod
     def unique_seeds(cls, value: tuple[MemoryId, ...]) -> tuple[MemoryId, ...]:
         return tuple(dict.fromkeys(value))
 
+    @model_validator(mode="after")
+    def referenced_validity_is_a_bounded_interval(self) -> Self:
+        has_from = self.referenced_valid_from is not None
+        has_to = self.referenced_valid_to is not None
+        if has_from != has_to:
+            raise ValueError(
+                "referenced_valid_from and referenced_valid_to must be provided together"
+            )
+        if (
+            self.referenced_valid_from is not None
+            and self.referenced_valid_to is not None
+            and self.referenced_valid_to <= self.referenced_valid_from
+        ):
+            raise ValueError("referenced_valid_to must be later than referenced_valid_from")
+        return self
+
     @property
     def activation_id(self) -> str:
         return memory_activation_id(self.task_id, self.lease_id, self.trigger)
+
+
+class MemoryActivationCommand(ContractModel):
+    """Lease-bound, model-visible request for an in-task intervention.
+
+    ``query_text`` is deliberately ephemeral: the application converts this
+    command to :class:`MemoryActivationRequest` before telemetry persistence,
+    and only the latter's content-free fields cross the event boundary.
+    Automatic claim/resume/dependency triggers are server-owned and therefore
+    cannot be forged through this command.
+    """
+
+    task_id: TaskId
+    lease_id: LeaseId
+    trigger: ActivationTrigger
+    query_text: str = Field(min_length=1, max_length=8_192)
+    seed_memory_ids: tuple[MemoryId, ...] = Field(default=(), max_length=16)
+    token_budget: int = Field(default=2_048, ge=1, le=16_384)
+    min_score: float = Field(default=0.4, ge=0.0, le=1.0, allow_inf_nan=False)
+    limit: int = Field(default=12, ge=1, le=32)
+    referenced_valid_from: AwareDatetime | None = None
+    referenced_valid_to: AwareDatetime | None = None
+
+    @field_validator("query_text")
+    @classmethod
+    def bounded_nonblank_query(cls, value: str) -> str:
+        bounded = value.strip()
+        if not bounded:
+            raise ValueError("activation query must not be blank")
+        return bounded
+
+    @field_validator("seed_memory_ids")
+    @classmethod
+    def unique_command_seeds(cls, value: tuple[MemoryId, ...]) -> tuple[MemoryId, ...]:
+        return tuple(dict.fromkeys(value))
+
+    @field_validator("trigger")
+    @classmethod
+    def model_visible_trigger(cls, value: ActivationTrigger) -> ActivationTrigger:
+        if value not in {
+            ActivationTrigger.TOOL_ERROR,
+            ActivationTrigger.REPEATED_FAILURE,
+            ActivationTrigger.EXPLICIT,
+        }:
+            raise ValueError("model-visible activation trigger is not caller-selectable")
+        return value
+
+    @model_validator(mode="after")
+    def referenced_validity_is_a_bounded_interval(self) -> Self:
+        has_from = self.referenced_valid_from is not None
+        has_to = self.referenced_valid_to is not None
+        if has_from != has_to:
+            raise ValueError(
+                "referenced_valid_from and referenced_valid_to must be provided together"
+            )
+        if (
+            self.referenced_valid_from is not None
+            and self.referenced_valid_to is not None
+            and self.referenced_valid_to <= self.referenced_valid_from
+        ):
+            raise ValueError("referenced_valid_to must be later than referenced_valid_from")
+        return self
+
+    def request(self) -> MemoryActivationRequest:
+        """Discard query content while retaining the bounded policy envelope."""
+
+        return MemoryActivationRequest(
+            task_id=self.task_id,
+            lease_id=self.lease_id,
+            trigger=self.trigger,
+            seed_memory_ids=self.seed_memory_ids,
+            token_budget=self.token_budget,
+            min_score=self.min_score,
+            limit=self.limit,
+            referenced_valid_from=self.referenced_valid_from,
+            referenced_valid_to=self.referenced_valid_to,
+        )
 
 
 class MemoryActivationTelemetry(ContractModel):
@@ -135,6 +231,8 @@ class MemoryActivationTelemetry(ContractModel):
     token_budget: int = Field(ge=1)
     estimated_tokens: int = Field(default=0, ge=0)
     min_score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    referenced_valid_from: AwareDatetime | None = None
+    referenced_valid_to: AwareDatetime | None = None
     candidate_count: int = Field(default=0, ge=0)
     truncated: bool = False
 
@@ -145,6 +243,18 @@ class MemoryActivationTelemetry(ContractModel):
 
     @model_validator(mode="after")
     def decision_matches_selected_memory(self) -> Self:
+        has_from = self.referenced_valid_from is not None
+        has_to = self.referenced_valid_to is not None
+        if has_from != has_to:
+            raise ValueError(
+                "referenced_valid_from and referenced_valid_to must be provided together"
+            )
+        if (
+            self.referenced_valid_from is not None
+            and self.referenced_valid_to is not None
+            and self.referenced_valid_to <= self.referenced_valid_from
+        ):
+            raise ValueError("referenced_valid_to must be later than referenced_valid_from")
         expected_id = memory_activation_id(self.task_id, self.lease_id, self.trigger)
         if self.activation_id != expected_id:
             raise ValueError("activation_id must match task, lease, and trigger")
@@ -217,10 +327,40 @@ class MemoryActivationResult(ContractModel):
         return self.telemetry.decision
 
 
+class MemoryActivationDelivery(ContractModel):
+    """Wire-safe delivery for an explicit lease-bound activation.
+
+    The first successful call may carry the canonically rendered context. A
+    deterministic replay returns the stored content-free telemetry only: raw
+    context is intentionally never persisted merely to make retries reproduce
+    memory content selected at an earlier point in time.
+    """
+
+    activation: MemoryActivationTelemetry
+    activation_context: str | None = Field(default=None, max_length=524_288, repr=False)
+    replayed: bool = False
+
+    @model_validator(mode="after")
+    def context_matches_delivery(self) -> Self:
+        selected = self.activation.decision in {
+            ActivationDecision.RECALL,
+            ActivationDecision.DEEP_RECALL,
+        }
+        if self.replayed and self.activation_context is not None:
+            raise ValueError("activation replay cannot reproduce ephemeral context")
+        if not self.replayed and selected and not self.activation_context:
+            raise ValueError("new recall delivery requires activation context")
+        if not selected and self.activation_context is not None:
+            raise ValueError("skip and defer deliveries cannot carry context")
+        return self
+
+
 __all__ = [
     "ActivationDecision",
     "ActivationReason",
     "ActivationTrigger",
+    "MemoryActivationCommand",
+    "MemoryActivationDelivery",
     "MemoryActivationRequest",
     "MemoryActivationResult",
     "MemoryActivationTelemetry",

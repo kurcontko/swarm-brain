@@ -379,6 +379,7 @@ async def test_dependency_gating_cycle_guard_keyset_events_and_explain(
             ClaimTaskCommand(idempotency_key="claim-dependent", task_id=dependent.task_id),
         )
         assert available.task.task_id == dependent.task_id
+        assert available.unblocked_by_task_ids == (prerequisite.task_id,)
 
         first_page = await store.list_run_events(actor, actor.run_id, limit=2)
         assert len(first_page.events) == 2

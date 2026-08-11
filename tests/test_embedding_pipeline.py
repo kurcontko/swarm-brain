@@ -439,8 +439,9 @@ class _FakeOpenAIResponse:
 
 
 class _FakeOpenAIClient:
-    def __init__(self, dimensions: int) -> None:
+    def __init__(self, dimensions: int, *, response_model: str | None = None) -> None:
         self.dimensions = dimensions
+        self.response_model = response_model
         self.calls: list[dict[str, object]] = []
 
     async def post(self, url: str, **kwargs: object) -> _FakeOpenAIResponse:
@@ -454,7 +455,10 @@ class _FakeOpenAIClient:
             {"index": index, "embedding": [2.0] + [0.0] * (self.dimensions - 1)}
             for index in reversed(range(len(inputs)))
         ]
-        return _FakeOpenAIResponse({"data": rows})
+        payload: dict[str, object] = {"data": rows}
+        if self.response_model is not None:
+            payload["model"] = self.response_model
+        return _FakeOpenAIResponse(payload)
 
 
 @pytest.mark.asyncio
@@ -489,6 +493,75 @@ async def test_openai_provider_instructs_queries_and_normalizes() -> None:
     )
     with pytest.raises(OpenAICompatibleUnavailable, match="dimensions"):
         await wrong.embed_query("hello")
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_sends_an_optional_bearer_key_without_putting_it_in_payload() -> None:
+    fake = _FakeOpenAIClient(dimensions=8)
+    secret = "embedding-test-secret"
+    provider = OpenAICompatibleEmbeddingProvider(
+        base_url="https://embed.invalid/v1/",
+        dimensions=8,
+        api_key=secret,
+        client=fake,
+    )
+
+    await provider.embed_documents(["one", "two"])
+
+    (call,) = fake.calls
+    assert call["url"] == "https://embed.invalid/v1/embeddings"
+    assert call["headers"] == {"Authorization": f"Bearer {secret}"}
+    assert secret not in json.dumps(call["json"])
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    (
+        "https://user:password@embed.invalid/v1",
+        "https://embed.invalid/v1?api_key=inline",
+        "https://embed.invalid/v1#credential",
+    ),
+)
+def test_openai_provider_rejects_credentials_in_base_url(base_url: str) -> None:
+    with pytest.raises(ValueError, match="must not contain credentials"):
+        OpenAICompatibleEmbeddingProvider(base_url=base_url)
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_can_require_response_model_and_observe_exact_calls() -> None:
+    fake = _FakeOpenAIClient(dimensions=8, response_model="embedding-revision-v1")
+    provider = OpenAICompatibleEmbeddingProvider(
+        base_url="https://embed.invalid/v1/",
+        model_id="embedding-revision-v1",
+        required_response_model="embedding-revision-v1",
+        dimensions=8,
+        client=fake,
+    )
+
+    await provider.embed_documents(["one", "two"])
+    await provider.embed_query("question")
+
+    assert provider.required_response_model == "embedding-revision-v1"
+    assert provider.call_accounting == {
+        "document_inputs": 2,
+        "document_batch_calls": 1,
+        "query_calls": 1,
+        "successful_http_calls": 2,
+        "http_attempts": 2,
+    }
+    provider.reset_call_accounting()
+    assert not any(provider.call_accounting.values())
+
+    wrong = OpenAICompatibleEmbeddingProvider(
+        base_url="https://embed.invalid/v1/",
+        model_id="embedding-revision-v2",
+        required_response_model="embedding-revision-v2",
+        dimensions=8,
+        client=fake,
+    )
+    with pytest.raises(OpenAICompatibleUnavailable, match="required revision"):
+        await wrong.embed_query("question")
+    assert wrong.call_accounting["successful_http_calls"] == 0
 
 
 @pytest.mark.asyncio

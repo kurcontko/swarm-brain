@@ -13,7 +13,12 @@ from swarmbrain.application.evidence_service import EvidenceService
 from swarmbrain.application.memory_policy import ConservativeMemoryPolicy
 from swarmbrain.application.memory_service import MemoryService
 from swarmbrain.domain.agents import Capability
-from swarmbrain.domain.evidence import RegisterEvidenceSourceCommand, SourceTrust
+from swarmbrain.domain.evidence import (
+    AddEvidenceCommand,
+    EvidenceKind,
+    RegisterEvidenceSourceCommand,
+    SourceTrust,
+)
 from swarmbrain.domain.memory import MemoryOperation, MemoryState, RememberCommand
 
 
@@ -84,3 +89,48 @@ async def test_confirmed_memory_is_protected_even_without_existing_evidence(
     assert attempted.operation is MemoryOperation.NOOP
     assert attempted.memory is None
     assert kernel.memories[confirmed.memory.memory_id].state is MemoryState.CONFIRMED
+
+
+@pytest.mark.asyncio
+async def test_in_memory_publish_preserves_distinct_provenance_backed_occurrence_time(
+    scope_ids: dict[str, str],
+) -> None:
+    observed_at = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+    occurred_at = datetime(2024, 1, 10, 9, 30, tzinfo=UTC)
+    kernel = InMemoryKernel(clock=lambda: observed_at)
+    actor = make_actor(scope_ids)
+    source = await kernel.register_source(
+        actor,
+        RegisterEvidenceSourceCommand(
+            idempotency_key="retrospective-source",
+            kind=EvidenceKind.DOCUMENT,
+            content_sha256="a" * 64,
+            observed_at=observed_at,
+        ),
+    )
+    evidence = await kernel.add_evidence(
+        actor,
+        AddEvidenceCommand(
+            idempotency_key="retrospective-evidence",
+            source_id=source.source_id,
+            kind=EvidenceKind.DOCUMENT,
+            excerpt="The incident occurred on January 10.",
+        ),
+    )
+    service = MemoryService(kernel, ConservativeMemoryPolicy(), review_store=kernel)
+
+    result = await service.publish(
+        actor,
+        RememberCommand(
+            idempotency_key="retrospective-memory",
+            kind="observation",
+            content="A retrospective incident report",
+            evidence=(evidence.as_ref(),),
+            occurred_at=occurred_at,
+        ),
+    )
+
+    assert result.memory is not None
+    assert result.memory.occurred_at == occurred_at
+    assert result.memory.valid_from == observed_at
+    assert result.memory.recorded_from == observed_at

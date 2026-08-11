@@ -3,9 +3,15 @@ from __future__ import annotations
 import logging
 from math import isfinite
 
-from swarmbrain.domain.activation import ActivationTrigger, MemoryActivationRequest
+from swarmbrain.domain.activation import (
+    ActivationTrigger,
+    MemoryActivationCommand,
+    MemoryActivationDelivery,
+    MemoryActivationRequest,
+)
 from swarmbrain.domain.agents import ActorContext, Agent, Capability
 from swarmbrain.domain.events import EventPage, RunMetrics
+from swarmbrain.domain.exploration import ReadExpandMemoryRequest, ReadExpandMemoryResult
 from swarmbrain.domain.leases import RenewLeaseCommand, RenewLeaseResult
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
@@ -86,7 +92,11 @@ class CoordinationService:
             trigger=(
                 ActivationTrigger.CHECKPOINT_RESUME
                 if checkpoint is not None
-                else ActivationTrigger.TASK_CLAIM
+                else (
+                    ActivationTrigger.DEPENDENCY_UNBLOCKED
+                    if result.unblocked_by_task_ids
+                    else ActivationTrigger.TASK_CLAIM
+                )
             ),
             seed_memory_ids=(checkpoint.memory_ids if checkpoint is not None else ()),
             token_budget=self.initial_memory_token_budget,
@@ -170,6 +180,63 @@ class CoordinationService:
                 "activation_context": activation.rendered_context or None,
             }
         )
+
+    async def activate_memory(
+        self,
+        actor: ActorContext,
+        command: MemoryActivationCommand,
+    ) -> MemoryActivationDelivery:
+        """Run one deterministic in-task intervention under an owned lease."""
+
+        require_capability(actor, Capability.MEMORY_RECALL)
+        if self.memory_activation is None:
+            raise RuntimeError("memory activation is not configured")
+        await self.store.validate_memory_activation_scope(
+            actor,
+            command.task_id,
+            command.lease_id,
+        )
+        request = command.request()
+        recorded = await self.store.get_memory_activation(actor, request.activation_id)
+        if recorded is not None:
+            return MemoryActivationDelivery(activation=recorded, replayed=True)
+
+        activation = await self.memory_activation.activate(
+            actor,
+            request,
+            query_text=command.query_text,
+        )
+        try:
+            await self.store.record_memory_activation(actor, activation.telemetry)
+        except Exception:
+            # A concurrent identical trigger may have committed first. Return
+            # only its durable, content-free envelope; never expose context
+            # that this call failed to fence at the persistence boundary.
+            winner = await self.store.get_memory_activation(actor, request.activation_id)
+            if winner is not None:
+                return MemoryActivationDelivery(activation=winner, replayed=True)
+            raise
+        return MemoryActivationDelivery(
+            activation=activation.telemetry,
+            activation_context=activation.rendered_context or None,
+        )
+
+    async def read_expand_memory(
+        self,
+        actor: ActorContext,
+        request: ReadExpandMemoryRequest,
+    ) -> ReadExpandMemoryResult:
+        """Run the bounded read/expand step for the caller's current lease."""
+
+        require_capability(actor, Capability.MEMORY_RECALL)
+        if self.memory_service is None:
+            raise RuntimeError("memory retrieval is not configured")
+        await self.store.validate_memory_activation_scope(
+            actor,
+            request.task_id,
+            request.lease_id,
+        )
+        return await self.memory_service.read_expand(actor, request)
 
     async def renew(
         self,

@@ -100,7 +100,9 @@ class Memory(ContractModel):
 
     ``valid_*`` describes when the assertion is true in the world, while
     ``recorded_*`` describes when this database version was believed.  An
-    update appends a new row and links both rows; it never replaces content.
+    optional ``occurred_at`` is a provenance-backed event-time observation;
+    it is neither world validity nor database system time.  An update appends
+    a new row and links both rows; it never replaces content.
     """
 
     memory_id: MemoryId
@@ -119,6 +121,7 @@ class Memory(ContractModel):
     tags: tuple[str, ...] = ()
     confidence: Confidence = 0.5
     evidence: tuple[EvidenceRef, ...] = ()
+    occurred_at: AwareDatetime | None = None
     valid_from: AwareDatetime
     valid_to: AwareDatetime | None = None
     recorded_from: AwareDatetime = Field(default_factory=utc_now)
@@ -183,10 +186,12 @@ class RememberCommand(MutationCommand):
     tags: tuple[str, ...] = ()
     confidence: Confidence = 0.5
     evidence: tuple[EvidenceRef, ...] = ()
+    occurred_at: AwareDatetime | None = None
     valid_from: AwareDatetime | None = None
     valid_to: AwareDatetime | None = None
     supersedes_memory_id: MemoryId | None = None
     related_memory_ids: tuple[MemoryId, ...] = ()
+    derived_from_memory_ids: tuple[MemoryId, ...] = ()
     metadata: JsonObject = Field(default_factory=dict)
 
     @field_validator("tags")
@@ -208,6 +213,14 @@ class RememberCommand(MutationCommand):
             and self.valid_to <= self.valid_from
         ):
             raise ValueError("valid_to must be later than valid_from")
+        if len(self.related_memory_ids) != len(set(self.related_memory_ids)):
+            raise ValueError("related_memory_ids must be unique")
+        if len(self.derived_from_memory_ids) != len(set(self.derived_from_memory_ids)):
+            raise ValueError("derived_from_memory_ids must be unique")
+        if self.derived_from_memory_ids and not self.evidence:
+            raise ValueError("derived memory lineage requires immutable evidence")
+        if self.occurred_at is not None and not self.evidence:
+            raise ValueError("occurred_at requires immutable evidence")
         return self
 
 
@@ -236,7 +249,16 @@ class RememberResult(ContractModel):
 
 
 class RecallQuery(ContractModel):
-    """Current recall by default; historical/refuted data is opt-in."""
+    """Current recall by default; historical/refuted data is opt-in.
+
+    ``world_at`` selects memories valid at one world-time instant.  The
+    explicit ``referenced_valid_*`` pair instead selects memories whose
+    world-validity interval overlaps the caller-provided half-open interval.
+    Both selectors remain independent of ``recorded_at`` (system time).
+    The optional ``occurrence_time_prior_*`` interval is different again: it
+    can add a soft ranking signal for memories with provenance-backed event
+    time, but never changes canonical eligibility.
+    """
 
     text: ContentText
     task_id: TaskId | None = None
@@ -254,6 +276,10 @@ class RecallQuery(ContractModel):
     include_refuted: bool = False
     include_superseded: bool = False
     world_at: AwareDatetime | None = None
+    referenced_valid_from: AwareDatetime | None = None
+    referenced_valid_to: AwareDatetime | None = None
+    occurrence_time_prior_from: AwareDatetime | None = None
+    occurrence_time_prior_to: AwareDatetime | None = None
     recorded_at: AwareDatetime | None = None
     min_score: float = Field(
         default=0.0,
@@ -272,6 +298,38 @@ class RecallQuery(ContractModel):
     limit: int = Field(default=10, ge=1, le=100)
     include_evidence: bool = True
     include_lineage: bool = False
+
+    @model_validator(mode="after")
+    def validate_valid_time_selector(self) -> Self:
+        has_from = self.referenced_valid_from is not None
+        has_to = self.referenced_valid_to is not None
+        if has_from != has_to:
+            raise ValueError(
+                "referenced_valid_from and referenced_valid_to must be provided together"
+            )
+        if (
+            self.referenced_valid_from is not None
+            and self.referenced_valid_to is not None
+            and self.referenced_valid_to <= self.referenced_valid_from
+        ):
+            raise ValueError("referenced_valid_to must be later than referenced_valid_from")
+        if self.world_at is not None and has_from:
+            raise ValueError("world_at cannot be combined with a referenced validity interval")
+        has_occurrence_from = self.occurrence_time_prior_from is not None
+        has_occurrence_to = self.occurrence_time_prior_to is not None
+        if has_occurrence_from != has_occurrence_to:
+            raise ValueError(
+                "occurrence_time_prior_from and occurrence_time_prior_to must be provided together"
+            )
+        if (
+            self.occurrence_time_prior_from is not None
+            and self.occurrence_time_prior_to is not None
+            and self.occurrence_time_prior_to <= self.occurrence_time_prior_from
+        ):
+            raise ValueError(
+                "occurrence_time_prior_to must be later than occurrence_time_prior_from"
+            )
+        return self
 
     @property
     def effective_states(self) -> frozenset[MemoryState]:

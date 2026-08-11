@@ -122,6 +122,11 @@ class ApiSettings:
     extraction_api_key: str | None = field(default=None, repr=False)
     extraction_timeout_seconds: float = 20.0
     extraction_max_output_tokens: int = 4096
+    consolidation_enabled: bool = False
+    consolidation_use_provider: bool = False
+    consolidation_max_memories: int = 12
+    consolidation_max_actions: int = 4
+    consolidation_max_input_bytes: int = 65_536
     # Fail closed: the one-click hosted demo trigger only exists when an
     # operator explicitly sets SWARMBRAIN_CONSOLE_DEMO=enabled. Any other
     # value (including unset, empty, or a typo) leaves the route absent.
@@ -190,6 +195,16 @@ class ApiSettings:
             raise ValueError("extraction timeout must be between 1 and 55 seconds")
         if not 256 <= self.extraction_max_output_tokens <= 16_384:
             raise ValueError("extraction max output tokens must be between 256 and 16384")
+        if self.consolidation_use_provider and not self.consolidation_enabled:
+            raise ValueError("provider consolidation requires consolidation to be enabled")
+        if self.consolidation_use_provider and extraction_provider is ExtractionProviderKind.NONE:
+            raise ValueError("provider consolidation requires an extraction provider profile")
+        if not 2 <= self.consolidation_max_memories <= 32:
+            raise ValueError("consolidation max memories must be between 2 and 32")
+        if not 1 <= self.consolidation_max_actions <= 8:
+            raise ValueError("consolidation max actions must be between 1 and 8")
+        if not 1024 <= self.consolidation_max_input_bytes <= 1_000_000:
+            raise ValueError("consolidation max input bytes must be between 1024 and 1000000")
         if not 0.0 <= self.retrieval_dense_min_similarity <= 1.0:
             raise ValueError("dense retrieval minimum similarity must be between 0 and 1")
         if not 1 <= self.retrieval_dense_ann_beam_size <= 1024:
@@ -276,6 +291,21 @@ class ApiSettings:
                 ),
                 extraction_max_output_tokens=_integer_env(
                     "SWARMBRAIN_EXTRACTION_MAX_OUTPUT_TOKENS", default=4096
+                ),
+                consolidation_enabled=_boolean_env(
+                    "SWARMBRAIN_CONSOLIDATION_ENABLED", default=False
+                ),
+                consolidation_use_provider=_boolean_env(
+                    "SWARMBRAIN_CONSOLIDATION_USE_PROVIDER", default=False
+                ),
+                consolidation_max_memories=_integer_env(
+                    "SWARMBRAIN_CONSOLIDATION_MAX_MEMORIES", default=12
+                ),
+                consolidation_max_actions=_integer_env(
+                    "SWARMBRAIN_CONSOLIDATION_MAX_ACTIONS", default=4
+                ),
+                consolidation_max_input_bytes=_integer_env(
+                    "SWARMBRAIN_CONSOLIDATION_MAX_INPUT_BYTES", default=65_536
                 ),
                 console_demo_enabled=(
                     (_env("SWARMBRAIN_CONSOLE_DEMO", default="") or "").casefold() == "enabled"

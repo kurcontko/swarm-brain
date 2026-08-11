@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from contextlib import suppress
+from typing import Protocol
 
 from swarmbrain.domain.agents import ActorContext, Capability
 from swarmbrain.domain.common import MemoryId
 from swarmbrain.domain.evidence import RejectSourceCommand, SourceRejectionResult
+from swarmbrain.domain.exploration import ReadExpandMemoryRequest, ReadExpandMemoryResult
 from swarmbrain.domain.memory import (
+    Memory,
     MemoryLineage,
     MemoryReviewDecision,
     MemoryState,
@@ -33,6 +36,10 @@ from .work import DurableWorkService
 SEMANTIC_MATCH_REASON = "semantic_match"
 
 
+class MemoryWriteObserver(Protocol):
+    async def observe(self, actor: ActorContext, memory: Memory) -> object: ...
+
+
 class MemoryService:
     def __init__(
         self,
@@ -45,6 +52,7 @@ class MemoryService:
         work: DurableWorkService | None = None,
         retrieval: RetrievalService | None = None,
         canonical_reader: CanonicalMemoryReader | None = None,
+        write_observer: MemoryWriteObserver | None = None,
     ) -> None:
         self.store = store
         self.policy = policy
@@ -56,6 +64,7 @@ class MemoryService:
         self.canonical_reader = canonical_reader or (
             store if isinstance(store, CanonicalMemoryReader) else None
         )
+        self.write_observer = write_observer
 
     async def publish(self, actor: ActorContext, command: RememberCommand) -> RememberResult:
         require_capability(actor, Capability.MEMORY_PUBLISH)
@@ -88,6 +97,8 @@ class MemoryService:
                     available_at=result.memory.recorded_from,
                 ),
             )
+        if self.write_observer is not None and result.memory is not None:
+            await self.write_observer.observe(actor, result.memory)
         return result
 
     async def recall(
@@ -129,6 +140,18 @@ class MemoryService:
             token_budget=token_budget,
             include_execution=True,
         )
+
+    async def read_expand(
+        self,
+        actor: ActorContext,
+        request: ReadExpandMemoryRequest,
+    ) -> ReadExpandMemoryResult:
+        """Perform a lease-validated caller's bounded iterative read step."""
+
+        require_capability(actor, Capability.MEMORY_RECALL)
+        if self.retrieval is None:
+            raise RuntimeError("read-expand requires the canonical retrieval service")
+        return await self.retrieval.read_expand(actor, request)
 
     async def _recall(
         self,
@@ -230,6 +253,7 @@ class MemoryService:
         return not (
             query.recorded_at is not None
             or query.world_at is not None
+            or query.referenced_valid_from is not None
             or query.include_refuted
             or query.include_superseded
         )

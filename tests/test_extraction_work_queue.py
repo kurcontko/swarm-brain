@@ -536,7 +536,8 @@ async def test_provider_candidate_semantics_survive_in_memory_materialization(
     }
     attempt_id, _attempt = resources["attempt"]
     procedure_id, procedure = resources["procedure"]
-    assert procedure["valid_from"] == event_time.isoformat()
+    assert procedure["occurred_at"] == event_time.isoformat()
+    assert procedure["valid_from"] == datetime(2026, 8, 2, 11, 0, tzinfo=UTC).isoformat()
     assert procedure["metadata"]["aliases"] == ["deploy_guard"]
     assert procedure["metadata"]["extracted"] == {"path": "deploy/guard.py"}
     extraction_metadata = procedure["metadata"]["extraction"]

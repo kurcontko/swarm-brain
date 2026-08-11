@@ -6,9 +6,11 @@ from copy import deepcopy
 
 from pydantic import AwareDatetime, BaseModel, Field, create_model
 
+from swarmbrain.domain.activation import MemoryActivationCommand
 from swarmbrain.domain.common import ContractModel, IdempotencyKey, JsonObject, TaskId
 from swarmbrain.domain.conflicts import ReportConflictCommand, ResolveConflictCommand
 from swarmbrain.domain.evidence import AddEvidenceCommand, EvidenceKindValue, Sha256
+from swarmbrain.domain.exploration import ReadExpandMemoryRequest
 from swarmbrain.domain.leases import RenewLeaseCommand
 from swarmbrain.domain.memory import RememberCommand
 from swarmbrain.domain.tasks import (
@@ -42,6 +44,16 @@ def _body_schema(
 
 
 ClaimTaskBody = _body_schema("ClaimTaskBody", ClaimTaskCommand)
+MemoryActivationBody = _body_schema(
+    "MemoryActivationBody",
+    MemoryActivationCommand,
+    path_fields=frozenset({"task_id"}),
+)
+ReadExpandMemoryBody = _body_schema(
+    "ReadExpandMemoryBody",
+    ReadExpandMemoryRequest,
+    path_fields=frozenset({"task_id"}),
+)
 RenewLeaseBody = _body_schema(
     "RenewLeaseBody", RenewLeaseCommand, path_fields=frozenset({"lease_id"})
 )
@@ -98,6 +110,8 @@ __all__ = [
     "ClaimTaskBody",
     "CompleteTaskBody",
     "IngestSourceBody",
+    "MemoryActivationBody",
+    "ReadExpandMemoryBody",
     "ReleaseTaskBody",
     "RememberBody",
     "RegisterEvidenceSourceBody",

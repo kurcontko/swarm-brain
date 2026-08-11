@@ -34,6 +34,7 @@ from swarmbrain.cli.demo import (
 )
 from swarmbrain.demo import build_scenario
 from swarmbrain.demo.scenario import DemoScenario
+from swarmbrain.domain.activation import MemoryActivationCommand, MemoryActivationDelivery
 from swarmbrain.domain.agents import ActorContext, Agent, Capability
 from swarmbrain.domain.conflicts import (
     ReportConflictCommand,
@@ -49,6 +50,7 @@ from swarmbrain.domain.evidence import (
     RegisterEvidenceSourceCommand,
     SourceTrust,
 )
+from swarmbrain.domain.exploration import ReadExpandMemoryRequest, ReadExpandMemoryResult
 from swarmbrain.domain.extraction import IngestRawSourceCommand, SourceIngestResult
 from swarmbrain.domain.leases import RenewLeaseCommand, RenewLeaseResult
 from swarmbrain.domain.memory import (
@@ -77,6 +79,8 @@ from .contracts import (
     ClaimTaskBody,
     CompleteTaskBody,
     IngestSourceBody,
+    MemoryActivationBody,
+    ReadExpandMemoryBody,
     RegisterEvidenceSourceBody,
     ReleaseTaskBody,
     RememberBody,
@@ -341,6 +345,31 @@ def create_app(
     async def recall_memory(body: RecallQuery, actor: ActorDependency) -> RecallBundle:
         return await runtime.memory.recall(actor, body)
 
+    @app.post(
+        "/v1/tasks/{task_id}/memories:activate",
+        response_model=MemoryActivationDelivery,
+    )
+    async def activate_memory(
+        task_id: str,
+        body: MemoryActivationBody,
+        actor: ActorDependency,
+        response: Response,
+    ) -> MemoryActivationDelivery:
+        command = _path_contract(MemoryActivationCommand, body, task_id=task_id)
+        return _mark_replay(response, await runtime.coordination.activate_memory(actor, command))
+
+    @app.post(
+        "/v1/tasks/{task_id}/memories:read-expand",
+        response_model=ReadExpandMemoryResult,
+    )
+    async def read_expand_memory(
+        task_id: str,
+        body: ReadExpandMemoryBody,
+        actor: ActorDependency,
+    ) -> ReadExpandMemoryResult:
+        request = _path_contract(ReadExpandMemoryRequest, body, task_id=task_id)
+        return await runtime.coordination.read_expand_memory(actor, request)
+
     @app.get("/v1/memories/{memory_id}/lineage", response_model=MemoryLineage)
     async def memory_lineage(memory_id: str, actor: ActorDependency) -> MemoryLineage:
         return await runtime.memory.lineage(actor, memory_id)
@@ -570,6 +599,22 @@ def _validate(model: type[CommandT], values: dict[str, Any]) -> CommandT:
         )
         error.code = "validation_error"  # transport-stable code outside the domain enum
         raise error from exc
+
+
+def _path_contract(
+    model: type[CommandT],
+    body: BaseModel,
+    **injected: Any,
+) -> CommandT:
+    """Validate non-mutation contracts with authoritative path identity."""
+
+    values = body.model_dump(exclude_unset=True)
+    for name, value in injected.items():
+        supplied = values.pop(name, None)
+        if supplied is not None and supplied != value:
+            raise InvalidState(f"body {name} does not match path")
+        values[name] = value
+    return _validate(model, values)
 
 
 def _bounded_validation_error(item: dict[str, Any]) -> dict[str, Any]:

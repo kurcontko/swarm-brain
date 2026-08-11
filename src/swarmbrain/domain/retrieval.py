@@ -25,6 +25,7 @@ from .common import (
     UUIDString,
 )
 from .memory import Visibility
+from .reranking import LearnedRerankTrace
 
 
 class RetrievalPurpose(StrEnum):
@@ -45,6 +46,14 @@ class RetrievalSignal(StrEnum):
     TEMPORAL = "temporal"
     SOURCE = "source"
     GRAPH = "graph"
+
+
+class PackingPolicy(StrEnum):
+    """Server-owned policy for selecting evidence under a token budget."""
+
+    PREFIX = "prefix"
+    GREEDY = "greedy"
+    FACILITY_LOCATION = "facility_location"
 
 
 class RetrievalScope(ContractModel):
@@ -95,6 +104,10 @@ class RetrievalPlan(ContractModel):
     domain_lanes: frozenset[SemanticLabel]
     signal_lanes: frozenset[RetrievalSignal]
     world_at: AwareDatetime | None = None
+    referenced_valid_from: AwareDatetime | None = None
+    referenced_valid_to: AwareDatetime | None = None
+    occurrence_time_prior_from: AwareDatetime | None = None
+    occurrence_time_prior_to: AwareDatetime | None = None
     recorded_at: AwareDatetime | None = None
     hard_scope: RetrievalScope
     lane_budgets: dict[str, LaneBudget]
@@ -109,7 +122,40 @@ class RetrievalPlan(ContractModel):
     rerank_alpha: RerankAlpha = 0.0
     rerank_window: RerankWindow = 0
     diversify: bool = False
+    packing_policy: PackingPolicy = PackingPolicy.GREEDY
     token_budget: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def valid_time_selector_is_unambiguous(self) -> Self:
+        has_from = self.referenced_valid_from is not None
+        has_to = self.referenced_valid_to is not None
+        if has_from != has_to:
+            raise ValueError(
+                "referenced_valid_from and referenced_valid_to must be provided together"
+            )
+        if (
+            self.referenced_valid_from is not None
+            and self.referenced_valid_to is not None
+            and self.referenced_valid_to <= self.referenced_valid_from
+        ):
+            raise ValueError("referenced_valid_to must be later than referenced_valid_from")
+        if self.world_at is not None and has_from:
+            raise ValueError("world_at cannot be combined with a referenced validity interval")
+        has_occurrence_from = self.occurrence_time_prior_from is not None
+        has_occurrence_to = self.occurrence_time_prior_to is not None
+        if has_occurrence_from != has_occurrence_to:
+            raise ValueError(
+                "occurrence_time_prior_from and occurrence_time_prior_to must be provided together"
+            )
+        if (
+            self.occurrence_time_prior_from is not None
+            and self.occurrence_time_prior_to is not None
+            and self.occurrence_time_prior_to <= self.occurrence_time_prior_from
+        ):
+            raise ValueError(
+                "occurrence_time_prior_to must be later than occurrence_time_prior_from"
+            )
+        return self
 
     @model_validator(mode="after")
     def graph_lane_is_fully_bounded(self) -> Self:
@@ -230,7 +276,7 @@ class PackingTrace(ContractModel):
     never rendered memory content.
     """
 
-    policy: SemanticLabel = "greedy"
+    policy: PackingPolicy = PackingPolicy.GREEDY
     token_budget: int = Field(ge=1)
     used_tokens: int = Field(ge=0)
     candidate_token_counts: dict[MemoryId, int] = Field(default_factory=dict)
@@ -248,13 +294,15 @@ class RetrievalTrace(ContractModel):
     fusion_version: SemanticLabel = "weighted-rrf-v1"
     fused_candidates: tuple[FusedCandidate, ...] = ()
     relevance_version: SemanticLabel = "lane-max-v1"
-    # Only the candidates the service actually evaluated, in fused order.  The
-    # service stops once the public limit is satisfied, so this is a prefix of
-    # the hydrated candidates rather than a score for every fused candidate.
+    # Only the candidates the service actually evaluated, in the effective
+    # order after any explicitly enabled rerank stages.  The service stops once
+    # the public limit is satisfied, so this is a prefix of the hydrated
+    # candidates rather than a score for every fused candidate.
     candidate_relevance: tuple[CandidateRelevance, ...] = ()
     hydrated_ids: tuple[MemoryId, ...] = ()
     hydration_rejections: tuple[HydrationRejection, ...] = ()
     packing: PackingTrace | None = None
+    learned_rerank: LearnedRerankTrace | None = None
     final_ids: tuple[MemoryId, ...] = ()
     degraded_lanes: frozenset[RetrievalSignal] = frozenset()
     abstained: bool = False
@@ -271,6 +319,7 @@ __all__ = [
     "FusedCandidate",
     "FusionContribution",
     "HydrationRejection",
+    "PackingPolicy",
     "PackingTrace",
     "RetrievalPlan",
     "RetrievalPurpose",

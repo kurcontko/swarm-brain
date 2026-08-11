@@ -501,6 +501,64 @@ async def test_live_graph_lane_expands_related_memories_for_two_bounded_hops(
     )
 
 
+async def test_live_referenced_validity_routes_by_half_open_interval(
+    database: CockroachDatabase,
+) -> None:
+    actor = _actor()
+    await _insert_run(database, actor)
+    store = CockroachMemoryStore(database)
+    sentinel = f"live temporal route {_id()}"
+    referenced_from = datetime(2024, 1, 1, tzinfo=UTC)
+    referenced_to = datetime(2024, 1, 5, tzinfo=UTC)
+    overlapping = await store.remember(
+        actor,
+        RememberCommand(
+            idempotency_key=f"temporal-overlap-{_id()}",
+            kind="procedure",
+            desired_state=MemoryState.CONFIRMED,
+            visibility=Visibility.REPOSITORY,
+            content=f"{sentinel} overlapping",
+            valid_from=datetime(2024, 1, 2, tzinfo=UTC),
+            valid_to=datetime(2024, 1, 4, tzinfo=UTC),
+        ),
+        ConservativeMemoryPolicy(),
+    )
+    touching_after = await store.remember(
+        actor,
+        RememberCommand(
+            idempotency_key=f"temporal-touching-{_id()}",
+            kind="procedure",
+            desired_state=MemoryState.CONFIRMED,
+            visibility=Visibility.REPOSITORY,
+            content=f"{sentinel} touching",
+            valid_from=referenced_to,
+            valid_to=datetime(2024, 1, 8, tzinfo=UTC),
+        ),
+        ConservativeMemoryPolicy(),
+    )
+    assert overlapping.memory is not None
+    assert touching_after.memory is not None
+    retrieval = RetrievalService(cockroach_retrieval_gateways(database), store)
+
+    current = await retrieval.execute(actor, RecallQuery(text=sentinel))
+    interval = await retrieval.execute(
+        actor,
+        RecallQuery(
+            text=sentinel,
+            referenced_valid_from=referenced_from,
+            referenced_valid_to=referenced_to,
+        ),
+    )
+    point = await retrieval.execute(
+        actor,
+        RecallQuery(text=sentinel, world_at=referenced_to),
+    )
+
+    assert overlapping.memory.memory_id not in {hit.memory.memory_id for hit in current.bundle.hits}
+    assert {hit.memory.memory_id for hit in interval.bundle.hits} == {overlapping.memory.memory_id}
+    assert {hit.memory.memory_id for hit in point.bundle.hits} == {touching_after.memory.memory_id}
+
+
 async def test_live_v7_install_rebuilds_legacy_projection_with_application_contract(
     database: CockroachDatabase,
 ) -> None:

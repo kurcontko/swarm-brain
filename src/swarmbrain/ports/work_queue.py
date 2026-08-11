@@ -15,6 +15,8 @@ from swarmbrain.domain.work import (
     EnqueueWorkResult,
     FailWorkCommand,
     PreparedWorkEnqueue,
+    StageConsolidationPlanCommand,
+    StageConsolidationPlanResult,
     WorkItem,
     WorkLeaseBatch,
 )
@@ -39,6 +41,11 @@ class WorkQueueStore(Protocol):
         self,
         command: ApplyEmbeddingWorkCommand,
     ) -> CompleteWorkResult: ...
+
+    async def stage_consolidation_plan(
+        self,
+        command: StageConsolidationPlanCommand,
+    ) -> StageConsolidationPlanResult: ...
 
     async def complete_work(
         self,

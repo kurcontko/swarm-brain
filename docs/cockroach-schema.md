@@ -1,9 +1,24 @@
 # Swarm Brain CockroachDB schema
 
-## Current v9 retrieval addendum
+## Current v12 event occurrence, v11 outcome feedback, and v10/v9 addendum
 
-Schema v9 keeps every v8 projection and adds one durable retrieval-reuse
-counter. `memories` remains the canonical source of truth:
+Schema v12 keeps every v11 object and adds nullable `memories.occurred_at` for
+provenance-backed event occurrence. It is separate from source observation
+time, the memory world-validity interval, and the system-recording interval.
+It participates only in an explicit soft temporal candidate lane; canonical
+scope, lifecycle, trust, and bitemporal predicates never use it. Schema v11
+keeps every v10 object and adds the content-free
+`memory_outcome_associations` table plus its scope-prefixed timeline index.
+Each row is an explicitly observational/silver success-or-failure association
+for one exact task/lease/consumer/memory/version tuple. Completion creates it
+only when durable activation and explicit citation agree and current canonical
+eligibility still proves the activated version. It contains no query, content,
+summary, or prompt fields and is not a retrieval input. Schema v10 keeps every
+v9 projection and adds `consolidate_memory` to the
+durable work-kind constraint. The upgrade drops and recreates only that check
+constraint; existing work and retrieval rows are unchanged. Schema v9 keeps
+every v8 projection and adds one durable retrieval-reuse counter. `memories`
+remains the canonical source of truth:
 
 - `retrieval_documents`: deterministic `search_text`, bounded `lookup_text`, a
   stored `to_tsvector('simple', search_text)`, a fully scope-prefixed inverted
@@ -63,6 +78,14 @@ relation/query/hop decay, a hard total budget, and complete edge/node path
 provenance. `EXPLAIN` gates verify both directional link indexes and reject
 full scans for the emitted hop SQL.
 
+The event-occurrence lane is similarly opt-in. A complete
+`occurrence_time_prior_from` / `occurrence_time_prior_to` pair supplies only a
+distance target. Its Cockroach query first applies the ordinary current or
+explicit bitemporal predicates using the retrieval snapshot clock, then ranks
+rows with known `occurred_at`; it never turns the prior interval into a SQL
+eligibility range. Rows with `occurred_at IS NULL` remain available to every
+other selected lane and to final canonical hydration.
+
 `retrieval_reuse_counters` is telemetry, not a retrieval input. Recall itself
 stays a read-only snapshot; after that snapshot commits, the memory adapter runs
 one short transaction whose single statement is a primary-key
@@ -77,9 +100,11 @@ is fire-and-forget — a failure is logged and dropped, never surfaced to recall
 already run-scoped query, so `memories_reused` now has parity between the local
 and CockroachDB backends.
 
-Installing v9 is additive: the counter table starts empty and no projection is
-rebuilt. Because schema verification includes the checksum of `schema.sql`, an
-existing v8 database must still run `schema install` before v9 processes start.
+Installing v12 does not rebuild a projection. Because schema verification
+includes the checksum of `schema.sql`, an existing database must still run
+`schema install` before v12 processes start. The v11-to-v12 data migration is
+the additive nullable column only; existing rows therefore retain neutral
+occurrence-time behavior.
 
 An upgrade from pre-v8 requires an explicit writer barrier: stop all old API
 and worker processes that can publish memory or embeddings, run `schema
@@ -114,7 +139,7 @@ status and remaining benchmark limitations are in
 The paragraphs and inventory below describe the historical v0/P0 starting
 point, not the current runtime. At that point the executable API used only
 `InMemoryKernel`, and Cockroach repositories were future P1 work. Today the
-authoritative v9 DDL remains an explicit operator action (API startup never
+authoritative v12 DDL remains an explicit operator action (API startup never
 runs migrations), while durable Cockroach repositories, runtime composition,
 projection maintenance, schema verification, and live retrieval gates are
 implemented. Use the addendum above and `schema.sql` for current facts.
@@ -273,6 +298,9 @@ active row; the partial unique index then closes the race between workers.
 - World interval is `[valid_from, valid_to)` and system interval is
   `[recorded_from, recorded_to)`; both require a strictly increasing end when
   present. A current row has `recorded_to IS NULL`.
+- Nullable `occurred_at` records a source-backed event observation. It is not
+  part of either bitemporal interval and has no ordering constraint against
+  them; extraction no longer promotes an event date into `valid_from`.
 - `supersedes_id` cannot self-reference; two-way chain consistency, one
   successor, and poisoning policy are transaction invariants.
 - Partial covering index `memories_current_scope(tenant_id, repository_id,

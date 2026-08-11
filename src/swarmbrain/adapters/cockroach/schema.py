@@ -134,7 +134,7 @@ async def install_schema(database_url: str) -> int:
                         m.id, m.tenant_id, m.project_id, m.repository_id,
                         m.swarm_id, m.run_id, m.task_id, m.agent_id, m.kind,
                         m.state, m.visibility, m.content, m.content_json, m.title,
-                        m.tags, m.confidence, m.valid_from, m.valid_to,
+                        m.tags, m.confidence, m.occurred_at, m.valid_from, m.valid_to,
                         m.recorded_from, m.recorded_to, m.supersedes_id,
                         m.superseded_by_id, m.version, m.metadata
                     FROM memories AS m
@@ -275,8 +275,8 @@ async def install_schema(database_url: str) -> int:
             """,
             (
                 SCHEMA_VERSION,
-                "Swarm Brain v9 dense, lexical, fuzzy, exact, and bounded graph retrieval "
-                "with durable retrieval reuse counters",
+                "Swarm Brain v12 provenance-backed event occurrence with v11 "
+                "content-free observational memory/outcome associations",
                 digest,
             ),
         )

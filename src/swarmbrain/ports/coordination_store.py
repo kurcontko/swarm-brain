@@ -9,6 +9,7 @@ from swarmbrain.domain.agents import ActorContext, Agent
 from swarmbrain.domain.common import RunId
 from swarmbrain.domain.events import EventPage, RunMetrics
 from swarmbrain.domain.leases import RenewLeaseCommand, RenewLeaseResult
+from swarmbrain.domain.outcome_feedback import MemoryOutcomeAssociation
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
     CheckpointResult,
@@ -94,6 +95,22 @@ class CoordinationStore(Protocol):
         actor: ActorContext,
         activation_id: str,
     ) -> MemoryActivationTelemetry | None: ...
+
+    async def list_memory_outcome_associations(
+        self,
+        actor: ActorContext,
+        *,
+        task_id: str | None = None,
+        memory_id: str | None = None,
+        limit: int = 1000,
+    ) -> tuple[MemoryOutcomeAssociation, ...]: ...
+
+    async def validate_memory_activation_scope(
+        self,
+        actor: ActorContext,
+        task_id: str,
+        lease_id: str,
+    ) -> None: ...
 
 
 __all__ = ["CoordinationStore"]

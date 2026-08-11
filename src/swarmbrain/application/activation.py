@@ -97,6 +97,8 @@ class MemoryActivationService:
             states=frozenset({MemoryState.CONFIRMED}),
             min_score=request.min_score,
             limit=min(100, request.limit * (2 if deep else 1)),
+            referenced_valid_from=request.referenced_valid_from,
+            referenced_valid_to=request.referenced_valid_to,
         )
         try:
             recall_for_activation = getattr(self.memory_service, "recall_for_activation", None)
@@ -167,6 +169,8 @@ class MemoryActivationService:
                 token_budget=request.token_budget,
                 estimated_tokens=estimated_tokens,
                 min_score=request.min_score,
+                referenced_valid_from=request.referenced_valid_from,
+                referenced_valid_to=request.referenced_valid_to,
                 candidate_count=bundle.total_candidates,
                 truncated=bundle.truncated,
             ),
@@ -265,6 +269,8 @@ class MemoryActivationService:
                 ),
                 token_budget=request.token_budget,
                 min_score=request.min_score,
+                referenced_valid_from=request.referenced_valid_from,
+                referenced_valid_to=request.referenced_valid_to,
                 candidate_count=bundle.total_candidates if bundle is not None else 0,
                 truncated=bundle.truncated if bundle is not None else False,
             ),

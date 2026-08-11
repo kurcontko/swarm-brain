@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -102,7 +102,7 @@ MEMORY_COLUMNS = """
     m.id, m.tenant_id, m.project_id, m.repository_id, m.swarm_id, m.run_id,
     m.task_id, m.agent_id, m.kind, m.state, m.visibility, m.content,
     m.content_json, m.title, m.tags, m.normalized_sha256, m.dedup_scope,
-    m.confidence, m.valid_from,
+    m.confidence, m.occurred_at, m.valid_from,
     m.valid_to, m.recorded_from, m.recorded_to, m.supersedes_id,
     m.superseded_by_id, m.source_id, m.previous_state, m.policy_reason,
     m.policy_confidence, m.version, m.metadata
@@ -579,6 +579,7 @@ class CockroachMemoryStore:
         memory_id = uuid4()
         supersession_link_id = uuid4()
         related_link_ids = {memory: uuid4() for memory in command.related_memory_ids}
+        derived_link_ids = {memory: uuid4() for memory in command.derived_from_memory_ids}
         event_id = uuid4()
         outbox_id = uuid4()
         normalized_sha256 = bytes.fromhex(memory_text_sha256(command.content))
@@ -591,6 +592,12 @@ class CockroachMemoryStore:
                 connection,
                 actor,
                 command.evidence,
+            )
+            await self._validate_derived_evidence(
+                connection,
+                actor,
+                command,
+                validated_evidence,
             )
             decision = initial_decision
             if decision.operation is MemoryOperation.NOOP:
@@ -617,6 +624,7 @@ class CockroachMemoryStore:
                     UPDATE memories
                     SET tags = %s,
                         confidence = GREATEST(confidence, %s),
+                        occurred_at = COALESCE(occurred_at, %s),
                         version = version + 1
                     WHERE id = %s
                       AND version = %s
@@ -625,6 +633,7 @@ class CockroachMemoryStore:
                     (
                         list(combined_tags),
                         command.confidence,
+                        command.occurred_at,
                         _uuid(target.memory_id),
                         target.version,
                     ),
@@ -675,12 +684,12 @@ class CockroachMemoryStore:
                         id, tenant_id, project_id, repository_id, swarm_id, run_id,
                         task_id, agent_id, kind, state, visibility, content,
                         content_json, title, tags, normalized_sha256, dedup_scope,
-                        confidence, valid_from,
+                        confidence, occurred_at, valid_from,
                         valid_to, recorded_from, supersedes_id, source_id,
                         policy_reason, policy_confidence, metadata
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
                     (
@@ -702,6 +711,7 @@ class CockroachMemoryStore:
                         normalized_sha256,
                         identity_scope,
                         command.confidence,
+                        command.occurred_at,
                         command.valid_from or recorded_from,
                         command.valid_to,
                         recorded_from,
@@ -809,6 +819,32 @@ class CockroachMemoryStore:
                         related_link_ids[related_id],
                         _uuid(memory.memory_id),
                         _uuid(related_id),
+                    ),
+                )
+
+            for source_id in command.derived_from_memory_ids:
+                await self._require_memory(
+                    connection,
+                    actor,
+                    source_id,
+                    require_current=True,
+                    for_update=False,
+                )
+                if source_id == memory.memory_id:
+                    continue
+                await connection.execute(
+                    """
+                    INSERT INTO memory_links (
+                        id, source_memory_id, target_memory_id, link_type, reason
+                    ) VALUES (%s, %s, %s, 'derived_from', %s)
+                    ON CONFLICT (source_memory_id, target_memory_id, link_type)
+                    DO NOTHING
+                    """,
+                    (
+                        derived_link_ids[source_id],
+                        _uuid(memory.memory_id),
+                        _uuid(source_id),
+                        "evidence-bound derived memory",
                     ),
                 )
 
@@ -1794,6 +1830,49 @@ class CockroachMemoryStore:
                 raise ResourceNotFound("evidence", reference.evidence_id)
             validated[reference.evidence_id] = evidence.as_ref()
         return validated
+
+    async def _validate_derived_evidence(
+        self,
+        connection: Any,
+        actor: ActorContext,
+        command: RememberCommand,
+        proposed: Mapping[str, EvidenceRef],
+    ) -> None:
+        if not command.derived_from_memory_ids:
+            return
+        allowed: dict[str, EvidenceRef] = {}
+        for memory_id in command.derived_from_memory_ids:
+            source = await self._require_memory(
+                connection,
+                actor,
+                memory_id,
+                require_current=True,
+                for_update=False,
+            )
+            if source.state is not MemoryState.CONFIRMED:
+                raise InvalidState(
+                    "derived lineage requires confirmed source memories",
+                    memory_id=memory_id,
+                )
+            source_evidence = {reference.evidence_id: reference for reference in source.evidence}
+            overlap = set(proposed) & set(source_evidence)
+            if not overlap:
+                raise InvalidState(
+                    "derived lineage requires evidence from every source memory",
+                    memory_id=memory_id,
+                )
+            if any(
+                proposed[evidence_id] != source_evidence[evidence_id] for evidence_id in overlap
+            ):
+                raise InvalidState(
+                    "derived lineage must preserve exact immutable evidence references",
+                    memory_id=memory_id,
+                )
+            allowed.update(source_evidence)
+        if any(
+            allowed.get(evidence_id) != reference for evidence_id, reference in proposed.items()
+        ):
+            raise InvalidState("derived memory evidence is not supported by its lineage")
 
     async def _load_memory_evidence(
         self,

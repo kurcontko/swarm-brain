@@ -483,6 +483,10 @@ class RetrievalPlan:
     domain_lanes: frozenset[str]
     signal_lanes: frozenset[str]
     world_at: datetime | None
+    referenced_valid_from: datetime | None
+    referenced_valid_to: datetime | None
+    occurrence_time_prior_from: datetime | None
+    occurrence_time_prior_to: datetime | None
     recorded_at: datetime | None
     hard_scope: RetrievalScope
     lane_budgets: Mapping[str, int]
@@ -756,13 +760,31 @@ Conflict review intentionally differs from ordinary recall:
 
 ### Historical audit
 
-Historical audit uses explicit `world_at` and/or `recorded_at`:
+Historical audit uses explicit `world_at` and/or `recorded_at`. A caller may
+instead provide the complete `referenced_valid_from` / `referenced_valid_to`
+pair to route over memories whose half-open valid-time intervals overlap the
+referenced interval:
 
 - bitemporal SQL selects the eligible corpus;
+- `world_at` remains point containment, while a referenced interval replaces
+  the implicit current-world point predicate and cannot be combined with
+  `world_at`;
+- `recorded_at` remains an independent system-time/as-of fence;
 - exact/lexical operates inside that corpus;
 - semantic ranking is exact over the bounded temporal candidate set or uses a
   separate historical projection;
 - no global recency decay.
+
+Event occurrence is a third, explicitly non-bitemporal signal. A caller may
+provide the complete `occurrence_time_prior_from` /
+`occurrence_time_prior_to` pair to add a soft distance lane over
+provenance-backed `Memory.occurred_at`. The pair never narrows the eligible
+corpus, may coexist with world/system-time selectors, and contributes nothing
+for memories whose occurrence time is unknown. If the pair is absent,
+`occurred_at` cannot change the plan or ranking.
+
+No date is inferred from free-text query content. Automatic date extraction is
+a separate, evidence-quality-sensitive ingestion/query-planning concern.
 
 ## CockroachDB projections
 
@@ -1164,7 +1186,16 @@ A generic topical reranker can damage:
 - multi-hop evidence coverage;
 - source diversity.
 
-Swarm Brain's future reranker should include:
+Swarm Brain's opt-in learned-reranker boundary now supplies canonical document
+and temporal projections to a score-only provider. The provider/policy pair is
+constructor-injected and absent by default; model, tokenizer, executable,
+deployment manifest, component weights, request/response receipts, usage, and
+content-free candidate digests are validated before a score can affect order.
+Invalid identity, timeout, malformed output, or reused receipts preserve the
+pre-learned order and are recorded as degraded. No learned model has yet earned
+serving promotion.
+
+A measured reranker should additionally demonstrate robustness across:
 
 - purpose/intent;
 - valid and recorded time;
@@ -1174,8 +1205,8 @@ Swarm Brain's future reranker should include:
 - graph path;
 - task/run proximity.
 
-If no temporal-aware reranker is available, deterministic ordering is safer for
-historical audit and conflict review.
+Until a pinned provider wins the paired held-out temporal and conflict gates,
+deterministic ordering remains the serving default.
 
 ## Diversity and packing
 
@@ -1612,7 +1643,8 @@ Exit criteria:
 
 Deliverables:
 
-- optional reranker port;
+- optional score-only reranker port and content-free receipt trace (implemented,
+  disabled by default);
 - purpose-aware rerank policy;
 - diversity;
 - canonical representation collapse;

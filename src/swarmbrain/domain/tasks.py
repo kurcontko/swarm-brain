@@ -196,6 +196,7 @@ class ClaimTaskResult(ContractModel):
     task: Task
     lease: TaskLease
     checkpoint: TaskCheckpoint | None = None
+    unblocked_by_task_ids: tuple[TaskId, ...] = ()
     # Kept for in-process compatibility only. The structured bundle repeats
     # the query and carries metadata outside the activation token budget, so it
     # must never cross HTTP/MCP serialization boundaries.
@@ -203,6 +204,11 @@ class ClaimTaskResult(ContractModel):
     activation: MemoryActivationTelemetry | None = None
     activation_context: str | None = Field(default=None, max_length=524_288, repr=False)
     replayed: bool = False
+
+    @field_validator("unblocked_by_task_ids")
+    @classmethod
+    def unique_unblocking_tasks(cls, value: tuple[TaskId, ...]) -> tuple[TaskId, ...]:
+        return tuple(dict.fromkeys(value))
 
     @property
     def initial_memory(self) -> RecallBundle | None:

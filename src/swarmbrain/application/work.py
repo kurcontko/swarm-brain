@@ -28,7 +28,7 @@ class DurableWorkService:
     ) -> EnqueueWorkResult:
         capability = (
             Capability.MEMORY_PUBLISH
-            if command.kind is WorkKind.EMBED_MEMORY
+            if command.kind in {WorkKind.EMBED_MEMORY, WorkKind.CONSOLIDATE_MEMORY}
             else Capability.SOURCE_INGEST
         )
         require_capability(actor, capability)

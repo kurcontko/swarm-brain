@@ -111,6 +111,7 @@ def memory_from_row(
         tags=tuple(str(item) for item in (row.get("tags") or ())),
         confidence=float(confidence),
         evidence=tuple(evidence),
+        occurred_at=row.get("occurred_at"),
         valid_from=row["valid_from"],
         valid_to=row.get("valid_to"),
         recorded_from=row["recorded_from"],

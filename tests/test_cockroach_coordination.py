@@ -11,6 +11,10 @@ from conftest import make_actor
 from swarmbrain.adapters.cockroach import coordination
 from swarmbrain.application.errors import InvalidState
 from swarmbrain.domain.events import AggregateType, EventType
+from swarmbrain.domain.outcome_feedback import (
+    OutcomeAssociationKind,
+    memory_outcome_association_id,
+)
 from swarmbrain.domain.tasks import TaskOutcome, TaskStatus
 
 
@@ -120,6 +124,39 @@ def test_row_mappers_preserve_contract_types_and_json_shapes() -> None:
     completion = coordination._completion_from_row(completion_row)
     assert completion.outcome is TaskOutcome.SUCCEEDED
 
+    association_memory_id = _id()
+    association_row = {
+        "id": memory_outcome_association_id(
+            tenant_id=task.tenant_id,
+            project_id=task.project_id,
+            repository_id=task.repository_id,
+            swarm_id=task.swarm_id,
+            run_id=task.run_id,
+            task_id=task.task_id,
+            lease_id=lease.lease_id,
+            consumer_agent_id=lease.owner_agent_id,
+            memory_id=association_memory_id,
+            memory_version=2,
+        ),
+        "kind": "observational_silver",
+        "tenant_id": task.tenant_id,
+        "project_id": task.project_id,
+        "repository_id": task.repository_id,
+        "swarm_id": task.swarm_id,
+        "run_id": task.run_id,
+        "task_id": task.task_id,
+        "lease_id": lease.lease_id,
+        "consumer_agent_id": lease.owner_agent_id,
+        "memory_id": association_memory_id,
+        "memory_version": 2,
+        "outcome": "failed",
+        "observed_at": now,
+    }
+    association = coordination._outcome_association_from_row(association_row)
+    assert association.kind is OutcomeAssociationKind.OBSERVATIONAL_SILVER
+    assert association.outcome is TaskOutcome.FAILED
+    assert association.memory_id == association_memory_id
+
     event_row = {
         "id": _id(),
         "tenant_id": task.tenant_id,
@@ -174,7 +211,17 @@ def test_coordination_sql_is_parameterized_and_never_uses_select_star() -> None:
     assert "t.tags @> %s::STRING[]" in coordination.CLAIM_CANDIDATE_SQL
     assert "%s::STRING[] @> t.required_capabilities" in coordination.CLAIM_CANDIDATE_SQL
     assert "dependency.kind = 'blocks'" in coordination.CLAIM_CANDIDATE_SQL
+    assert "prerequisite.state = 'completed'" in (
+        coordination.SELECT_COMPLETED_BLOCKING_DEPENDENCIES_SQL
+    )
+    assert "ORDER BY dependency.depends_on_task_id" in (
+        coordination.SELECT_COMPLETED_BLOCKING_DEPENDENCIES_SQL
+    )
     assert "(occurred_at, id) > (%s, %s)" in coordination.EVENT_PAGE_AFTER_SQL
+    assert "event_type = 'memory.activated'" in coordination.SELECT_COMPLETION_ACTIVATIONS_SQL
+    assert "payload->>'lease_id' = %s" in coordination.SELECT_COMPLETION_ACTIVATIONS_SQL
+    assert "ON CONFLICT (id) DO NOTHING" in (coordination.INSERT_MEMORY_OUTCOME_ASSOCIATION_SQL)
+    assert "ORDER BY observed_at, id" in coordination.LIST_MEMORY_OUTCOME_ASSOCIATIONS_SQL
 
 
 class _Cursor:

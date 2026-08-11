@@ -262,6 +262,7 @@ CREATE TABLE IF NOT EXISTS memories (
     normalized_sha256 BYTES NOT NULL,
     dedup_scope STRING NOT NULL,
     confidence DECIMAL(5,4) NOT NULL DEFAULT 0.5000,
+    occurred_at TIMESTAMPTZ NULL,
     valid_from TIMESTAMPTZ NOT NULL DEFAULT now(),
     valid_to TIMESTAMPTZ NULL,
     recorded_from TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -294,6 +295,10 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS content_json JSONB NULL;
+-- v12 preserves source-backed event occurrence independently of both the
+-- world-validity interval and the system-recording interval. It is nullable
+-- and is never part of a canonical lifecycle predicate.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ NULL;
 ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_kind_check;
 
 CREATE INDEX IF NOT EXISTS memories_current_scope
@@ -322,6 +327,52 @@ DROP INDEX IF EXISTS memories_current_identity;
 CREATE INDEX IF NOT EXISTS memories_current_fingerprint
     ON memories (tenant_id, repository_id, dedup_scope, kind, normalized_sha256)
     WHERE recorded_to IS NULL AND state != 'refuted';
+
+-- v11 records only observational/silver associations between a task outcome
+-- and memory use proven by both an exact lease-bound activation and an
+-- explicit completion citation. It is intentionally content-free and is not
+-- read by retrieval or ranking.
+CREATE TABLE IF NOT EXISTS memory_outcome_associations (
+    id UUID PRIMARY KEY,
+    kind STRING NOT NULL DEFAULT 'observational_silver',
+    tenant_id STRING NOT NULL,
+    project_id STRING NOT NULL,
+    repository_id STRING NOT NULL,
+    swarm_id STRING NOT NULL,
+    run_id STRING NOT NULL,
+    task_id UUID NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    lease_id UUID NOT NULL REFERENCES task_leases (id) ON DELETE CASCADE,
+    consumer_agent_id STRING NOT NULL,
+    memory_id UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
+    memory_version INT8 NOT NULL,
+    outcome STRING NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT memory_outcome_associations_kind_check CHECK (
+        kind = 'observational_silver'
+    ),
+    CONSTRAINT memory_outcome_associations_outcome_check CHECK (
+        outcome IN ('succeeded', 'failed')
+    ),
+    CONSTRAINT memory_outcome_associations_version_check CHECK (memory_version > 0),
+    CONSTRAINT memory_outcome_associations_run_fk FOREIGN KEY (tenant_id, run_id)
+        REFERENCES runs (tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT memory_outcome_associations_consumer_fk FOREIGN KEY (
+        tenant_id, run_id, consumer_agent_id
+    ) REFERENCES agents (tenant_id, run_id, id) ON DELETE CASCADE,
+    UNIQUE (
+        tenant_id, project_id, repository_id, swarm_id, run_id, task_id,
+        lease_id, consumer_agent_id, memory_id, memory_version
+    )
+);
+
+CREATE INDEX IF NOT EXISTS memory_outcome_associations_scope
+    ON memory_outcome_associations (
+        tenant_id, project_id, repository_id, swarm_id, run_id,
+        observed_at, id
+    ) STORING (
+        task_id, lease_id, consumer_agent_id, memory_id, memory_version,
+        outcome, kind
+    );
 
 -- v7 keeps lexical and identifier indexes in a rebuildable projection.  The
 -- canonical memories table remains the authorization/lifecycle source of
@@ -884,7 +935,10 @@ CREATE TABLE IF NOT EXISTS outbox_work_items (
     CONSTRAINT outbox_work_items_run_fk FOREIGN KEY (tenant_id, run_id)
         REFERENCES runs (tenant_id, id) ON DELETE CASCADE,
     CONSTRAINT outbox_work_items_kind_check CHECK (
-        kind IN ('extract_source', 'embed_memory', 'persist_artifact')
+        kind IN (
+            'extract_source', 'embed_memory', 'persist_artifact',
+            'consolidate_memory'
+        )
     ),
     CONSTRAINT outbox_work_items_status_check CHECK (
         status IN ('pending', 'leased', 'retry', 'completed', 'failed', 'cancelled')
@@ -899,6 +953,19 @@ CREATE TABLE IF NOT EXISTS outbox_work_items (
     ),
     UNIQUE (tenant_id, run_id, kind, dedupe_key)
 );
+
+-- v10 adds the asynchronous Observer/Reflector work profile. Rebuild the
+-- allowlist so existing clusters accept the new kind during an explicit
+-- schema installation.
+ALTER TABLE outbox_work_items
+    DROP CONSTRAINT IF EXISTS outbox_work_items_kind_check;
+ALTER TABLE outbox_work_items
+    ADD CONSTRAINT outbox_work_items_kind_check CHECK (
+        kind IN (
+            'extract_source', 'embed_memory', 'persist_artifact',
+            'consolidate_memory'
+        )
+    );
 
 CREATE INDEX IF NOT EXISTS outbox_work_items_claim
     ON outbox_work_items (priority DESC, available_at, created_at, id)

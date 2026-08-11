@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from math import nan
 
 import pytest
@@ -12,6 +12,7 @@ from swarmbrain.adapters.memory import InMemoryKernel
 from swarmbrain.domain import conflicts, events, evidence, leases, memory, tasks
 from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.common import ContractModel, MutationCommand
+from swarmbrain.domain.evidence import EvidenceRef
 from swarmbrain.domain.memory import (
     MemoryKind,
     MemoryLink,
@@ -111,6 +112,39 @@ def test_contracts_reject_extra_fields_bad_uuid_and_naive_time(
             kind="observation",
             content="fact",
             visibility=Visibility.TASK,
+        )
+
+
+def test_occurrence_time_is_provenance_backed_and_query_prior_is_bounded() -> None:
+    observed_at = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+    occurred_at = observed_at - timedelta(days=30)
+    with pytest.raises(ValidationError, match="occurred_at requires immutable evidence"):
+        RememberCommand(
+            idempotency_key="unproved-occurrence",
+            kind="observation",
+            content="retrospective claim",
+            occurred_at=occurred_at,
+            valid_from=observed_at,
+        )
+
+    command = RememberCommand(
+        idempotency_key="proved-occurrence",
+        kind="observation",
+        content="retrospective claim",
+        evidence=(EvidenceRef(evidence_id=new_id(), source_id=new_id()),),
+        occurred_at=occurred_at,
+        valid_from=observed_at,
+    )
+    assert command.occurred_at == occurred_at
+    assert command.valid_from == observed_at
+
+    with pytest.raises(ValidationError, match="must be provided together"):
+        RecallQuery(text="when", occurrence_time_prior_from=occurred_at)
+    with pytest.raises(ValidationError, match="must be later"):
+        RecallQuery(
+            text="when",
+            occurrence_time_prior_from=observed_at,
+            occurrence_time_prior_to=occurred_at,
         )
 
 

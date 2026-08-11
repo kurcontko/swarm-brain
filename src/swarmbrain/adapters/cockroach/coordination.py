@@ -31,6 +31,11 @@ from swarmbrain.domain.events import (
 )
 from swarmbrain.domain.leases import LeaseStatus, RenewLeaseCommand, RenewLeaseResult, TaskLease
 from swarmbrain.domain.memory import MemoryState, RecallQuery, Visibility
+from swarmbrain.domain.outcome_feedback import (
+    MAX_OUTCOME_ASSOCIATIONS_PER_COMPLETION,
+    MemoryOutcomeAssociation,
+    memory_outcome_association_id,
+)
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
     CheckpointResult,
@@ -89,6 +94,11 @@ EVENT_COLUMNS = """
     task_id, event_type, aggregate_type, aggregate_id, aggregate_version,
     payload, occurred_at, recorded_at, correlation_id, causation_id,
     idempotency_key
+"""
+OUTCOME_ASSOCIATION_COLUMNS = """
+    id, kind, tenant_id, project_id, repository_id, swarm_id, run_id,
+    task_id, lease_id, consumer_agent_id, memory_id, memory_version,
+    outcome, observed_at
 """
 
 INSERT_RUN_SQL = """
@@ -189,6 +199,20 @@ SELECT_DEPENDENCY_SQL = """
     FROM task_dependencies
     WHERE task_id = %s
       AND depends_on_task_id = %s
+"""
+SELECT_COMPLETED_BLOCKING_DEPENDENCIES_SQL = """
+    SELECT dependency.depends_on_task_id
+    FROM task_dependencies AS dependency
+    JOIN tasks AS prerequisite ON prerequisite.id = dependency.depends_on_task_id
+    WHERE dependency.task_id = %s::UUID
+      AND dependency.kind = 'blocks'
+      AND prerequisite.tenant_id = %s
+      AND prerequisite.project_id = %s
+      AND prerequisite.repository_id = %s
+      AND prerequisite.swarm_id = %s
+      AND prerequisite.run_id = %s
+      AND prerequisite.state = 'completed'
+    ORDER BY dependency.depends_on_task_id
 """
 EXPIRE_LEASES_SQL = """
     UPDATE task_leases AS lease
@@ -632,6 +656,45 @@ SELECT_EVENT_BY_ID_SQL = f"""
     SELECT {EVENT_COLUMNS}
     FROM swarm_events
     WHERE id = %s::UUID
+"""
+SELECT_COMPLETION_ACTIVATIONS_SQL = f"""
+    SELECT {EVENT_COLUMNS}
+    FROM swarm_events
+    WHERE tenant_id = %s
+      AND project_id = %s
+      AND repository_id = %s
+      AND swarm_id = %s
+      AND run_id = %s
+      AND task_id = %s::UUID
+      AND agent_id = %s
+      AND event_type = 'memory.activated'
+      AND payload->>'lease_id' = %s
+    ORDER BY occurred_at, id
+"""
+INSERT_MEMORY_OUTCOME_ASSOCIATION_SQL = f"""
+    INSERT INTO memory_outcome_associations (
+        id, kind, tenant_id, project_id, repository_id, swarm_id, run_id,
+        task_id, lease_id, consumer_agent_id, memory_id, memory_version,
+        outcome, observed_at
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s, %s, %s, %s
+    )
+    ON CONFLICT (id) DO NOTHING
+    RETURNING {OUTCOME_ASSOCIATION_COLUMNS}
+"""
+LIST_MEMORY_OUTCOME_ASSOCIATIONS_SQL = f"""
+    SELECT {OUTCOME_ASSOCIATION_COLUMNS}
+    FROM memory_outcome_associations
+    WHERE tenant_id = %s
+      AND project_id = %s
+      AND repository_id = %s
+      AND swarm_id = %s
+      AND run_id = %s
+      AND (%s::UUID IS NULL OR task_id = %s::UUID)
+      AND (%s::UUID IS NULL OR memory_id = %s::UUID)
+    ORDER BY observed_at, id
+    LIMIT %s
 """
 RUN_METRICS_SQL = """
     WITH scoped_run AS (
@@ -1124,6 +1187,20 @@ class CockroachCoordinationStore:
                 raise NoTaskAvailable()
             lease = _lease_from_row(lease_row)
             checkpoint = await _latest_checkpoint(connection, actor, task.task_id)
+            dependency_cursor = await connection.execute(
+                SELECT_COMPLETED_BLOCKING_DEPENDENCIES_SQL,
+                (
+                    task.task_id,
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    actor.swarm_id,
+                    actor.run_id,
+                ),
+            )
+            unblocked_by = tuple(
+                str(row["depends_on_task_id"]) for row in await dependency_cursor.fetchall()
+            )
             await _append_event(
                 connection,
                 actor,
@@ -1139,7 +1216,12 @@ class CockroachCoordinationStore:
                 payload={"lease_id": lease.lease_id},
                 idempotency_key=command.idempotency_key,
             )
-            return ClaimTaskResult(task=task, lease=lease, checkpoint=checkpoint)
+            return ClaimTaskResult(
+                task=task,
+                lease=lease,
+                checkpoint=checkpoint,
+                unblocked_by_task_ids=unblocked_by,
+            )
 
         return await self.database.run_idempotent(
             actor,
@@ -1330,6 +1412,11 @@ class CockroachCoordinationStore:
             if completion_row is None:
                 raise InvalidState("task already has a completion", task_id=task.task_id)
             completion = _completion_from_row(completion_row)
+            await _persist_memory_outcome_associations(
+                connection,
+                actor,
+                completion,
+            )
             task_status = (
                 TaskStatus.COMPLETED if command.outcome.value == "succeeded" else TaskStatus.FAILED
             )
@@ -1626,6 +1713,8 @@ class CockroachCoordinationStore:
                     task_id=telemetry.task_id,
                     states=frozenset({MemoryState.CONFIRMED}),
                     visibilities=frozenset(Visibility),
+                    referenced_valid_from=telemetry.referenced_valid_from,
+                    referenced_valid_to=telemetry.referenced_valid_to,
                     limit=len(telemetry.memory_ids),
                 )
                 predicates = build_recall_predicates(
@@ -1692,6 +1781,33 @@ class CockroachCoordinationStore:
 
             await self.database.run(resolve)
 
+    async def validate_memory_activation_scope(
+        self,
+        actor: ActorContext,
+        task_id: str,
+        lease_id: str,
+    ) -> None:
+        """Validate task/lease ownership before evaluating ephemeral query text."""
+
+        async def transaction(connection: Any) -> None:
+            cursor = await connection.execute(
+                SELECT_ACTIVATION_SCOPE_SQL,
+                (
+                    task_id,
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    actor.swarm_id,
+                    actor.run_id,
+                    lease_id,
+                    actor.agent_id,
+                ),
+            )
+            if await cursor.fetchone() is None:
+                raise ResourceNotFound("active activation lease", lease_id)
+
+        await self.database.run(transaction)
+
     async def get_memory_activation(
         self,
         actor: ActorContext,
@@ -1731,6 +1847,39 @@ class CockroachCoordinationStore:
 
         return await self.database.run(transaction)
 
+    async def list_memory_outcome_associations(
+        self,
+        actor: ActorContext,
+        *,
+        task_id: str | None = None,
+        memory_id: str | None = None,
+        limit: int = 1000,
+    ) -> tuple[MemoryOutcomeAssociation, ...]:
+        """Return bounded silver observations from the actor's exact run scope."""
+
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("outcome association limit must be between 1 and 1000")
+
+        async def transaction(connection: Any) -> tuple[MemoryOutcomeAssociation, ...]:
+            cursor = await connection.execute(
+                LIST_MEMORY_OUTCOME_ASSOCIATIONS_SQL,
+                (
+                    actor.tenant_id,
+                    actor.project_id,
+                    actor.repository_id,
+                    actor.swarm_id,
+                    actor.run_id,
+                    task_id,
+                    task_id,
+                    memory_id,
+                    memory_id,
+                    limit,
+                ),
+            )
+            return tuple(_outcome_association_from_row(row) for row in await cursor.fetchall())
+
+        return await self.database.run(transaction)
+
 
 def _activation_event_matches(
     event: SwarmEvent,
@@ -1749,6 +1898,131 @@ def _activation_event_matches(
         and str(event.event_type) == EventType.MEMORY_ACTIVATED.value
         and all(event.payload.get(key) == value for key, value in expected.items())
     )
+
+
+async def _persist_memory_outcome_associations(
+    connection: Any,
+    actor: ActorContext,
+    completion: TaskCompletion,
+) -> None:
+    """Persist only unambiguous, currently valid activation/citation intersections."""
+
+    cited_ids = tuple(dict.fromkeys(completion.memory_ids))[
+        :MAX_OUTCOME_ASSOCIATIONS_PER_COMPLETION
+    ]
+    if not cited_ids:
+        return
+    cursor = await connection.execute(
+        SELECT_COMPLETION_ACTIVATIONS_SQL,
+        (
+            actor.tenant_id,
+            actor.project_id,
+            actor.repository_id,
+            actor.swarm_id,
+            actor.run_id,
+            completion.task_id,
+            actor.agent_id,
+            completion.lease_id,
+        ),
+    )
+    versions_by_memory: dict[str, set[int]] = {memory_id: set() for memory_id in cited_ids}
+    for row in await cursor.fetchall():
+        event = _event_from_row(row)
+        try:
+            telemetry = MemoryActivationTelemetry.model_validate(
+                {
+                    key: event.payload[key]
+                    for key in MemoryActivationTelemetry.model_fields
+                    if key in event.payload
+                }
+            )
+        except ValueError:
+            continue
+        if (
+            telemetry.run_id != actor.run_id
+            or telemetry.agent_id != actor.agent_id
+            or telemetry.task_id != completion.task_id
+            or telemetry.lease_id != completion.lease_id
+        ):
+            continue
+        for memory_id in cited_ids:
+            if (version := telemetry.memory_versions.get(memory_id)) is not None:
+                versions_by_memory[memory_id].add(version)
+
+    unambiguous_ids = tuple(
+        memory_id for memory_id in cited_ids if len(versions_by_memory[memory_id]) == 1
+    )
+    if not unambiguous_ids:
+        return
+    proof_query = RecallQuery(
+        text="outcome association eligibility check",
+        task_id=completion.task_id,
+        states=frozenset({MemoryState.CONFIRMED}),
+        visibilities=frozenset(Visibility),
+        limit=len(unambiguous_ids),
+    )
+    predicates = build_recall_predicates(
+        actor,
+        proof_query,
+        now=completion.completed_at,
+        candidate_ids=unambiguous_ids,
+    )
+    memory_cursor = await connection.execute(
+        f"SELECT m.id, m.version FROM memories AS m WHERE {' AND '.join(predicates.clauses)}",
+        predicates.parameters,
+    )
+    current_versions = {
+        str(row["id"]): int(row["version"]) for row in await memory_cursor.fetchall()
+    }
+    for memory_id in unambiguous_ids:
+        memory_version = next(iter(versions_by_memory[memory_id]))
+        if current_versions.get(memory_id) != memory_version:
+            continue
+        association = MemoryOutcomeAssociation(
+            association_id=memory_outcome_association_id(
+                tenant_id=actor.tenant_id,
+                project_id=actor.project_id,
+                repository_id=actor.repository_id,
+                swarm_id=actor.swarm_id,
+                run_id=actor.run_id,
+                task_id=completion.task_id,
+                lease_id=completion.lease_id,
+                consumer_agent_id=actor.agent_id,
+                memory_id=memory_id,
+                memory_version=memory_version,
+            ),
+            tenant_id=actor.tenant_id,
+            project_id=actor.project_id,
+            repository_id=actor.repository_id,
+            swarm_id=actor.swarm_id,
+            run_id=actor.run_id,
+            task_id=completion.task_id,
+            lease_id=completion.lease_id,
+            consumer_agent_id=actor.agent_id,
+            memory_id=memory_id,
+            memory_version=memory_version,
+            outcome=completion.outcome,
+            observed_at=completion.completed_at,
+        )
+        await connection.execute(
+            INSERT_MEMORY_OUTCOME_ASSOCIATION_SQL,
+            (
+                association.association_id,
+                association.kind.value,
+                association.tenant_id,
+                association.project_id,
+                association.repository_id,
+                association.swarm_id,
+                association.run_id,
+                association.task_id,
+                association.lease_id,
+                association.consumer_agent_id,
+                association.memory_id,
+                association.memory_version,
+                association.outcome.value,
+                association.observed_at,
+            ),
+        )
 
 
 async def _ensure_run_scope(
@@ -2139,6 +2413,25 @@ def _completion_from_row(row: Mapping[str, Any]) -> TaskCompletion:
         memory_ids=_uuid_sequence(row["memory_ids"]),
         artifact_ids=_uuid_sequence(row["artifact_ids"]),
         completed_at=row["completed_at"],
+    )
+
+
+def _outcome_association_from_row(row: Mapping[str, Any]) -> MemoryOutcomeAssociation:
+    return MemoryOutcomeAssociation(
+        association_id=row["id"],
+        kind=str(row["kind"]),
+        tenant_id=row["tenant_id"],
+        project_id=row["project_id"],
+        repository_id=row["repository_id"],
+        swarm_id=row["swarm_id"],
+        run_id=row["run_id"],
+        task_id=row["task_id"],
+        lease_id=row["lease_id"],
+        consumer_agent_id=row["consumer_agent_id"],
+        memory_id=row["memory_id"],
+        memory_version=int(row["memory_version"]),
+        outcome=str(row["outcome"]),
+        observed_at=row["observed_at"],
     )
 
 

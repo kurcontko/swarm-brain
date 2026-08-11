@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -95,6 +95,7 @@ def _memory_row(*, now: datetime, memory_id: str, actor: ActorContext) -> dict[s
         "normalized_sha256": bytes.fromhex("cd" * 32),
         "dedup_scope": "repository",
         "confidence": Decimal("0.9750"),
+        "occurred_at": now - timedelta(days=7),
         "valid_from": now,
         "valid_to": None,
         "recorded_from": now,
@@ -155,6 +156,7 @@ def test_cockroach_rows_map_to_strict_domain_contracts() -> None:
     assert memory.kind is MemoryKind.INVARIANT
     assert memory.confidence == pytest.approx(0.975)
     assert memory.evidence == (evidence.as_ref(),)
+    assert memory.occurred_at == now - timedelta(days=7)
 
     conflict = conflict_from_parts(
         {

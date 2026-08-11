@@ -1,4 +1,4 @@
-"""Separate-process lifecycle for leased extraction and embedding workers."""
+"""Separate-process lifecycle for leased extraction, embedding, and reflection."""
 
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ from swarmbrain.config import WorkerSettings
 class WorkerCycleResult:
     extracted: int = 0
     embedded: int = 0
+    consolidated: int = 0
 
     @property
     def processed(self) -> int:
-        return self.extracted + self.embedded
+        return self.extracted + self.embedded + self.consolidated
 
 
 class WorkerSupervisor:
@@ -47,7 +48,22 @@ class WorkerSupervisor:
                 lease_seconds=self.settings.lease_seconds,
             )
             embedded_count = len(embedded)
-        return WorkerCycleResult(extracted=len(extracted), embedded=embedded_count)
+        consolidated_count = 0
+        if self.runtime.consolidation is not None:
+            consolidation = self.runtime.consolidation_worker(
+                retry_delay_seconds=self.settings.retry_delay_seconds
+            )
+            consolidated = await consolidation.run_once(
+                self.settings.worker_id,
+                limit=self.settings.limit,
+                lease_seconds=self.settings.lease_seconds,
+            )
+            consolidated_count = len(consolidated)
+        return WorkerCycleResult(
+            extracted=len(extracted),
+            embedded=embedded_count,
+            consolidated=consolidated_count,
+        )
 
     async def serve(
         self,
@@ -65,6 +81,7 @@ class WorkerSupervisor:
                 total = WorkerCycleResult(
                     extracted=total.extracted + cycle.extracted,
                     embedded=total.embedded + cycle.embedded,
+                    consolidated=total.consolidated + cycle.consolidated,
                 )
                 if once:
                     break

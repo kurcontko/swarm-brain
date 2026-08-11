@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from uuid import UUID
 
 from swarmbrain.domain.agents import ActorContext
@@ -21,6 +22,11 @@ from .projection import MAX_QUERY_CHARS
 
 _HEX_DIGEST = re.compile(r"(?i)^[0-9a-f]{64}$")
 _CODE_LOOKUP = re.compile(r"(?:[/\\]|::|\btest_[A-Za-z0-9_]+\b|\bSQLSTATE\b|\b[0-9a-fA-F]{7,40}\b)")
+TEMPORAL_PROJECTION_ID = "memory-valid-time"
+TEMPORAL_PROJECTION_VERSION = "valid-from-distance-days-v1"
+OCCURRENCE_TEMPORAL_PROJECTION_ID = "memory-event-occurrence-time"
+OCCURRENCE_TEMPORAL_PROJECTION_VERSION = "event-occurrence-distance-days-v1"
+TEMPORAL_SCORE_SCALE_SECONDS = 86_400.0
 _QUERY_IDENTIFIER = re.compile(
     r"(?P<uuid>\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b)"
@@ -49,6 +55,46 @@ def parse_query_identifiers(value: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(found))
 
 
+def temporal_query_target(query: RecallQuery) -> tuple[datetime, str] | None:
+    """Return an explicit temporal ranking target and its trace label.
+
+    System time (``recorded_at``) is intentionally absent.  It controls which
+    recorded version is canonically eligible but is never an event-time proxy.
+    A caller-selected occurrence prior takes precedence because it is the only
+    target that ranks the distinct provenance-backed ``Memory.occurred_at``
+    signal.  It remains orthogonal to hard world-validity selection.
+    """
+
+    if query.occurrence_time_prior_from is not None:
+        assert query.occurrence_time_prior_to is not None
+        center = (
+            query.occurrence_time_prior_from
+            + (query.occurrence_time_prior_to - query.occurrence_time_prior_from) / 2
+        )
+        return center, "occurrence_interval_center"
+    if query.world_at is not None:
+        return query.world_at, "world_at"
+    if query.referenced_valid_from is None:
+        return None
+    assert query.referenced_valid_to is not None
+    center = (
+        query.referenced_valid_from + (query.referenced_valid_to - query.referenced_valid_from) / 2
+    )
+    return center, "interval_center"
+
+
+def temporal_valid_from_score(valid_from: datetime, target: datetime) -> float:
+    """Rank-independent closeness of ``valid_from`` to an explicit target.
+
+    One day of distance scores ``0.5``.  Python datetimes have a finite range,
+    so the reciprocal remains finite and strictly positive for every canonical
+    memory while an exact target scores ``1.0``.
+    """
+
+    distance_seconds = abs((valid_from - target).total_seconds())
+    return 1.0 / (1.0 + distance_seconds / TEMPORAL_SCORE_SCALE_SECONDS)
+
+
 class RetrievalPlanner:
     def plan(
         self,
@@ -71,6 +117,8 @@ class RetrievalPlanner:
             )
             if signal in available
         )
+        if RetrievalSignal.TEMPORAL in available and temporal_query_target(query) is not None:
+            primary |= frozenset({RetrievalSignal.TEMPORAL})
         max_graph_hops = self._graph_hops(purpose) if RetrievalSignal.GRAPH in available else 0
         selected = primary | (
             frozenset({RetrievalSignal.GRAPH}) if max_graph_hops > 0 else frozenset()
@@ -85,6 +133,7 @@ class RetrievalPlanner:
             # both bounded at 100.  Scope branches may over-fetch internally,
             # but the fused dense lane remains deliberately small.
             RetrievalSignal.DENSE.value: min(100, max(32, query.limit * 8)),
+            RetrievalSignal.TEMPORAL.value: min(200, max(16, query.limit * 4)),
             RetrievalSignal.GRAPH.value: min(200, max(16, query.limit * 4)),
         }
         graph_budget = budgets[RetrievalSignal.GRAPH.value]
@@ -101,6 +150,10 @@ class RetrievalPlanner:
             domain_lanes=self._domain_lanes(purpose),
             signal_lanes=selected,
             world_at=query.world_at,
+            referenced_valid_from=query.referenced_valid_from,
+            referenced_valid_to=query.referenced_valid_to,
+            occurrence_time_prior_from=query.occurrence_time_prior_from,
+            occurrence_time_prior_to=query.occurrence_time_prior_to,
             recorded_at=query.recorded_at,
             hard_scope=RetrievalScope(
                 tenant_id=actor.tenant_id,
@@ -168,7 +221,12 @@ class RetrievalPlanner:
             return "identifier"
         if _HEX_DIGEST.fullmatch(text) or _CODE_LOOKUP.search(text):
             return "code_lookup"
-        if query.world_at is not None or query.recorded_at is not None:
+        if (
+            query.world_at is not None
+            or query.referenced_valid_from is not None
+            or query.occurrence_time_prior_from is not None
+            or query.recorded_at is not None
+        ):
             return "historical"
         return "general"
 
@@ -184,6 +242,7 @@ class RetrievalPlanner:
                 RetrievalSignal.LEXICAL: 3.0,
                 RetrievalSignal.FUZZY: 1.0,
                 RetrievalSignal.DENSE: 3.0,
+                RetrievalSignal.TEMPORAL: 2.0,
                 RetrievalSignal.GRAPH: 1.5,
             }
         elif purpose is RetrievalPurpose.HISTORICAL_AUDIT:
@@ -192,6 +251,7 @@ class RetrievalPlanner:
                 RetrievalSignal.LEXICAL: 4.0,
                 RetrievalSignal.FUZZY: 0.75,
                 RetrievalSignal.DENSE: 2.0,
+                RetrievalSignal.TEMPORAL: 4.0,
                 RetrievalSignal.GRAPH: 1.25,
             }
         else:
@@ -213,6 +273,7 @@ class RetrievalPlanner:
                 RetrievalSignal.LEXICAL: 3.0,
                 RetrievalSignal.FUZZY: 1.0,
                 RetrievalSignal.DENSE: 4.0,
+                RetrievalSignal.TEMPORAL: 2.0,
                 RetrievalSignal.GRAPH: graph_weight,
             }
         # Literal identifiers are better served by exact and fuzzy indexes;
@@ -257,4 +318,14 @@ class RetrievalPlanner:
         return frozenset({"knowledge", "playbook", "execution_history", "handoff"})
 
 
-__all__ = ["RetrievalPlanner", "parse_query_identifiers"]
+__all__ = [
+    "OCCURRENCE_TEMPORAL_PROJECTION_ID",
+    "OCCURRENCE_TEMPORAL_PROJECTION_VERSION",
+    "TEMPORAL_PROJECTION_ID",
+    "TEMPORAL_PROJECTION_VERSION",
+    "TEMPORAL_SCORE_SCALE_SECONDS",
+    "RetrievalPlanner",
+    "parse_query_identifiers",
+    "temporal_query_target",
+    "temporal_valid_from_score",
+]

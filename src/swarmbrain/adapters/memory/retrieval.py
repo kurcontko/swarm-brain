@@ -33,6 +33,14 @@ from swarmbrain.retrieval.graph import (
     graph_step_activation,
     select_graph_seeds,
 )
+from swarmbrain.retrieval.planner import (
+    OCCURRENCE_TEMPORAL_PROJECTION_ID,
+    OCCURRENCE_TEMPORAL_PROJECTION_VERSION,
+    TEMPORAL_PROJECTION_ID,
+    TEMPORAL_PROJECTION_VERSION,
+    temporal_query_target,
+    temporal_valid_from_score,
+)
 from swarmbrain.retrieval.projection import (
     FUZZY_SIMILARITY_THRESHOLD,
     MAX_EXACT_TERM,
@@ -209,6 +217,85 @@ class InMemoryRetrievalGateway:
             projection_version="in-memory-v1",
             reasons=reasons,
             evidence_ids=tuple(reference.evidence_id for reference in memory.evidence),
+        )
+
+
+class InMemoryTemporalRetrievalGateway:
+    """Explicit temporal lane over canonically eligible memories."""
+
+    signal = RetrievalSignal.TEMPORAL
+
+    def __init__(self, kernel: InMemoryKernel) -> None:
+        self.kernel = kernel
+
+    async def retrieve(
+        self,
+        actor: ActorContext,
+        plan: RetrievalPlan,
+        query: RecallQuery,
+        dense_query: DenseQuery | None = None,
+    ) -> CandidateBatch:
+        del dense_query
+        started = perf_counter()
+        target_with_kind = temporal_query_target(query)
+        if target_with_kind is None:
+            return CandidateBatch(
+                lane=self.signal,
+                examined_count=0,
+                latency_ms=(perf_counter() - started) * 1000.0,
+                projection_watermark=TEMPORAL_PROJECTION_VERSION,
+            )
+
+        target, target_kind = target_with_kind
+        memories = await self.kernel.recallable_memories(actor, query)
+        occurrence_prior = query.occurrence_time_prior_from is not None
+        if occurrence_prior:
+            scored = [
+                (temporal_valid_from_score(memory.occurred_at, target), memory)
+                for memory in memories
+                if memory.occurred_at is not None
+            ]
+            scored.sort(key=lambda item: (-item[0], item[1].occurred_at, item[1].memory_id))
+            projection_id = OCCURRENCE_TEMPORAL_PROJECTION_ID
+            projection_version = OCCURRENCE_TEMPORAL_PROJECTION_VERSION
+            reason = "temporal_occurrence_distance"
+        else:
+            scored = [
+                (temporal_valid_from_score(memory.valid_from, target), memory)
+                for memory in memories
+            ]
+            scored.sort(key=lambda item: (-item[0], item[1].valid_from, item[1].memory_id))
+            projection_id = TEMPORAL_PROJECTION_ID
+            projection_version = TEMPORAL_PROJECTION_VERSION
+            reason = "temporal_valid_from_distance"
+        budget = plan.lane_budgets[self.signal.value]
+        candidates = tuple(
+            Candidate(
+                resource_type="memory",
+                resource_id=memory.memory_id,
+                resource_version=memory.version,
+                canonical_id=memory.memory_id,
+                domain_lane=domain_lane(memory.kind, memory.metadata),
+                signal=self.signal,
+                rank=rank,
+                raw_score=raw_score,
+                projection_id=projection_id,
+                projection_version=projection_version,
+                reasons=(
+                    reason,
+                    f"temporal_target:{target_kind}",
+                ),
+                evidence_ids=tuple(reference.evidence_id for reference in memory.evidence),
+            )
+            for rank, (raw_score, memory) in enumerate(scored[:budget], start=1)
+        )
+        return CandidateBatch(
+            lane=self.signal,
+            candidates=candidates,
+            examined_count=len(memories),
+            latency_ms=(perf_counter() - started) * 1000.0,
+            truncated=len(scored) > budget,
+            projection_watermark=projection_version,
         )
 
 
@@ -513,7 +600,10 @@ class InMemoryGraphRetrievalGateway:
 
 def in_memory_retrieval_gateways(
     kernel: InMemoryKernel,
-) -> tuple[InMemoryRetrievalGateway | InMemoryGraphRetrievalGateway, ...]:
+) -> tuple[
+    InMemoryRetrievalGateway | InMemoryTemporalRetrievalGateway | InMemoryGraphRetrievalGateway,
+    ...,
+]:
     primary = tuple(
         InMemoryRetrievalGateway(kernel, signal)
         for signal in (
@@ -522,7 +612,11 @@ def in_memory_retrieval_gateways(
             RetrievalSignal.FUZZY,
         )
     )
-    return (*primary, InMemoryGraphRetrievalGateway(kernel))
+    return (
+        *primary,
+        InMemoryTemporalRetrievalGateway(kernel),
+        InMemoryGraphRetrievalGateway(kernel),
+    )
 
 
 def in_memory_hybrid_retrieval_gateways(
@@ -531,7 +625,10 @@ def in_memory_hybrid_retrieval_gateways(
     *,
     dense_min_similarity: float = 0.0,
 ) -> tuple[
-    InMemoryRetrievalGateway | InMemoryDenseRetrievalGateway | InMemoryGraphRetrievalGateway,
+    InMemoryRetrievalGateway
+    | InMemoryTemporalRetrievalGateway
+    | InMemoryDenseRetrievalGateway
+    | InMemoryGraphRetrievalGateway,
     ...,
 ]:
     return (
@@ -553,6 +650,7 @@ __all__ = [
     "InMemoryDenseRetrievalGateway",
     "InMemoryGraphRetrievalGateway",
     "InMemoryRetrievalGateway",
+    "InMemoryTemporalRetrievalGateway",
     "in_memory_hybrid_retrieval_gateways",
     "in_memory_retrieval_gateways",
 ]

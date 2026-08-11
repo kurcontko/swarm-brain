@@ -660,7 +660,8 @@ async def test_provider_candidate_semantics_are_persisted_atomically(
         async with database.pool.connection() as connection:
             cursor = await connection.execute(
                 """
-                SELECT memory.id, memory.kind, memory.valid_from, memory.metadata
+                SELECT memory.id, memory.kind, memory.occurred_at,
+                       memory.valid_from, memory.metadata
                 FROM outbox_work_effects AS effect
                 JOIN memories AS memory ON memory.id = effect.resource_id
                 WHERE effect.work_id = %s
@@ -697,7 +698,8 @@ async def test_provider_candidate_semantics_are_persisted_atomically(
                 )
 
                 assert str(row["kind"]) == kind
-                assert row["valid_from"] == event_time
+                assert row["occurred_at"] == event_time
+                assert row["valid_from"] == command.observed_at
                 assert metadata["aliases"] == aliases
                 assert metadata["semantic"] == semantic_metadata
                 assert extraction["candidate_key"] == candidate_key

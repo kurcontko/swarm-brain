@@ -938,7 +938,7 @@ async def test_inline_evidence_namespace_separates_agents() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mcp_registers_exactly_seven_thin_scope_safe_tools() -> None:
+async def test_mcp_registers_thin_scope_safe_tools() -> None:
     server = create_server(BridgeSettings("http://example.test", "token"))
     tools = await server.list_tools()
     assert {tool.name for tool in tools} == {
@@ -949,6 +949,8 @@ async def test_mcp_registers_exactly_seven_thin_scope_safe_tools() -> None:
         "checkpoint_task",
         "complete_task",
         "report_conflict",
+        "activate_memory",
+        "read_expand_memory",
     }
     forbidden = {
         "tenant_id",
@@ -965,6 +967,7 @@ async def test_mcp_registers_exactly_seven_thin_scope_safe_tools() -> None:
     for tool in tools:
         assert forbidden.isdisjoint(tool.inputSchema["properties"])
     publish = next(tool for tool in tools if tool.name == "publish_memory")
+    assert "occurred_at" in publish.inputSchema["properties"]
     content_schema = publish.inputSchema["properties"]["content"]
     assert content_schema == {"$ref": "#/$defs/MemoryContent"}
     memory_content_schema = json.dumps(publish.inputSchema["$defs"]["MemoryContent"])
@@ -976,6 +979,20 @@ async def test_mcp_registers_exactly_seven_thin_scope_safe_tools() -> None:
     assert {"trust", "use_provider", "chunk_chars", "priority"}.isdisjoint(
         ingest.inputSchema["properties"]
     )
+    for name in ("activate_memory", "read_expand_memory"):
+        lease_bound = next(tool for tool in tools if tool.name == name)
+        assert "lease_id" not in lease_bound.inputSchema["properties"]
+        assert {
+            "referenced_valid_from",
+            "referenced_valid_to",
+        }.issubset(lease_bound.inputSchema["properties"])
+    recall = next(tool for tool in tools if tool.name == "recall_memory")
+    assert {
+        "referenced_valid_from",
+        "referenced_valid_to",
+        "occurrence_time_prior_from",
+        "occurrence_time_prior_to",
+    }.issubset(recall.inputSchema["properties"])
 
 
 @pytest.mark.asyncio
@@ -1001,6 +1018,14 @@ async def test_mcp_http_client_uses_canonical_fields_header_and_version_fencing(
                     "checkpoint": {},
                 },
             )
+        if request.url.path == "/v1/tasks/task/memories:activate":
+            return httpx.Response(200, json={"activation": {}, "replayed": False})
+        if request.url.path == "/v1/tasks/task/memories:read-expand":
+            return httpx.Response(200, json={"context": "bounded"})
+        if request.url.path == "/v1/memories:recall":
+            return httpx.Response(200, json={"hits": []})
+        if request.url.path == "/v1/memories":
+            return httpx.Response(200, json={"memory": {"memory_id": str(uuid4())}})
         raise AssertionError(f"unexpected request: {request.url}")
 
     raw = httpx.AsyncClient(
@@ -1024,20 +1049,89 @@ async def test_mcp_http_client_uses_canonical_fields_header_and_version_fencing(
             remaining_work=["patch"],
             idempotency_key="checkpoint-key",
         )
+        await bridge.recall_memory(
+            text="historical retry",
+            referenced_valid_from="2024-01-01T00:00:00Z",
+            referenced_valid_to="2024-02-01T00:00:00Z",
+            occurrence_time_prior_from="2023-12-01T00:00:00Z",
+            occurrence_time_prior_to="2024-01-01T00:00:00Z",
+            recorded_at="2025-01-01T00:00:00Z",
+        )
+        await bridge.publish_memory(
+            content="retrospective incident",
+            evidence=[{"evidence_id": str(uuid4()), "source_id": str(uuid4())}],
+            occurred_at="2023-12-15T12:00:00Z",
+            idempotency_key="retrospective-memory",
+        )
+        await bridge.activate_memory(
+            task_id="task",
+            trigger="tool_error",
+            query_text="SQLSTATE 40001",
+            seed_memory_ids=["memory-a"],
+            referenced_valid_from="2024-01-01T00:00:00Z",
+            referenced_valid_to="2024-02-01T00:00:00Z",
+        )
+        await bridge.read_expand_memory(
+            task_id="task",
+            query_text="retry transaction",
+            memory_ids=["memory-a"],
+            max_depth=2,
+            referenced_valid_from="2024-01-01T00:00:00Z",
+            referenced_valid_to="2024-02-01T00:00:00Z",
+        )
     finally:
         await bridge.close()
         await raw.aclose()
 
-    claim_payload = json.loads(requests[0].content)
-    checkpoint_payload = json.loads(requests[1].content)
-    assert requests[0].headers["Idempotency-Key"] == "claim-key"
-    assert requests[0].headers["Authorization"] == "Bearer signed-token"
+    by_path = {request.url.path: request for request in requests}
+    claim_request = by_path["/v1/tasks:claim"]
+    checkpoint_request = by_path["/v1/tasks/task/checkpoints"]
+    activation_request = by_path["/v1/tasks/task/memories:activate"]
+    read_request = by_path["/v1/tasks/task/memories:read-expand"]
+    recall_request = by_path["/v1/memories:recall"]
+    publish_request = by_path["/v1/memories"]
+    claim_payload = json.loads(claim_request.content)
+    checkpoint_payload = json.loads(checkpoint_request.content)
+    activation_payload = json.loads(activation_request.content)
+    read_payload = json.loads(read_request.content)
+    recall_payload = json.loads(recall_request.content)
+    publish_payload = json.loads(publish_request.content)
+    assert claim_request.headers["Idempotency-Key"] == "claim-key"
+    assert claim_request.headers["Authorization"] == "Bearer signed-token"
     assert claim_payload["lease_seconds"] == 120
     assert "lease_ttl_seconds" not in claim_payload
     assert checkpoint_payload["expected_task_version"] == 2
     assert checkpoint_payload["expected_lease_version"] == 1
     assert checkpoint_payload["completed_work"] == ["reproducer"]
     assert "agent_id" not in checkpoint_payload
+    assert recall_payload["referenced_valid_from"] == "2024-01-01T00:00:00Z"
+    assert recall_payload["referenced_valid_to"] == "2024-02-01T00:00:00Z"
+    assert recall_payload["recorded_at"] == "2025-01-01T00:00:00Z"
+    assert recall_payload["occurrence_time_prior_from"] == "2023-12-01T00:00:00Z"
+    assert recall_payload["occurrence_time_prior_to"] == "2024-01-01T00:00:00Z"
+    assert publish_payload["occurred_at"] == "2023-12-15T12:00:00Z"
+    assert activation_payload == {
+        "lease_id": "lease",
+        "trigger": "tool_error",
+        "query_text": "SQLSTATE 40001",
+        "seed_memory_ids": ["memory-a"],
+        "token_budget": 2048,
+        "min_score": 0.4,
+        "limit": 12,
+        "referenced_valid_from": "2024-01-01T00:00:00Z",
+        "referenced_valid_to": "2024-02-01T00:00:00Z",
+    }
+    assert read_payload == {
+        "lease_id": "lease",
+        "query_text": "retry transaction",
+        "memory_ids": ["memory-a"],
+        "max_depth": 2,
+        "max_fanout": 4,
+        "token_budget": 4096,
+        "include_evidence": True,
+        "referenced_valid_from": "2024-01-01T00:00:00Z",
+        "referenced_valid_to": "2024-02-01T00:00:00Z",
+    }
     assert bridge._renewals == {}
 
 

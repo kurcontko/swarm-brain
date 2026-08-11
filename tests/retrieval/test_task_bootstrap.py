@@ -221,6 +221,34 @@ async def test_new_claim_returns_bounded_bundle_and_content_free_activation_tele
 
 
 @pytest.mark.asyncio
+async def test_claim_after_completed_blocker_uses_dependency_unblocked_trigger(
+    scope_ids: dict[str, str],
+) -> None:
+    actor = make_actor(scope_ids)
+    prerequisite_id = new_id()
+    stored = _claimed_result(scope_ids, actor).model_copy(
+        update={"unblocked_by_task_ids": (prerequisite_id,)}
+    )
+    store = _ClaimStore(stored)
+    capture = _CapturingMemory()
+    service = CoordinationService(
+        store,  # type: ignore[arg-type]
+        memory_service=capture,  # type: ignore[arg-type]
+    )
+
+    result = await service.claim(actor, ClaimTaskCommand(idempotency_key="dependency-ready"))
+
+    assert result.activation is not None
+    assert result.activation.trigger is ActivationTrigger.DEPENDENCY_UNBLOCKED
+    assert capture.purpose is RetrievalPurpose.TASK_BOOTSTRAP
+    assert capture.query is not None
+    # Opaque task UUIDs remain audit metadata, not retrieval terms: adding
+    # them dilutes calibrated query-token coverage and can suppress otherwise
+    # relevant bootstrap memories at the default relevance floor.
+    assert prerequisite_id not in capture.query.text
+
+
+@pytest.mark.asyncio
 async def test_optional_activation_outage_defers_without_hiding_the_committed_claim(
     scope_ids: dict[str, str],
 ) -> None:

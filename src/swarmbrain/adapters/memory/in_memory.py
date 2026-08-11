@@ -89,6 +89,11 @@ from swarmbrain.domain.memory import (
     ReviewMemoryResult,
     Visibility,
 )
+from swarmbrain.domain.outcome_feedback import (
+    MAX_OUTCOME_ASSOCIATIONS_PER_COMPLETION,
+    MemoryOutcomeAssociation,
+    memory_outcome_association_id,
+)
 from swarmbrain.domain.tasks import (
     CheckpointCommand,
     CheckpointResult,
@@ -156,6 +161,7 @@ class InMemoryKernel:
         self.leases: dict[str, TaskLease] = {}
         self.checkpoints: dict[str, list[TaskCheckpoint]] = defaultdict(list)
         self.completions: dict[str, TaskCompletion] = {}
+        self.memory_outcome_associations: dict[str, MemoryOutcomeAssociation] = {}
 
         self.memories: dict[str, Memory] = {}
         self.memory_embeddings: dict[tuple[str, str], EmbeddingVector] = {}
@@ -326,7 +332,18 @@ class InMemoryKernel:
             self.tasks[task.task_id] = claimed
             self.leases[lease_id] = lease
             latest = self.checkpoints[task.task_id][-1] if self.checkpoints[task.task_id] else None
-            result = ClaimTaskResult(task=claimed, lease=lease, checkpoint=latest)
+            unblocked_by = tuple(
+                dependency.depends_on_task_id
+                for dependency in self.dependencies[task.task_id]
+                if dependency.kind is DependencyKind.BLOCKS
+                and self.tasks[dependency.depends_on_task_id].status is TaskStatus.COMPLETED
+            )
+            result = ClaimTaskResult(
+                task=claimed,
+                lease=lease,
+                checkpoint=latest,
+                unblocked_by_task_ids=unblocked_by,
+            )
             self._emit(
                 actor,
                 EventType.TASK_CLAIMED,
@@ -462,6 +479,11 @@ class InMemoryKernel:
                 artifact_ids=command.artifact_ids,
                 completed_at=now,
             )
+            associations = self._derive_memory_outcome_associations(
+                actor,
+                completion,
+                now=now,
+            )
             status = (
                 TaskStatus.COMPLETED
                 if command.outcome is TaskOutcome.SUCCEEDED
@@ -487,6 +509,11 @@ class InMemoryKernel:
             self.tasks[task.task_id] = task
             self.leases[lease.lease_id] = lease
             self.completions[task.task_id] = completion
+            for association in associations:
+                self.memory_outcome_associations.setdefault(
+                    association.association_id,
+                    association,
+                )
             result = CompletionResult(task=task, lease=lease, completion=completion)
             self._emit(
                 actor,
@@ -731,6 +758,8 @@ class InMemoryKernel:
                     memory_ids=frozenset(telemetry.memory_ids),
                     states=frozenset({MemoryState.CONFIRMED}),
                     visibilities=frozenset(Visibility),
+                    referenced_valid_from=telemetry.referenced_valid_from,
+                    referenced_valid_to=telemetry.referenced_valid_to,
                     limit=len(telemetry.memory_ids),
                 )
                 recallable_versions = {
@@ -757,6 +786,33 @@ class InMemoryKernel:
                 payload=telemetry.model_dump(mode="json"),
                 event_id=telemetry.activation_id,
             )
+
+    async def validate_memory_activation_scope(
+        self,
+        actor: ActorContext,
+        task_id: str,
+        lease_id: str,
+    ) -> None:
+        """Fail closed before an ephemeral task-scoped query is evaluated."""
+
+        async with self._lock:
+            task = self.tasks.get(task_id)
+            lease = self.leases.get(lease_id)
+            now = self._now()
+            if task is None or not self._task_in_scope(actor, task):
+                raise ResourceNotFound("task", task_id)
+            if (
+                lease is None
+                or lease.task_id != task.task_id
+                or lease.run_id != actor.run_id
+                or lease.owner_agent_id != actor.agent_id
+                or lease.status is not LeaseStatus.ACTIVE
+                or lease.expires_at <= now
+                or task.status is not TaskStatus.CLAIMED
+                or task.active_lease_id != lease.lease_id
+                or task.claimed_by_agent_id != actor.agent_id
+            ):
+                raise ResourceNotFound("active activation lease", lease_id)
 
     async def get_memory_activation(
         self,
@@ -793,6 +849,38 @@ class InMemoryKernel:
                     activation_id=activation_id,
                 ) from exc
 
+    async def list_memory_outcome_associations(
+        self,
+        actor: ActorContext,
+        *,
+        task_id: str | None = None,
+        memory_id: str | None = None,
+        limit: int = 1000,
+    ) -> tuple[MemoryOutcomeAssociation, ...]:
+        """Return bounded silver observations from the actor's exact run scope."""
+
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("outcome association limit must be between 1 and 1000")
+        async with self._lock:
+            scoped = sorted(
+                (
+                    association
+                    for association in self.memory_outcome_associations.values()
+                    if association.tenant_id == actor.tenant_id
+                    and association.project_id == actor.project_id
+                    and association.repository_id == actor.repository_id
+                    and association.swarm_id == actor.swarm_id
+                    and association.run_id == actor.run_id
+                    and (task_id is None or association.task_id == task_id)
+                    and (memory_id is None or association.memory_id == memory_id)
+                ),
+                key=lambda association: (
+                    association.observed_at,
+                    association.association_id,
+                ),
+            )
+            return tuple(scoped[:limit])
+
     # ------------------------------------------------------------------
     # Memory
 
@@ -809,6 +897,7 @@ class InMemoryKernel:
             if command.task_id is not None:
                 self._task_target(actor, command.task_id)
             self._validate_evidence_refs(actor, command.evidence)
+            self._validate_derived_evidence(actor, command)
             current = [
                 memory
                 for memory in self.memories.values()
@@ -832,6 +921,7 @@ class InMemoryKernel:
                         "evidence": tuple(combined_evidence.values()),
                         "tags": tuple(dict.fromkeys((*target.tags, *command.tags))),
                         "confidence": max(target.confidence, command.confidence),
+                        "occurred_at": target.occurred_at or command.occurred_at,
                         "version": target.version + 1,
                     }
                 )
@@ -873,6 +963,7 @@ class InMemoryKernel:
                     tags=command.tags,
                     confidence=command.confidence,
                     evidence=command.evidence,
+                    occurred_at=command.occurred_at,
                     valid_from=command.valid_from or now,
                     valid_to=command.valid_to,
                     recorded_from=now,
@@ -913,6 +1004,16 @@ class InMemoryKernel:
                         memory.memory_id,
                         related_id,
                         MemoryLinkKind.RELATED_TO,
+                    )
+
+            for source_id in command.derived_from_memory_ids:
+                self._memory_target(actor, source_id)
+                if source_id != memory.memory_id:
+                    self._add_memory_link(
+                        memory.memory_id,
+                        source_id,
+                        MemoryLinkKind.DERIVED_FROM,
+                        reason="evidence-bound derived memory",
                     )
 
             event_type = (
@@ -1756,7 +1857,6 @@ class InMemoryKernel:
         if query.task_id is not None:
             self._task_target(actor, query.task_id)
         system_at = query.recorded_at
-        world_at = query.world_at or now
         candidates: list[Memory] = []
         for memory in self.memories.values():
             if query.memory_ids and memory.memory_id not in query.memory_ids:
@@ -1777,11 +1877,20 @@ class InMemoryKernel:
                 and (memory.recorded_to is None or system_at < memory.recorded_to)
             ):
                 continue
-            if not (
-                memory.valid_from <= world_at
-                and (memory.valid_to is None or world_at < memory.valid_to)
-            ):
-                continue
+            if query.referenced_valid_from is not None:
+                assert query.referenced_valid_to is not None
+                if not (
+                    memory.valid_from < query.referenced_valid_to
+                    and (memory.valid_to is None or query.referenced_valid_from < memory.valid_to)
+                ):
+                    continue
+            else:
+                world_at = query.world_at or now
+                if not (
+                    memory.valid_from <= world_at
+                    and (memory.valid_to is None or world_at < memory.valid_to)
+                ):
+                    continue
 
             if not memory.evidence:
                 candidates.append(memory)
@@ -1848,6 +1957,107 @@ class InMemoryKernel:
             if memory is None or not self._memory_accessible(actor, memory, task_id):
                 raise ResourceNotFound("memory", memory_id)
 
+    def _derive_memory_outcome_associations(
+        self,
+        actor: ActorContext,
+        completion: TaskCompletion,
+        *,
+        now: datetime,
+    ) -> tuple[MemoryOutcomeAssociation, ...]:
+        """Intersect exact activation proof with completion citations.
+
+        A citation does not carry a memory version.  To avoid guessing which
+        rendering it refers to, multiple activated versions under one lease
+        are treated as ambiguous and omitted.  The sole proven version must
+        also remain canonically recallable at completion time.
+        """
+
+        cited_ids = tuple(dict.fromkeys(completion.memory_ids))[
+            :MAX_OUTCOME_ASSOCIATIONS_PER_COMPLETION
+        ]
+        if not cited_ids:
+            return ()
+        versions_by_memory: dict[str, set[int]] = defaultdict(set)
+        for event in self.events:
+            if (
+                event.tenant_id != actor.tenant_id
+                or event.project_id != actor.project_id
+                or event.repository_id != actor.repository_id
+                or event.swarm_id != actor.swarm_id
+                or event.run_id != actor.run_id
+                or event.agent_id != actor.agent_id
+                or event.task_id != completion.task_id
+                or event.event_type is not EventType.MEMORY_ACTIVATED
+            ):
+                continue
+            try:
+                telemetry = MemoryActivationTelemetry.model_validate(
+                    {
+                        key: event.payload[key]
+                        for key in MemoryActivationTelemetry.model_fields
+                        if key in event.payload
+                    }
+                )
+            except ValueError:
+                continue
+            if telemetry.lease_id != completion.lease_id:
+                continue
+            for memory_id in cited_ids:
+                if (version := telemetry.memory_versions.get(memory_id)) is not None:
+                    versions_by_memory[memory_id].add(version)
+
+        unambiguous_ids = tuple(
+            memory_id for memory_id in cited_ids if len(versions_by_memory[memory_id]) == 1
+        )
+        if not unambiguous_ids:
+            return ()
+        proof_query = RecallQuery(
+            text="outcome association eligibility check",
+            task_id=completion.task_id,
+            memory_ids=frozenset(unambiguous_ids),
+            states=frozenset({MemoryState.CONFIRMED}),
+            visibilities=frozenset(Visibility),
+            limit=len(unambiguous_ids),
+        )
+        current_versions = {
+            memory.memory_id: memory.version
+            for memory in self._recallable_memories_locked(actor, proof_query, now)
+        }
+        associations = []
+        for memory_id in unambiguous_ids:
+            memory_version = next(iter(versions_by_memory[memory_id]))
+            if current_versions.get(memory_id) != memory_version:
+                continue
+            associations.append(
+                MemoryOutcomeAssociation(
+                    association_id=memory_outcome_association_id(
+                        tenant_id=actor.tenant_id,
+                        project_id=actor.project_id,
+                        repository_id=actor.repository_id,
+                        swarm_id=actor.swarm_id,
+                        run_id=actor.run_id,
+                        task_id=completion.task_id,
+                        lease_id=completion.lease_id,
+                        consumer_agent_id=actor.agent_id,
+                        memory_id=memory_id,
+                        memory_version=memory_version,
+                    ),
+                    tenant_id=actor.tenant_id,
+                    project_id=actor.project_id,
+                    repository_id=actor.repository_id,
+                    swarm_id=actor.swarm_id,
+                    run_id=actor.run_id,
+                    task_id=completion.task_id,
+                    lease_id=completion.lease_id,
+                    consumer_agent_id=actor.agent_id,
+                    memory_id=memory_id,
+                    memory_version=memory_version,
+                    outcome=completion.outcome,
+                    observed_at=completion.completed_at,
+                )
+            )
+        return tuple(associations)
+
     def _source_accessible(self, actor: ActorContext, source_id: str) -> bool:
         scope = self._source_scope.get(source_id)
         return scope == (
@@ -1887,6 +2097,55 @@ class InMemoryKernel:
                 or not self._source_accessible(actor, reference.source_id)
             ):
                 raise ResourceNotFound("evidence", reference.evidence_id)
+
+    def _validate_derived_evidence(
+        self,
+        actor: ActorContext,
+        command: RememberCommand,
+    ) -> None:
+        if not command.derived_from_memory_ids:
+            return
+        proposed = {reference.evidence_id: reference for reference in command.evidence}
+        for memory_id in command.derived_from_memory_ids:
+            source = self._memory_target(actor, memory_id)
+            if source.state is not MemoryState.CONFIRMED:
+                raise InvalidState(
+                    "derived lineage requires confirmed source memories",
+                    memory_id=memory_id,
+                )
+            source_evidence = {reference.evidence_id: reference for reference in source.evidence}
+            overlap = set(proposed) & set(source_evidence)
+            if not overlap:
+                raise InvalidState(
+                    "derived lineage requires evidence from every source memory",
+                    memory_id=memory_id,
+                )
+            if any(
+                proposed[evidence_id] != source_evidence[evidence_id] for evidence_id in overlap
+            ):
+                raise InvalidState(
+                    "derived lineage must preserve exact immutable evidence references",
+                    memory_id=memory_id,
+                )
+            for evidence_id in overlap:
+                evidence_source = self.sources.get(proposed[evidence_id].source_id)
+                if evidence_source is None or (
+                    evidence_source.trust is SourceTrust.UNTRUSTED
+                    or evidence_source.review_state is SourceReviewState.REJECTED
+                ):
+                    raise InvalidState(
+                        "derived lineage source evidence is no longer accepted",
+                        memory_id=memory_id,
+                    )
+        allowed = {
+            reference.evidence_id: reference
+            for memory_id in command.derived_from_memory_ids
+            for reference in self._memory_target(actor, memory_id).evidence
+        }
+        if any(
+            allowed.get(evidence_id) != reference for evidence_id, reference in proposed.items()
+        ):
+            raise InvalidState("derived memory evidence is not supported by its lineage")
 
     def _conflict_in_scope(self, actor: ActorContext, conflict: Conflict) -> bool:
         return (

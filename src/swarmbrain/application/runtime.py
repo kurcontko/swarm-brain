@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Protocol
 
 from swarmbrain.adapters.auth import RunTokenCodec
+from swarmbrain.adapters.consolidation import SafeDeterministicConsolidator
 from swarmbrain.adapters.embeddings import DeterministicEmbeddingProvider
 from swarmbrain.adapters.extraction import DefaultRuleExtractor, InMemoryWorkStore
 from swarmbrain.adapters.memory import (
@@ -22,14 +23,16 @@ from swarmbrain.config import (
     ExtractionProviderKind,
 )
 from swarmbrain.domain.evidence import SourceTrust
+from swarmbrain.ports.consolidation import ConsolidationProvider
 from swarmbrain.ports.coordination_store import CoordinationStore
 from swarmbrain.ports.embeddings import EmbeddingIndex, EmbeddingProvider
 from swarmbrain.ports.extraction import ExtractionProvider, SourceIngestStore
 from swarmbrain.ports.work_queue import WorkQueueStore
-from swarmbrain.workers import ExtractionWorker, LeasedWorkWorker
+from swarmbrain.workers import ConsolidationWorker, ExtractionWorker, LeasedWorkWorker
 from swarmbrain.workers.embedding import EmbedMemoryHandler
 
 from .conflict_service import ConflictService
+from .consolidation import ConsolidationObserver, ConsolidationService
 from .coordination import CoordinationService
 from .evidence_service import EvidenceService
 from .extraction import ExtractionService
@@ -107,6 +110,8 @@ class SwarmBrainRuntime:
     source_store: SourceIngestStore | None = None
     embeddings: EmbeddingProvider | None = None
     embedding_index: EmbeddingIndex | None = None
+    consolidation: ConsolidationService | None = None
+    consolidation_observer: ConsolidationObserver | None = None
     _lifecycle: RuntimeLifecycle = field(default_factory=_InMemoryLifecycle, repr=False)
 
     async def start(self) -> None:
@@ -143,6 +148,15 @@ class SwarmBrainRuntime:
             retry_delay_seconds=retry_delay_seconds,
         )
 
+    def consolidation_worker(self, *, retry_delay_seconds: int = 30) -> ConsolidationWorker:
+        if self.consolidation is None or self.work_queue is None:
+            raise RuntimeError("memory consolidation is not configured for this runtime")
+        return ConsolidationWorker(
+            self.work_queue,
+            self.consolidation,
+            retry_delay_seconds=retry_delay_seconds,
+        )
+
 
 def build_in_memory_runtime(
     token_secret: str,
@@ -150,10 +164,16 @@ def build_in_memory_runtime(
     embeddings: EmbeddingProvider | None = None,
     dense_min_similarity: float = 0.0,
     clock: Callable[[], datetime] | None = None,
+    consolidation_enabled: bool = False,
+    consolidation_provider: ConsolidationProvider | None = None,
+    consolidation_use_provider: bool = False,
+    consolidation_max_memories: int = 12,
+    consolidation_max_actions: int = 4,
+    consolidation_max_input_bytes: int = 65_536,
 ) -> SwarmBrainRuntime:
     kernel = InMemoryKernel() if clock is None else InMemoryKernel(clock=clock)
     policy = ConservativeMemoryPolicy()
-    work_queue = InMemoryWorkStore()
+    work_queue = InMemoryWorkStore() if clock is None else InMemoryWorkStore(clock=clock)
     work = DurableWorkService(work_queue)
     embedding_index = work_queue if embeddings is not None else None
     gateways = (
@@ -166,6 +186,16 @@ def build_in_memory_runtime(
         )
     )
     retrieval = RetrievalService(gateways, kernel)
+    observer = ConsolidationObserver(
+        kernel,
+        kernel,
+        work,
+        enabled=consolidation_enabled,
+        use_provider=consolidation_use_provider,
+        max_memories=consolidation_max_memories,
+        max_actions=consolidation_max_actions,
+        max_input_bytes=consolidation_max_input_bytes,
+    )
     memory = MemoryService(
         kernel,
         policy,
@@ -175,6 +205,13 @@ def build_in_memory_runtime(
         work=work if embeddings is not None else None,
         retrieval=retrieval,
         canonical_reader=kernel,
+        write_observer=observer if consolidation_enabled else None,
+    )
+    consolidation = ConsolidationService(
+        memory,
+        kernel,
+        SafeDeterministicConsolidator(),
+        provider=consolidation_provider,
     )
     coordination = CoordinationService(kernel, memory_service=memory)
     return SwarmBrainRuntime(
@@ -190,6 +227,8 @@ def build_in_memory_runtime(
         work_queue=work_queue,
         embeddings=embeddings,
         embedding_index=embedding_index,
+        consolidation=consolidation if consolidation_enabled else None,
+        consolidation_observer=observer if consolidation_enabled else None,
     )
 
 
@@ -201,6 +240,12 @@ def build_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
             settings.token_secret,
             embeddings=_build_embedding_provider(settings),
             dense_min_similarity=settings.retrieval_dense_min_similarity,
+            consolidation_enabled=settings.consolidation_enabled,
+            consolidation_provider=_build_consolidation_provider(settings),
+            consolidation_use_provider=settings.consolidation_use_provider,
+            consolidation_max_memories=settings.consolidation_max_memories,
+            consolidation_max_actions=settings.consolidation_max_actions,
+            consolidation_max_input_bytes=settings.consolidation_max_input_bytes,
         )
     return _build_cockroach_runtime(settings)
 
@@ -255,6 +300,26 @@ def _build_extraction_provider(settings: ApiSettings) -> ExtractionProvider | No
     )
 
 
+def _build_consolidation_provider(settings: ApiSettings) -> ConsolidationProvider | None:
+    """Reuse the separately authenticated model profile with a stricter prompt."""
+
+    if not settings.consolidation_use_provider:
+        return None
+    from swarmbrain.adapters.consolidation import OpenAICompatibleConsolidationProvider
+
+    assert settings.extraction_base_url is not None
+    assert settings.extraction_model is not None
+    return OpenAICompatibleConsolidationProvider(
+        base_url=settings.extraction_base_url,
+        model_id=settings.extraction_model,
+        revision=settings.extraction_revision,
+        api_key=settings.extraction_api_key,
+        timeout_seconds=settings.extraction_timeout_seconds,
+        max_output_tokens=settings.extraction_max_output_tokens,
+        max_input_bytes=settings.consolidation_max_input_bytes,
+    )
+
+
 def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     # Keep the optional driver and durable repositories out of memory-only imports.
     from swarmbrain.adapters.cockroach.coordination import CockroachCoordinationStore
@@ -289,6 +354,16 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
     )
     retrieval = RetrievalService(gateways, memory_store)
     policy = ConservativeMemoryPolicy()
+    observer = ConsolidationObserver(
+        memory_store,
+        memory_store,
+        work,
+        enabled=settings.consolidation_enabled,
+        use_provider=settings.consolidation_use_provider,
+        max_memories=settings.consolidation_max_memories,
+        max_actions=settings.consolidation_max_actions,
+        max_input_bytes=settings.consolidation_max_input_bytes,
+    )
     memory = MemoryService(
         memory_store,
         policy,
@@ -298,6 +373,13 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
         work=work if embeddings is not None else None,
         retrieval=retrieval,
         canonical_reader=memory_store,
+        write_observer=observer if settings.consolidation_enabled else None,
+    )
+    consolidation = ConsolidationService(
+        memory,
+        memory_store,
+        SafeDeterministicConsolidator(),
+        provider=_build_consolidation_provider(settings),
     )
     extraction = ExtractionService(
         work_queue,
@@ -326,6 +408,8 @@ def _build_cockroach_runtime(settings: ApiSettings) -> SwarmBrainRuntime:
         source_store=work_queue,
         embeddings=embeddings,
         embedding_index=embedding_index,
+        consolidation=consolidation if settings.consolidation_enabled else None,
+        consolidation_observer=observer if settings.consolidation_enabled else None,
         _lifecycle=_CockroachLifecycle(database),
     )
 

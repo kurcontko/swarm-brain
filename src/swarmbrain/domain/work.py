@@ -32,6 +32,7 @@ from .common import (
     UUIDString,
     utc_now,
 )
+from .consolidation import ConsolidationReflection, ConsolidationWorkPayload
 from .evidence import Sha256
 from .extraction import (
     ExtractionCandidate,
@@ -51,6 +52,7 @@ class WorkKind(StrEnum):
     EXTRACT_SOURCE = "extract_source"
     EMBED_MEMORY = "embed_memory"
     PERSIST_ARTIFACT = "persist_artifact"
+    CONSOLIDATE_MEMORY = "consolidate_memory"
 
 
 def durable_work_id(
@@ -127,11 +129,13 @@ class PersistArtifactWorkPayload(ContractModel):
 def validate_work_payload(
     kind: WorkKind,
     payload: JsonObject,
-) -> EmbedMemoryWorkPayload | PersistArtifactWorkPayload:
+) -> EmbedMemoryWorkPayload | PersistArtifactWorkPayload | ConsolidationWorkPayload:
     if kind is WorkKind.EMBED_MEMORY:
         return EmbedMemoryWorkPayload.model_validate(payload)
     if kind is WorkKind.PERSIST_ARTIFACT:
         return PersistArtifactWorkPayload.model_validate(payload)
+    if kind is WorkKind.CONSOLIDATE_MEMORY:
+        return ConsolidationWorkPayload.model_validate(payload)
     raise ValueError("extract_source work must be created by raw-source ingestion")
 
 
@@ -240,6 +244,24 @@ class WorkLease(ContractModel):
 
 class WorkLeaseBatch(ContractModel):
     leases: tuple[WorkLease, ...] = ()
+
+
+class StageConsolidationPlanCommand(ContractModel):
+    """Fence a model-generated plan before any governed effects are applied."""
+
+    work_id: UUIDString
+    worker_id: WorkerId
+    lease_token: UUIDString
+    lease_version: int = Field(ge=1)
+    expected_work_version: int = Field(ge=1)
+    attempt: int = Field(ge=1)
+    reflection: ConsolidationReflection
+
+
+class StageConsolidationPlanResult(ContractModel):
+    item: WorkItem
+    reflection: ConsolidationReflection
+    replayed: bool = False
 
 
 class SourceExtractionStatus(ContractModel):
@@ -472,6 +494,8 @@ __all__ = [
     "PreparedWorkEnqueue",
     "SourceExtractionStatus",
     "SourceExtractionState",
+    "StageConsolidationPlanCommand",
+    "StageConsolidationPlanResult",
     "WorkEffect",
     "WorkEffectConflict",
     "WorkEffectKind",

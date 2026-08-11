@@ -42,7 +42,12 @@ and the [paper-to-runtime implementation map](docs/paper-driven-memory-runtime.m
 - an explicit CockroachDB schema command and a pooled async composition seam;
 - durable, fenced deterministic and typed-provider extraction, embedding, and
   artifact work with safe fallback;
-- the canonical FastAPI surface and a seven-tool stdio MCP bridge.
+- evidence-gated asynchronous Observer/Reflector consolidation with staged,
+  replay-safe plans and typed `derived_from` lineage;
+- content-free observational/silver task-outcome associations only for memory
+  that the same lease-bound consumer both received and explicitly cited;
+- the canonical FastAPI surface and a nine-tool stdio MCP bridge, including
+  lease-bound in-task activation and bounded iterative read/expand.
 
 Backend selection is fail-closed. `SWARMBRAIN_BACKEND` must be either `memory`
 or `cockroach`; there is no implicit fallback. The memory backend rejects a
@@ -160,9 +165,10 @@ Install or verify schema as an explicit operator action:
 > concurrently with pre-v8 writers, because those writers do not maintain every
 > v8 retrieval projection. A large existing memory set also makes `install` an
 > `O(N)` maintenance operation; rehearse and budget its transaction time first.
-> The current schema version is v9; the v8→v9 step is additive (the durable
-> `retrieval_reuse_counters` table) and needs only `schema install` + `verify`,
-> with no projection rebuild.
+> The current schema version is v12. The v10→v11 step adds the content-free
+> `memory_outcome_associations` table and its scope-prefixed read index, and
+> the v11→v12 step adds the nullable `memories.occurred_at` column; both need
+> `schema install` + `verify` and neither rebuilds a retrieval projection.
 
 ```bash
 export SWARMBRAIN_BACKEND=cockroach

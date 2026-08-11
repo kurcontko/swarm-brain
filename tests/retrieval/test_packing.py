@@ -9,7 +9,10 @@ from __future__ import annotations
 import pytest
 
 from swarmbrain.retrieval import (
+    MAX_FACILITY_CANDIDATES,
+    PackingFeatures,
     answer_in_context,
+    build_packing_features,
     estimate_tokens,
     pack_to_budget,
 )
@@ -52,6 +55,108 @@ def test_a_budget_smaller_than_every_hit_keeps_nothing() -> None:
 def test_unknown_policy_is_rejected() -> None:
     with pytest.raises(ValueError, match="policy"):
         pack_to_budget([1], 10, policy="whatever")
+
+
+def test_facility_location_selects_complementary_evidence() -> None:
+    features = (
+        PackingFeatures(
+            relevance=0.9,
+            query_terms=frozenset({"alpha"}),
+            representation_terms=frozenset({"shared", "topic"}),
+            diversity_labels=frozenset({"kind:decision"}),
+        ),
+        PackingFeatures(
+            relevance=0.85,
+            query_terms=frozenset({"alpha"}),
+            representation_terms=frozenset({"shared", "topic"}),
+            diversity_labels=frozenset({"kind:decision"}),
+        ),
+        PackingFeatures(
+            relevance=0.8,
+            query_terms=frozenset({"beta"}),
+            representation_terms=frozenset({"distinct", "evidence"}),
+            diversity_labels=frozenset({"kind:warning"}),
+        ),
+    )
+
+    packed = pack_to_budget(
+        [10, 10, 10],
+        20,
+        policy="facility_location",
+        features=features,
+        max_items=2,
+    )
+
+    # Selection optimizes the set, but delivery preserves retrieval order.
+    assert packed.kept_indices == (0, 2)
+    assert packed.dropped_indices == (1,)
+    assert packed.used_tokens == 20
+
+
+def test_facility_location_is_deterministic_and_hard_bounded() -> None:
+    features = tuple(
+        PackingFeatures(
+            relevance=0.5,
+            representation_terms=frozenset({f"topic-{index}"}),
+        )
+        for index in range(MAX_FACILITY_CANDIDATES + 2)
+    )
+
+    first = pack_to_budget(
+        [1] * len(features),
+        1_000,
+        policy="facility_location",
+        features=features,
+        max_items=len(features),
+    )
+    second = pack_to_budget(
+        [1] * len(features),
+        1_000,
+        policy="facility_location",
+        features=features,
+        max_items=len(features),
+    )
+
+    assert first == second
+    assert first.kept == MAX_FACILITY_CANDIDATES
+    assert first.dropped_indices == (
+        MAX_FACILITY_CANDIDATES,
+        MAX_FACILITY_CANDIDATES + 1,
+    )
+
+
+def test_facility_location_requires_bounded_features() -> None:
+    with pytest.raises(ValueError, match="PackingFeatures"):
+        pack_to_budget([1], 1, policy="facility_location")
+    with pytest.raises(ValueError, match="per item"):
+        pack_to_budget(
+            [1, 1],
+            1,
+            policy="facility_location",
+            features=(PackingFeatures(relevance=1.0),),
+        )
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        PackingFeatures(relevance=1.1)
+
+
+def test_feature_projection_is_bounded_and_stable() -> None:
+    first = build_packing_features(
+        "Alpha shared facts and beta distinct evidence " * 100,
+        query_terms=("alpha", "missing"),
+        relevance=0.75,
+        diversity_labels=("Tag:One", "tag:one", "Kind:Decision"),
+    )
+    second = build_packing_features(
+        "Alpha shared facts and beta distinct evidence " * 100,
+        query_terms=("alpha", "missing"),
+        relevance=0.75,
+        diversity_labels=("Kind:Decision", "Tag:One"),
+    )
+
+    assert first == second
+    assert first.query_terms == frozenset({"alpha"})
+    assert first.diversity_labels == frozenset({"tag:one", "kind:decision"})
+    assert len(first.representation_terms) <= 96
 
 
 def test_negative_budget_is_rejected() -> None:

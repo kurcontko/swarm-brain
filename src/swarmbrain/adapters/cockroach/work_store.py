@@ -38,6 +38,8 @@ from swarmbrain.domain.work import (
     FailWorkCommand,
     PreparedWorkEnqueue,
     SourceExtractionStatus,
+    StageConsolidationPlanCommand,
+    StageConsolidationPlanResult,
     WorkCompletionConflict,
     WorkEffect,
     WorkEffectConflict,
@@ -941,6 +943,80 @@ class CockroachWorkStore:
 
         return await self.database.run(body)
 
+    async def stage_consolidation_plan(
+        self,
+        command: StageConsolidationPlanCommand,
+    ) -> StageConsolidationPlanResult:
+        staged_payload = {"staged_consolidation": command.reflection.model_dump(mode="json")}
+
+        async def body(connection: Any) -> StageConsolidationPlanResult:
+            row = await self._locked_work_row(connection, command.work_id)
+            item = _work_from_row(row)
+            if item.kind is not WorkKind.CONSOLIDATE_MEMORY:
+                raise WorkCompletionConflict("stage_requires_consolidate_memory")
+            if item.result is not None:
+                if item.result != staged_payload:
+                    raise WorkCompletionConflict("consolidation_plan_changed")
+                if (
+                    item.status is not WorkStatus.LEASED
+                    or item.locked_by != command.worker_id
+                    or item.lease_token != command.lease_token
+                    or item.lease_version != command.lease_version
+                    or item.attempts != command.attempt
+                    or item.version
+                    not in {command.expected_work_version, command.expected_work_version + 1}
+                    or item.locked_until is None
+                    or item.locked_until <= row["database_now"]
+                ):
+                    raise WorkLeaseLost(command.work_id)
+                return StageConsolidationPlanResult(
+                    item=item,
+                    reflection=command.reflection,
+                    replayed=True,
+                )
+
+            self._require_lease_row(
+                row,
+                worker_id=command.worker_id,
+                lease_token=command.lease_token,
+                lease_version=command.lease_version,
+                work_version=command.expected_work_version,
+                attempt=command.attempt,
+            )
+            cursor = await connection.execute(
+                f"""
+                UPDATE outbox_work_items
+                SET result = %s,
+                    updated_at = now(),
+                    version = version + 1
+                WHERE id = %s
+                  AND status = 'leased'
+                  AND locked_by = %s
+                  AND lease_token = %s
+                  AND lease_version = %s
+                  AND version = %s
+                  AND locked_until > now()
+                RETURNING {WORK_COLUMNS}
+                """,
+                (
+                    Jsonb(staged_payload),
+                    _uuid(command.work_id),
+                    command.worker_id,
+                    _uuid(command.lease_token),
+                    command.lease_version,
+                    command.expected_work_version,
+                ),
+            )
+            updated = await cursor.fetchone()
+            if updated is None:
+                raise WorkLeaseLost(command.work_id)
+            return StageConsolidationPlanResult(
+                item=_work_from_row(updated),
+                reflection=command.reflection,
+            )
+
+        return await self.database.run(body)
+
     async def complete_work(self, command: CompleteWorkCommand) -> CompleteWorkResult:
         async def body(connection: Any) -> CompleteWorkResult:
             row = await self._locked_work_row(connection, command.work_id)
@@ -961,6 +1037,10 @@ class CockroachWorkStore:
             )
             if item.kind in {WorkKind.EXTRACT_SOURCE, WorkKind.EMBED_MEMORY}:
                 raise WorkCompletionConflict(f"{item.kind.value}_requires_fenced_apply")
+            if item.kind is WorkKind.CONSOLIDATE_MEMORY and not (item.result or {}).get(
+                "staged_consolidation"
+            ):
+                raise WorkCompletionConflict("consolidation_requires_staged_plan")
             cursor = await connection.execute(
                 f"""
                 UPDATE outbox_work_items
@@ -1288,23 +1368,18 @@ class CockroachWorkStore:
 
         candidate = effect.candidate
         memory_metadata = self._effect_memory_metadata(item.work_id, effect, provenance)
-        valid_from = (
-            candidate.valid_from
-            or candidate.event_time
-            or source_row.get("valid_at")
-            or source_row["recorded_at"]
-        )
+        valid_from = candidate.valid_from or source_row.get("valid_at") or source_row["recorded_at"]
         memory_cursor = await connection.execute(
             """
             INSERT INTO memories (
                 id, tenant_id, project_id, repository_id, swarm_id, run_id,
                 task_id, agent_id, kind, state, visibility, content,
                 content_json, title, tags, normalized_sha256, dedup_scope,
-                confidence, valid_from,
+                confidence, occurred_at, valid_from,
                 valid_to, source_id, policy_reason, policy_confidence, metadata
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, 'tentative', 'run',
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1.0, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1.0, %s
             )
             ON CONFLICT DO NOTHING
             RETURNING id, recorded_from, version
@@ -1326,6 +1401,7 @@ class CockroachWorkStore:
                 bytes.fromhex(memory_text_sha256(candidate.content)),
                 f"run:{item.run_id}",
                 candidate.confidence,
+                candidate.event_time,
                 valid_from,
                 candidate.valid_to,
                 _uuid(item.subject_id),
@@ -1373,6 +1449,7 @@ class CockroachWorkStore:
                 title=candidate.title,
                 tags=candidate.tags,
                 confidence=candidate.confidence,
+                occurred_at=candidate.event_time,
                 valid_from=valid_from,
                 valid_to=candidate.valid_to,
                 recorded_from=memory_recorded_at,

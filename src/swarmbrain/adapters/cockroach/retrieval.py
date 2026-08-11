@@ -34,6 +34,14 @@ from swarmbrain.retrieval.graph import (
     graph_step_activation,
     select_graph_seeds,
 )
+from swarmbrain.retrieval.planner import (
+    OCCURRENCE_TEMPORAL_PROJECTION_ID,
+    OCCURRENCE_TEMPORAL_PROJECTION_VERSION,
+    TEMPORAL_PROJECTION_ID,
+    TEMPORAL_PROJECTION_VERSION,
+    temporal_query_target,
+    temporal_valid_from_score,
+)
 from swarmbrain.retrieval.projection import (
     FUZZY_SIMILARITY_THRESHOLD,
     MAX_EXACT_TERM,
@@ -182,14 +190,24 @@ def build_recall_predicates(
     elif not query.include_superseded:
         clauses.append(f"{alias}.recorded_to IS NULL")
 
-    world_at = query.world_at or now
-    clauses.extend(
-        (
-            f"{alias}.valid_from <= %s",
-            f"({alias}.valid_to IS NULL OR %s < {alias}.valid_to)",
+    if query.referenced_valid_from is not None:
+        assert query.referenced_valid_to is not None
+        clauses.extend(
+            (
+                f"{alias}.valid_from < %s",
+                f"({alias}.valid_to IS NULL OR %s < {alias}.valid_to)",
+            )
         )
-    )
-    parameters.extend((world_at, world_at))
+        parameters.extend((query.referenced_valid_to, query.referenced_valid_from))
+    else:
+        world_at = query.world_at or now
+        clauses.extend(
+            (
+                f"{alias}.valid_from <= %s",
+                f"({alias}.valid_to IS NULL OR %s < {alias}.valid_to)",
+            )
+        )
+        parameters.extend((world_at, world_at))
 
     if apply_trust and not query.include_refuted:
         clauses.append(
@@ -620,6 +638,125 @@ class CockroachRetrievalGateway:
             )
             rows.extend(await term_cursor.fetchall())
         return rows
+
+
+class CockroachTemporalRetrievalGateway:
+    """Single-query explicit temporal lane over canonical memory rows."""
+
+    signal = RetrievalSignal.TEMPORAL
+
+    def __init__(self, database: CockroachDatabase) -> None:
+        self.database = database
+
+    async def retrieve(
+        self,
+        actor: ActorContext,
+        plan: RetrievalPlan,
+        query: RecallQuery,
+        dense_query: DenseQuery | None = None,
+    ) -> CandidateBatch:
+        del dense_query
+        started = perf_counter()
+        target_with_kind = temporal_query_target(query)
+        if target_with_kind is None:
+            return CandidateBatch(
+                lane=self.signal,
+                examined_count=0,
+                latency_ms=(perf_counter() - started) * 1000.0,
+                projection_watermark=TEMPORAL_PROJECTION_VERSION,
+            )
+
+        target, target_kind = target_with_kind
+        budget = plan.lane_budgets[self.signal.value]
+        occurrence_prior = query.occurrence_time_prior_from is not None
+        trust = build_candidate_trust_filter(query)
+        async with cockroach_retrieval_connection(self.database) as connection:
+            # A valid-time target is itself the canonical world-time selector.
+            # An occurrence target is only a ranking hint, so current recall
+            # must still use the stable database clock for canonical validity.
+            predicate_now = (
+                await cockroach_retrieval_now(self.database, connection)
+                if occurrence_prior
+                else target
+            )
+            predicates = build_recall_predicates(
+                actor,
+                query,
+                now=predicate_now,
+                apply_trust=False,
+            )
+            temporal_column = "occurred_at" if occurrence_prior else "valid_from"
+            known_occurrence_clause = "AND m.occurred_at IS NOT NULL" if occurrence_prior else ""
+            cursor = await connection.execute(
+                f"""
+                SELECT m.id, m.version, m.kind, m.metadata, m.{temporal_column},
+                       m.recorded_from
+                FROM memories@primary AS m
+                {trust.joins}
+                WHERE {" AND ".join(predicates.clauses)}
+                  {f"AND {trust.clause}" if trust.clause else ""}
+                  {known_occurrence_clause}
+                ORDER BY abs(
+                    EXTRACT(EPOCH FROM m.{temporal_column})
+                    - EXTRACT(EPOCH FROM %s::TIMESTAMPTZ)
+                ), m.{temporal_column}, m.id
+                LIMIT %s
+                """,
+                (
+                    *trust.parameters,
+                    *predicates.parameters,
+                    target,
+                    budget + 1,
+                ),
+            )
+            rows = list(await cursor.fetchall())
+
+        scored = [(temporal_valid_from_score(row[temporal_column], target), row) for row in rows]
+        scored.sort(
+            key=lambda item: (
+                -item[0],
+                item[1][temporal_column],
+                str(item[1]["id"]),
+            )
+        )
+        projection_id = (
+            OCCURRENCE_TEMPORAL_PROJECTION_ID if occurrence_prior else TEMPORAL_PROJECTION_ID
+        )
+        projection_version = (
+            OCCURRENCE_TEMPORAL_PROJECTION_VERSION
+            if occurrence_prior
+            else TEMPORAL_PROJECTION_VERSION
+        )
+        reason = (
+            "temporal_occurrence_distance" if occurrence_prior else "temporal_valid_from_distance"
+        )
+        candidates = tuple(
+            Candidate(
+                resource_type="memory",
+                resource_id=str(row["id"]),
+                resource_version=int(row["version"]),
+                canonical_id=str(row["id"]),
+                domain_lane=domain_lane(str(row["kind"]), row.get("metadata") or {}),
+                signal=self.signal,
+                rank=rank,
+                raw_score=raw_score,
+                projection_id=projection_id,
+                projection_version=projection_version,
+                reasons=(
+                    reason,
+                    f"temporal_target:{target_kind}",
+                ),
+            )
+            for rank, (raw_score, row) in enumerate(scored[:budget], start=1)
+        )
+        return CandidateBatch(
+            lane=self.signal,
+            candidates=candidates,
+            examined_count=len(rows),
+            latency_ms=(perf_counter() - started) * 1000.0,
+            truncated=len(rows) > budget,
+            projection_watermark=projection_version,
+        )
 
 
 class CockroachDenseRetrievalGateway:
@@ -1373,7 +1510,10 @@ class CockroachGraphRetrievalGateway:
 
 def cockroach_retrieval_gateways(
     database: CockroachDatabase,
-) -> tuple[CockroachRetrievalGateway | CockroachGraphRetrievalGateway, ...]:
+) -> tuple[
+    CockroachRetrievalGateway | CockroachTemporalRetrievalGateway | CockroachGraphRetrievalGateway,
+    ...,
+]:
     primary = tuple(
         CockroachRetrievalGateway(database, signal)
         for signal in (
@@ -1382,7 +1522,11 @@ def cockroach_retrieval_gateways(
             RetrievalSignal.FUZZY,
         )
     )
-    return (*primary, CockroachGraphRetrievalGateway(database))
+    return (
+        *primary,
+        CockroachTemporalRetrievalGateway(database),
+        CockroachGraphRetrievalGateway(database),
+    )
 
 
 def cockroach_hybrid_retrieval_gateways(
@@ -1391,7 +1535,10 @@ def cockroach_hybrid_retrieval_gateways(
     dense_min_similarity: float = 0.0,
     dense_beam_size: int = 32,
 ) -> tuple[
-    CockroachRetrievalGateway | CockroachDenseRetrievalGateway | CockroachGraphRetrievalGateway,
+    CockroachRetrievalGateway
+    | CockroachTemporalRetrievalGateway
+    | CockroachDenseRetrievalGateway
+    | CockroachGraphRetrievalGateway,
     ...,
 ]:
     return (
@@ -1433,6 +1580,7 @@ __all__ = [
     "CockroachDenseRetrievalGateway",
     "CockroachGraphRetrievalGateway",
     "CockroachRetrievalGateway",
+    "CockroachTemporalRetrievalGateway",
     "CandidateTrustFilter",
     "RecallPredicates",
     "build_candidate_trust_filter",
