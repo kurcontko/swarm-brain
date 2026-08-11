@@ -123,7 +123,7 @@ def test_loader_rejects_a_judgments_revision_mismatch(tmp_path: Path) -> None:
 
 
 def test_longmemeval_sample_fixture_maps_sessions_to_relevance() -> None:
-    """The tiny checked-in sample proves the mapper without the 278 MB release."""
+    """The tiny checked-in sample proves the mapper without the 265 MiB release."""
 
     records = json.loads(
         (CORPUS_DIR / "longmemeval_sample.json").read_text(encoding="utf-8"),
@@ -156,3 +156,84 @@ def test_longmemeval_download_helper_verifies_the_pinned_digest(tmp_path: Path) 
     missing = tmp_path / "absent.json"
     with pytest.raises(FileNotFoundError):
         runner.ensure_longmemeval(missing, download=False)
+
+
+def test_artifact_path_allows_external_output_directories(tmp_path: Path) -> None:
+    assert runner._artifact_path(REPO_ROOT / "benchmarks" / "result.json") == (
+        "benchmarks/result.json"
+    )
+    assert runner._artifact_path(tmp_path / "result.json") == str(
+        (tmp_path / "result.json").resolve()
+    )
+
+
+def test_report_binds_execution_protocol_and_exact_saved_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_path = tmp_path / "run.json"
+    payload = {
+        "artifact_type": runner.RUN_ARTIFACT_TYPE,
+        "schema_version": runner.RETRIEVAL_ARTIFACT_SCHEMA_VERSION,
+        "protocol_version": runner.RETRIEVAL_PROTOCOL_VERSION,
+        "implementation": {"tree_sha256": "a" * 64, "files": {}},
+        "track": "longmemeval-s",
+        "granularity": "one memory per haystack session",
+        "recall_limit": 10,
+        "saved_ranking_depth": 50,
+        "dense_lane_enabled": True,
+        "temporal_query_routing": {"enabled": False, "parser": None},
+        "embedding": {
+            "provider": "OpenAICompatibleEmbeddingProvider",
+            "model": "Qwen/Qwen3-Embedding-0.6B",
+            "dimensions": 1024,
+        },
+        "embedding_call_accounting": {
+            "document_inputs": 23867,
+            "document_batch_calls": 500,
+            "query_calls": 500,
+        },
+        "cases": [],
+    }
+    run_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def fake_evaluate_saved_run(path: Path, k: int) -> dict[str, object]:
+        assert path == run_path
+        assert k == 10
+        return {"final": {"cases": 0}}
+
+    monkeypatch.setattr(runner, "evaluate_saved_run", fake_evaluate_saved_run)
+    report = runner.build_report(payload, run_path, k_values=(10,))
+
+    assert report["artifact_type"] == runner.REPORT_ARTIFACT_TYPE
+    assert report["schema_version"] == 2
+    assert report["run_artifact"]["path"] == str(run_path.resolve())
+    assert report["run_artifact"]["bytes"] == run_path.stat().st_size
+    assert len(report["run_artifact"]["sha256"]) == 64
+    assert report["execution"]["protocol_version"] == runner.RETRIEVAL_PROTOCOL_VERSION
+    assert report["execution"]["embedding_call_accounting"]["query_calls"] == 500
+    assert report["execution"]["context_token_accounting"] == runner.context_token_accounting()
+    assert report["execution"]["context_token_accounting"]["exact_model_tokenizer"] is False
+
+
+def test_longmemeval_call_accounting_reconciles_observed_http_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    records = [
+        {"haystack_sessions": [[], []]},
+        {"haystack_sessions": [[]]},
+    ]
+    observed = {
+        "document_inputs": 3,
+        "document_batch_calls": 2,
+        "query_calls": 2,
+        "successful_http_calls": 4,
+        "http_attempts": 5,
+    }
+    monkeypatch.setattr(runner, "observed_embedding_call_accounting", lambda: observed)
+
+    result = runner._longmemeval_embedding_call_accounting(records, use_dense=True)
+
+    assert result == {**observed, "source": "provider-observed"}
+    observed["query_calls"] = 1
+    with pytest.raises(RuntimeError, match="query_calls"):
+        runner._longmemeval_embedding_call_accounting(records, use_dense=True)

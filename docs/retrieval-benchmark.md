@@ -267,13 +267,13 @@ filter–vector correlation. That characterisation is P3 debt and stays open.
 | Item | Value |
 | --- | --- |
 | Dataset | LongMemEval-S |
-| Source | `https://huggingface.co/datasets/xiaowu0162/longmemeval/resolve/main/longmemeval_s` |
-| SHA-256 | `08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894` |
+| Source | `https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json` |
+| SHA-256 | `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442` |
 | Questions evaluated | 500 of 500 (no sampling) |
-| Haystack sessions per question | 39 – 66, median 50 |
+| Haystack sessions per question | 38 – 62, median 48 |
 | Backend | in-memory kernel only |
 
-The 278 MB release is never committed. `scripts/run_retrieval_eval.py`
+The 265 MiB release is never committed. `scripts/run_retrieval_eval.py`
 downloads it to `~/.cache/swarmbrain-eval/` (override with
 `SWARMBRAIN_EVAL_DATA_DIR`) and verifies the pinned digest on every run. A tiny
 synthetic sample in the dataset's own shape lives at
@@ -290,12 +290,17 @@ Mapping, stated precisely so it can be argued with:
 2. **Scope is one fresh runtime per question.** Each question owns its
    haystack, so each question gets its own kernel, tenant/project/repository/run
    and embedding index, and the runtime is discarded afterwards. There is no
-   leakage between questions and no shared corpus.
+   leakage between questions and no shared corpus. When dense retrieval is
+   enabled, all sessions for that question are projected through one bounded
+   `embed_documents` call rather than one provider request per memory; the
+   vectors enter the same scope-aware index before recall.
 3. **Memory shape.** `kind=observation`, `state=confirmed`,
    `visibility=repository`, content = the session rendered as
    `role: content` lines, title = `Conversation session recorded <haystack date>`,
-   tags `("longmemeval", "session")`. Session identifiers are not put in the
-   searchable text.
+   tags `("longmemeval", "session")`, and `valid_from` = the session timestamp
+   normalized into the benchmark's explicit UTC calendar. `valid_to` stays
+   open because a conversation observation is not known to expire. Session
+   identifiers are not put in the searchable text.
 4. **Query.** The `question` field verbatim through the real recall path,
    `limit=10`.
 5. **Relevance.** A retrieved memory is relevant iff its session id is in
@@ -308,7 +313,20 @@ Mapping, stated precisely so it can be argued with:
    therefore **not** no-answer retrieval cases and are not folded into
    no-answer precision. They are reported as a separate slice.
 
+Referenced-time query parsing is an explicit experiment, not part of the
+baseline. `--temporal-query-routing` anchors the conservative parser to the
+record's `question_date`, copies only a closed half-open proposal into
+`RecallQuery.referenced_valid_*`, and records status, reason, confidence and
+bounds per case. Open, vague, conflicting, comparison-only and unsupported
+phrases do not route. This makes a baseline/temporal A/B reviewable without
+silently changing serving defaults or treating `recorded_at` as event time.
+
 ### Results, all 500 questions
+
+> **Historical result, pending cleaned-release rerun.** The table below was
+> measured against the superseded pre-September-2025 history release (SHA-256
+> `08d8dad4…`). The current SOTA gate pins the cleaned release above and rejects
+> this artifact until the full-500 run is repeated.
 
 | Lane | Recall@5 | Recall@10 | MRR@10 | nDCG@10 |
 | --- | --- | --- | --- | --- |
@@ -346,6 +364,51 @@ run.
 
 Wall time per question (ingest 50 sessions, embed them, run one recall):
 p50 130 ms, p95 147 ms, p99 180 ms for the recall itself.
+
+### Referenced-time routing A/B: rejected for default serving
+
+The opt-in parser found 40 closed routable proposals in the cleaned 500
+questions, one correctly open/non-routable proposal, 442 no-matches and 17
+fail-closed rejections. A full lexical-only A/B then compared the unchanged
+baseline with `--temporal-query-routing`:
+
+| Metric | baseline | routed | delta |
+| --- | ---: | ---: | ---: |
+| Recall@10 | 0.8848 | 0.8727 | -0.0120 |
+| MRR@10 | 0.7923 | 0.7788 | -0.0136 |
+| nDCG@10 | 0.7795 | 0.7658 | -0.0136 |
+| any gold in 16k-token context | 0.882 | 0.866 | -0.016 |
+| all gold in 16k-token context | 0.658 | 0.646 | -0.012 |
+
+The failure is concentrated exactly where the feature fired. Across the 40
+routed questions, baseline Recall@10/MRR@10 was 0.7175/0.6242; routing produced
+0.5671/0.4548, with 3 recall wins, 15 losses and 22 ties. These figures splice
+a deterministic rerun of the only case changed by correcting bounded
+`since ... ago` parsing into the original full-500 A/B. An offline
+temporal-weight sweep on the original run could not recover the baseline: even
+zero temporal fusion weight scored 0.8759 overall because the
+referenced-validity filter had already removed candidates.
+
+This falsifies the ingestion assumption, not the explicit temporal contract.
+A LongMemEval haystack date is the time a conversation was observed; it is not
+necessarily the occurrence time of every event mentioned in that session.
+Later sessions can retrospectively contain the gold evidence, so treating the
+session timestamp as hard event validity deletes useful memories. Concretely,
+16 of the 93 gold sessions attached to the 40 routed questions occur at or
+after the parsed interval end; none can survive the hard filter. Eight cases
+lose at least one gold this way, five lose every gold session and return no
+eligible candidate. Those eight cases average -0.6458 Recall@10 and -0.6875
+MRR@10. Even the 23 routed cases with at least one gold session timestamp
+inside the parsed interval lost 0.0804 Recall@10 on average after temporal
+fusion, so converting the lane to a soft prior would also require held-out
+calibration. The parser and
+parity-tested lane stay available for explicit-validity data, but the A/B flag
+remains experimental and is not promoted. Schema v12 now provides a
+provenance-backed `occurred_at` timestamp, separate from both session
+observation time and the bitemporal intervals, plus an explicit soft-prior
+query interval. The prior never becomes a validity filter and unknown event
+time is neutral. This corrects the representation boundary; its weight and
+query gate still require a held-out A/B before any default promotion.
 
 ### What this track shows
 
@@ -387,9 +450,33 @@ SWARMBRAIN_EVAL_DATABASE_URL="postgresql://root@127.0.0.1:26257/swarmbrain_eval?
 # Lane ablation without the dense lane
 uv run --extra dev python scripts/run_retrieval_eval.py --track swarm --backend memory --no-dense
 
-# Track 2, all 500 LongMemEval-S questions (first run downloads 278 MB)
+# Track 2, all 500 LongMemEval-S questions (first run downloads 265 MiB)
 uv run --extra dev python scripts/run_retrieval_eval.py \
   --track longmemeval --lme-sample 0 --lme-download
+
+# Experimental temporal-lane A/B; writes a separate *-temporal artifact
+uv run --extra dev python scripts/run_retrieval_eval.py \
+  --track longmemeval --lme-sample 0 --no-dense --temporal-query-routing
+
+# Authenticated OpenAI-compatible embeddings; the secret value is never a CLI argument
+uv run --extra dev python scripts/run_retrieval_eval.py \
+  --track longmemeval --lme-sample 0 --embeddings openai \
+  --embeddings-base-url "$SWARMBRAIN_EMBEDDINGS_BASE_URL" \
+  --embeddings-model Qwen/Qwen3-Embedding-0.6B \
+  --embeddings-api-key-env SWARMBRAIN_EMBEDDINGS_API_KEY
+
+# Publishable exact reader-context accounting. The executable implements
+# swarmbrain-exact-tokenizer-jsonl-v1; all paths must be repository-local.
+uv run --extra dev python scripts/run_retrieval_eval.py \
+  --track longmemeval --lme-sample 0 --embeddings openai \
+  --embeddings-base-url "$SWARMBRAIN_EMBEDDINGS_BASE_URL" \
+  --embeddings-model Qwen/Qwen3-Embedding-0.6B \
+  --context-tokenizer-executable benchmarks/sota/evidence/tokenizer/provider \
+  --context-tokenizer-executable-sha256 "$TOKENIZER_PROVIDER_SHA256" \
+  --context-tokenizer-artifact benchmarks/sota/evidence/tokenizer/tokenizer.json \
+  --context-tokenizer-artifact-sha256 "$TOKENIZER_ARTIFACT_SHA256" \
+  --context-tokenizer-model "$LME_READER_MODEL" \
+  --context-tokenizer-revision "$LME_READER_REVISION"
 
 # Score any saved run directly
 uv run --extra dev python scripts/evaluate_retrieval_runs.py \
@@ -400,6 +487,45 @@ Saved runs and reports live in `benchmarks/retrieval/`, not in `evidence/`.
 `evidence/` holds timestamped, append-only demo artifacts; a benchmark is a
 versioned artifact that should be overwritten in place so a rerun produces a
 reviewable diff against the previous measurement.
+
+The QA harness can replay a dataset-bound retrieval artifact instead of
+regenerating 23,867 document embeddings for every reader run:
+
+```bash
+uv run --extra dev python scripts/run_longmemeval_qa.py \
+  --lme-path /private/tmp/longmemeval_s_cleaned.json \
+  --lme-sample 0 --limit 10 --prompt-style official --no-judge \
+  --retrieval-run benchmarks/retrieval/longmemeval-s-memory-openai-run.json \
+  --reader-base-url "$LME_READER_BASE_URL" --reader-model "$LME_READER_MODEL" \
+  --reader-revision "$LME_READER_REVISION" \
+  --reader-api-key-env LME_READER_API_KEY
+```
+
+Replay validates the schema-v2 artifact type/protocol and implementation tree,
+the cleaned dataset SHA-256 and exact 500-question/23,867-session shape, case
+coverage, recall depth, session-position keys and per-hit relevance before the
+first reader call. Publishable replay additionally requires the pinned
+Qwen3-Embedding-0.6B semantic metadata, exact endpoint response-model contract,
+provider-observed document/query/HTTP call reconciliation, and no degraded
+lanes. The source path, byte length and SHA-256 are copied into the QA run. The
+saved final ranking determines the exact reader bundle; no embedding endpoint
+is contacted. Replay therefore requires `--min-score 0.0`: a positive floor can
+continue past filtered head candidates during live retrieval, but the saved
+final bundle does not carry calibrated relevance for that deeper tail.
+This is the intended path for the three official-generation repeats because it
+holds retrieval constant and removes 71,601 redundant document-vector
+computations plus 3,000 bounded embedding HTTP calls. The one retrieval run
+it reuses needs 500 batched document calls and 500 query calls, down from the
+old one-request-per-session path's 24,367 calls.
+
+The QA schema also binds the exact hypothesis bytes and records the response-
+reported reader model, an operator-pinned deployment/checkpoint revision,
+provider request ID, and optional system fingerprint per successful question.
+The official-report compiler revalidates all of those receipts, the exact
+retrieval bundle copied into every question, and raw official-label bytes. Use
+`--allow-nonpublishable-retrieval-run` or
+`--allow-unverified-reader-response` only for development; either condition is
+rejected by the official compiler.
 
 ### Determinism
 
@@ -1011,13 +1137,37 @@ rather than terminating the pack at the first overflow (`prefix`). Both policies
 are implemented and both are reported below, because the choice turns out to be
 worth real accuracy.
 
-**Token counts are estimates.** The repository carries no tokenizer dependency,
-so `estimate_tokens` is a documented proxy — characters over four, floored at
-one. It is stable, which is what a comparative metric needs, and it is not a
-cost figure. Identifier- and JSON-dense text tokenises worse than 4 chars/token,
-so these budgets are optimistic for such content. Every number in this section
-is tied to that estimator; swapping in a real tokenizer changes them and must
-not be done silently.
+**The historical token counts below are development-only estimates.** They use
+`estimate_tokens`, a documented characters-over-four proxy floored at one.
+They are stable for comparisons but are not cost figures and cannot pass the
+SOTA gate. Identifier- and JSON-dense text tokenises worse than 4 chars/token,
+so these budgets are optimistic. Every number in this section remains tied to
+that estimator and must not be relabelled as an exact measurement.
+
+The current harness also has a publishable exact path without adding a runtime
+tokenizer dependency. A repository-local JSONL tokenizer executable loads a
+repository-local tokenizer artifact; the operator pins both SHA-256 digests,
+the tokenizer model, and its immutable revision. For every packing proposal the
+harness serializes the complete official reader prompt (including instruction,
+chronologically ordered and renumbered sessions, current date, and question),
+asks the pinned local tokenizer for its exact count, and records only the prompt
+SHA-256, count, local request ID, and unique provider request ID. Each exact case
+also preserves the public benchmark question/date and its ranked top-10 session
+role/content records once; it does not duplicate every expanded prompt. The
+report compiler rebuilds every initial, proposed, and final prompt from that
+material, verifies each SHA-256, rejects inconsistent request/state reuse, and
+exactly reconciles character and UTF-8 byte totals. It also verifies the
+executable/artifact paths, bytes and hashes, complete 5/10-by-budget greedy
+lineage, contiguous provider-observed accounting, and shared serializer
+fingerprint. Partial session fragments cannot set `exact_model_tokenizer=true`.
+Non-empty prompts are byte-for-byte official. The reference generator has no
+empty-session form (it asserts a non-empty history), so hypothetical empty
+packing states use the separately disclosed Swarm Brain empty-context note.
+
+This makes an exact full-500 run materially larger than a development run and
+embeds public LongMemEval text in the artifact. That replayability is deliberate
+for this public benchmark; do not enable exact prompt material on a private
+corpus without an explicit data-handling decision.
 
 ## Track 1 — swarm corpus: the budget never binds
 

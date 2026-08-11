@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "operation": "replace_required_gate",
+  "replace_gate_id": "multi_agent_causal_scaling",
+  "scientific_scope_equivalent": false,
+  "apply_only_after": [
+    "immutable_dataset_revision_verified",
+    "766_vs_736_task_count_reconciled",
+    "all_five_config_overlays_pinned",
+    "official_sr_ps_result_compiler_verified",
+    "published_frontier_thresholds_frozen"
+  ],
+  "gate": {
+    "id": "memoryarena_official",
+    "title": "Official full MemoryArena protocol clears the frozen SR/PS frontier",
+    "required": true,
+    "artifact": "benchmarks/sota/memoryarena-official-report.json",
+    "source": "https://arxiv.org/abs/2602.16313",
+    "checks": [
+      {"pointer": "/schema_version", "operator": "eq", "expected": 1},
+      {"pointer": "/benchmark/name", "operator": "eq", "expected": "MemoryArena"},
+      {"pointer": "/benchmark/repository_commit", "operator": "eq", "expected": "6cd9de14b71915e39ac742a20dc33785e14b6aab"},
+      {"pointer": "/protocol/kind", "operator": "eq", "expected": "official-paper-sr-ps"},
+      {"pointer": "/protocol/paper_declared_task_groups", "operator": "eq", "expected": 766},
+      {"pointer": "/protocol/custom_causal_1_2_4", "operator": "eq", "expected": false},
+      {"pointer": "/protocol/task_count_reconciled", "operator": "eq", "expected": true},
+      {"pointer": "/dataset/name", "operator": "eq", "expected": "ZexueHe/memoryarena"},
+      {"pointer": "/dataset/split", "operator": "eq", "expected": "test"},
+      {"pointer": "/dataset/immutable_revision_verified", "operator": "eq", "expected": true},
+      {"pointer": "/dataset/revision", "operator": "nonempty"},
+      {"pointer": "/dataset/manifest_sha256", "operator": "nonempty"},
+      {"pointer": "/dataset/evaluated_task_groups", "operator": "eq", "expected": 766},
+      {"pointer": "/configs/all_five_tasks_verified", "operator": "eq", "expected": true},
+      {"pointer": "/configs/manifest_sha256", "operator": "nonempty"},
+      {"pointer": "/evaluation/fixed_task_agent", "operator": "eq", "expected": true},
+      {"pointer": "/evaluation/task_agent_model", "operator": "eq", "expected": "gpt-5.1-mini"},
+      {"pointer": "/evaluation/metrics", "operator": "eq", "expected": ["progress_score", "success_rate"]},
+      {"pointer": "/evaluation/official_sr_ps_compiler_verified", "operator": "eq", "expected": true},
+      {"pointer": "/evaluation/official_sr_ps_compiler_sha256", "operator": "nonempty"},
+      {"pointer": "/evaluation/complete_protocol", "operator": "eq", "expected": true},
+      {"pointer": "/evaluation/failed_task_groups", "operator": "eq", "expected": 0},
+      {"pointer": "/memory_bridge/implementation", "operator": "eq", "expected": "benchmarks.integrations.memoryarena.runtime_bridge.MemoryArenaRuntimeBridge"},
+      {"pointer": "/memory_bridge/official_api_compatible", "operator": "eq", "expected": true},
+      {"pointer": "/memory_bridge/isolated_task_scopes", "operator": "eq", "expected": true},
+      {"pointer": "/memory_bridge/embedding_drain_complete", "operator": "eq", "expected": true},
+      {"pointer": "/memory_bridge/content_free_evidence_verified", "operator": "eq", "expected": true},
+      {"pointer": "/frontier/thresholds_verified", "operator": "eq", "expected": true},
+      {"pointer": "/frontier/all_required_domain_metrics_clear", "operator": "eq", "expected": true},
+      {"pointer": "/readiness/upstream_preview_boundary_resolved", "operator": "eq", "expected": true},
+      {"pointer": "/readiness/blockers", "operator": "eq", "expected": []}
+    ]
+  }
+}

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
@@ -43,14 +44,22 @@ from uuid import uuid4
 from _longmemeval_common import (
     LONGMEMEVAL_S_SHA256,
     LONGMEMEVAL_S_URL,
+    OFFICIAL_ANSWER_TEMPLATE,
+    OFFICIAL_READER_SERIALIZER_VERSION,
+    QuestionRetrieval,
+    SessionMemory,
     SteppingClock,
+    build_official_reader_prompt,
     configure_embeddings,
     default_longmemeval_path,
     ensure_longmemeval,
     make_actor,
+    observed_embedding_call_accounting,
+    reset_embedding_call_accounting,
     retrieve_question,
     scope_ids,
     select_questions,
+    temporal_parse_metadata,
 )
 from _longmemeval_common import (
     embedding_metadata as _embedding_metadata,
@@ -70,6 +79,12 @@ from _longmemeval_common import (
 from _longmemeval_common import (
     session_text as _session_text,
 )
+from _longmemeval_tokenizer import (
+    ExactTokenizer,
+    ExactTokenizerError,
+    JsonlExactTokenizer,
+    TokenizerObservation,
+)
 
 from swarmbrain.adapters.embeddings import DeterministicEmbeddingProvider
 from swarmbrain.adapters.extraction.in_memory import InMemoryWorkStore
@@ -82,7 +97,12 @@ from swarmbrain.domain.agents import ActorContext
 from swarmbrain.domain.memory import MemoryState, RecallQuery, RememberCommand, Visibility
 from swarmbrain.domain.retrieval import DenseQuery, RetrievalPurpose, RetrievalSignal
 from swarmbrain.ports.embeddings import EmbeddingProvider
-from swarmbrain.retrieval import RetrievalPlanner, estimate_tokens, weighted_rrf
+from swarmbrain.retrieval import (
+    TEMPORAL_QUERY_PARSER_VERSION,
+    RetrievalPlanner,
+    estimate_tokens,
+    weighted_rrf,
+)
 from swarmbrain.retrieval.evaluation import (
     RankingCase,
     ann_recall_at_k,
@@ -98,10 +118,53 @@ CORPUS_DIR = REPO_ROOT / "tests" / "fixtures" / "retrieval_eval_corpus"
 DEFAULT_OUT_DIR = REPO_ROOT / "benchmarks" / "retrieval"
 
 DEFAULT_K = (5, 10)
-LANE_ORDER = ("exact", "lexical", "fuzzy", "dense", "graph", "direct_fused", "fused", "final")
+LANE_ORDER = (
+    "exact",
+    "lexical",
+    "fuzzy",
+    "dense",
+    "temporal",
+    "graph",
+    "direct_fused",
+    "fused",
+    "final",
+)
 # Saved rankings are truncated well above the reported depths so the checked-in
 # artifact stays reviewable; every metric in the report uses k <= 10.
 SAVED_RANKING_DEPTH = 50
+RETRIEVAL_ARTIFACT_SCHEMA_VERSION = 2
+RETRIEVAL_PROTOCOL_VERSION = "swarmbrain-longmemeval-retrieval-v2"
+RUN_ARTIFACT_TYPE = "swarmbrain-retrieval-eval-run"
+REPORT_ARTIFACT_TYPE = "swarmbrain-retrieval-eval-report"
+
+
+def context_token_accounting() -> dict[str, Any]:
+    """Describe the token proxy used by ``final_tokens`` without overstating it."""
+
+    return {
+        "method": "ceil_unicode_characters_div_4",
+        "mode": "development-only",
+        "counted_surface": "memory_title_and_content_per_hit",
+        "packing_observation_source": "additive_item_estimate",
+        "characters_per_token": 4,
+        "minimum_nonempty_tokens": 1,
+        "exact_model_tokenizer": False,
+        "tokenizer_model": None,
+        "tokenizer_revision": None,
+    }
+
+
+def exact_context_serializer_metadata() -> dict[str, Any]:
+    return {
+        "version": OFFICIAL_READER_SERIALIZER_VERSION,
+        "prompt_style": "official",
+        "counted_surface": "complete_reader_prompt",
+        "prompt_template_sha256": hashlib.sha256(
+            OFFICIAL_ANSWER_TEMPLATE.encode("utf-8")
+        ).hexdigest(),
+        "session_order": "chronological_stable",
+        "empty_context_policy": "swarmbrain-explicit-note-reference-requires-nonempty",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -226,6 +289,9 @@ class CaseRun:
     # Estimated reader cost of each returned hit, in hit order, so
     # answer-in-context can be replayed at any token budget offline.
     final_tokens: tuple[int, ...] = ()
+    temporal_routing: dict[str, Any] | None = None
+    exact_context_packing: dict[str, Any] | None = None
+    exact_context_material: dict[str, Any] | None = None
 
 
 def _hit_tokens(execution: RetrievalExecution) -> tuple[int, ...]:
@@ -235,6 +301,124 @@ def _hit_tokens(execution: RetrievalExecution) -> tuple[int, ...]:
         estimate_tokens(f"{hit.memory.title}\n{memory_content_text(hit.memory.content)}")
         for hit in execution.bundle.hits
     )
+
+
+def _budget_label(budget: int | None) -> str:
+    return "budget=none" if budget is None else f"budget={budget}"
+
+
+def _serialized_prompt(
+    record: dict[str, Any],
+    sessions: Sequence[SessionMemory],
+) -> str:
+    return build_official_reader_prompt(
+        record,
+        [(session.date, session.turns) for session in sessions],
+    )
+
+
+def exact_context_prompt_material(
+    retrieved: QuestionRetrieval,
+    *,
+    depth: int = 10,
+) -> dict[str, Any]:
+    """Keep the minimal public material needed to replay exact prompt hashes.
+
+    The expanded greedy prompts are deliberately not duplicated in the run.
+    The final rank order plus these top-session role/content records is enough
+    for the offline compiler to reconstruct every state observed at k=5/10.
+    """
+
+    ranked = [session for session, _ in retrieved.retrieved_sessions()][:depth]
+    return {
+        "question": str(retrieved.record["question"]),
+        "question_date": str(retrieved.record["question_date"]),
+        "ranked_sessions": [
+            {
+                "session_id": session.key,
+                "date": session.date,
+                "turns": [
+                    {
+                        "role": str(turn.get("role", "user")),
+                        "content": str(turn.get("content", "")).strip(),
+                    }
+                    for turn in session.turns
+                ],
+            }
+            for session in ranked
+        ],
+    }
+
+
+def exact_context_packing_evidence(
+    retrieved: QuestionRetrieval,
+    tokenizer: ExactTokenizer,
+    *,
+    k_values: Sequence[int] = DEFAULT_K,
+    budgets: Sequence[int | None] | None = None,
+) -> dict[str, Any]:
+    """Observe exact full-reader-prompt counts for every greedy packing decision."""
+
+    effective_budgets = budgets if budgets is not None else ANSWER_IN_CONTEXT_BUDGETS
+    ranked = [session for session, _ in retrieved.retrieved_sessions()]
+    observed: dict[tuple[str, ...], TokenizerObservation] = {}
+
+    def observe(sessions: Sequence[SessionMemory]) -> TokenizerObservation:
+        key = tuple(session.key for session in sessions)
+        observation = observed.get(key)
+        if observation is None:
+            observation = tokenizer.count(_serialized_prompt(retrieved.record, sessions))
+            observed[key] = observation
+        return observation
+
+    evidence: dict[str, Any] = {}
+    for k in k_values:
+        candidates = ranked[:k]
+        by_budget: dict[str, Any] = {}
+        for budget in effective_budgets:
+            if budget is None:
+                observation = observe(candidates)
+                by_budget[_budget_label(budget)] = {
+                    "budget": None,
+                    "policy": "exact_serialized_greedy",
+                    "initial_observation": None,
+                    "decisions": [],
+                    "kept_ids": [session.key for session in candidates],
+                    "final_observation": observation.evidence(),
+                }
+                continue
+            selected: list[SessionMemory] = []
+            selected_ids: list[str] = []
+            initial = observe(selected)
+            current = initial
+            decisions: list[dict[str, Any]] = []
+            for candidate in candidates:
+                proposed = [*selected, candidate]
+                observation = observe(proposed)
+                accepted = observation.token_count <= budget
+                decisions.append(
+                    {
+                        "candidate_id": candidate.key,
+                        "selected_before_ids": list(selected_ids),
+                        "proposed_ids": [*selected_ids, candidate.key],
+                        "observation": observation.evidence(),
+                        "accepted": accepted,
+                    }
+                )
+                if accepted:
+                    selected = proposed
+                    selected_ids.append(candidate.key)
+                    current = observation
+            by_budget[_budget_label(budget)] = {
+                "budget": budget,
+                "policy": "exact_serialized_greedy",
+                "initial_observation": initial.evidence(),
+                "decisions": decisions,
+                "kept_ids": selected_ids,
+                "final_observation": current.evidence(),
+            }
+        evidence[f"k={k}"] = by_budget
+    return evidence
 
 
 def _rankings(
@@ -507,8 +691,15 @@ async def _run_longmemeval_question(
     *,
     limit: int,
     use_dense: bool = True,
+    temporal_query_routing: bool = False,
+    context_tokenizer: ExactTokenizer | None = None,
 ) -> CaseRun:
-    retrieved = await retrieve_question(record, limit=limit, use_dense=use_dense)
+    retrieved = await retrieve_question(
+        record,
+        limit=limit,
+        use_dense=use_dense,
+        temporal_query_routing=temporal_query_routing,
+    )
     execution = retrieved.execution
     rankings = _rankings(
         execution,
@@ -529,6 +720,15 @@ async def _run_longmemeval_question(
             if hit.memory.memory_id in relevance_by_id
         ),
         final_tokens=_hit_tokens(execution),
+        temporal_routing=temporal_parse_metadata(retrieved.temporal_parse),
+        exact_context_packing=(
+            exact_context_packing_evidence(retrieved, context_tokenizer)
+            if context_tokenizer is not None
+            else None
+        ),
+        exact_context_material=(
+            exact_context_prompt_material(retrieved) if context_tokenizer is not None else None
+        ),
     )
 
 
@@ -539,13 +739,27 @@ async def run_longmemeval(
     seed: int,
     limit: int,
     use_dense: bool = True,
+    temporal_query_routing: bool = False,
+    context_tokenizer: ExactTokenizer | None = None,
 ) -> dict[str, Any]:
+    if context_tokenizer is not None and not isinstance(context_tokenizer, JsonlExactTokenizer):
+        raise ExactTokenizerError(
+            "publishable LongMemEval runs require the pinned JsonlExactTokenizer boundary"
+        )
     records: list[dict[str, Any]] = json.loads(dataset.read_text(encoding="utf-8"))
     total = len(records)
     records = select_questions(records, sample=sample, seed=seed)
+    if use_dense:
+        reset_embedding_call_accounting()
     cases: list[dict[str, Any]] = []
     for position, record in enumerate(records, start=1):
-        run = await _run_longmemeval_question(record, limit=limit, use_dense=use_dense)
+        run = await _run_longmemeval_question(
+            record,
+            limit=limit,
+            use_dense=use_dense,
+            temporal_query_routing=temporal_query_routing,
+            context_tokenizer=context_tokenizer,
+        )
         answer_sessions = {str(value) for value in record.get("answer_session_ids", ())}
         relevant = [
             f"{index:03d}:{session_id}"
@@ -567,11 +781,22 @@ async def run_longmemeval(
                 "final_relevance": list(run.final_relevance),
                 "final_tokens": list(run.final_tokens),
                 "rankings": run.rankings,
+                "temporal_routing": run.temporal_routing,
+                "exact_context_packing": run.exact_context_packing,
+                **(
+                    {"exact_context_material": run.exact_context_material}
+                    if run.exact_context_material is not None
+                    else {}
+                ),
             }
         )
         if position % 25 == 0:
             print(f"  longmemeval: {position}/{len(records)} questions", file=sys.stderr)
     return {
+        "artifact_type": RUN_ARTIFACT_TYPE,
+        "schema_version": RETRIEVAL_ARTIFACT_SCHEMA_VERSION,
+        "protocol_version": RETRIEVAL_PROTOCOL_VERSION,
+        "implementation": retrieval_implementation_fingerprint(),
         "track": "longmemeval-s",
         "dataset": {
             "name": "LongMemEval-S",
@@ -585,9 +810,55 @@ async def run_longmemeval(
         "recall_limit": limit,
         "saved_ranking_depth": SAVED_RANKING_DEPTH,
         "dense_lane_enabled": use_dense,
+        "temporal_query_routing": {
+            "enabled": temporal_query_routing,
+            "parser": TEMPORAL_QUERY_PARSER_VERSION if temporal_query_routing else None,
+            "session_valid_from": "LongMemEval haystack_dates normalized to UTC",
+        },
         "embedding": _embedding_metadata(use_dense),
+        "embedding_call_accounting": _longmemeval_embedding_call_accounting(
+            records, use_dense=use_dense
+        ),
+        "item_token_accounting": context_token_accounting(),
+        "context_token_accounting": (
+            {
+                **context_tokenizer.evidence,
+                "mode": "publishable-exact",
+                "counted_surface": "complete_official_reader_prompt",
+                "packing_observation_source": "provider_observed_full_prompt_decisions",
+                "serializer": exact_context_serializer_metadata(),
+            }
+            if context_tokenizer is not None
+            else context_token_accounting()
+        ),
         "cases": cases,
     }
+
+
+def _longmemeval_embedding_call_accounting(
+    records: Sequence[dict[str, Any]], *, use_dense: bool
+) -> dict[str, Any] | None:
+    if not use_dense:
+        return None
+    expected = {
+        "document_inputs": sum(len(record["haystack_sessions"]) for record in records),
+        "document_batch_calls": len(records),
+        "query_calls": len(records),
+    }
+    observed = observed_embedding_call_accounting()
+    if observed is None:
+        return {**expected, "source": "protocol-derived-non-http-provider"}
+    for name, value in expected.items():
+        if observed.get(name) != value:
+            raise RuntimeError(
+                f"observed embedding {name}={observed.get(name)!r}, expected {value}"
+            )
+    expected_successes = expected["document_batch_calls"] + expected["query_calls"]
+    if observed.get("successful_http_calls") != expected_successes:
+        raise RuntimeError(
+            "observed successful embedding HTTP calls do not reconcile with the protocol"
+        )
+    return {**observed, "source": "provider-observed"}
 
 
 # --------------------------------------------------------------------------- #
@@ -766,6 +1037,10 @@ async def run_swarm_track(
             await database.close()
 
     payload = {
+        "artifact_type": RUN_ARTIFACT_TYPE,
+        "schema_version": RETRIEVAL_ARTIFACT_SCHEMA_VERSION,
+        "protocol_version": RETRIEVAL_PROTOCOL_VERSION,
+        "implementation": retrieval_implementation_fingerprint(),
         "track": "swarm-native",
         "corpus_version": corpus.corpus_version,
         "judgments_revision": corpus.judgments_revision,
@@ -934,10 +1209,9 @@ def bundle_metrics(
     }
 
 
-# Reader context budgets, in estimated tokens.  ``None`` is the shipped
-# unbounded default and anchors the "no budget" row; the rest span from a tight
-# agent context to a generous one.  The swarm corpus barely notices them; on
-# LongMemEval-S a single hit is a whole conversation session and they bind hard.
+# Reader context budgets. Development runs apply them to additive chars/4 item
+# estimates. Exact LongMemEval runs apply them to provider-observed counts of
+# the complete serialized reader prompt. ``None`` anchors the unbounded row.
 ANSWER_IN_CONTEXT_BUDGETS: tuple[int | None, ...] = (None, 32000, 16000, 8000, 4000, 2000)
 
 
@@ -975,6 +1249,91 @@ def answer_in_context_metrics(
     }
 
 
+def exact_answer_in_context_metrics(
+    cases: Sequence[dict[str, Any]],
+    *,
+    k: int,
+    budget: int | None,
+) -> dict[str, Any]:
+    """Aggregate provider-observed full-prompt packing without re-estimating tokens."""
+
+    rows = [case["exact_context_packing"][f"k={k}"][_budget_label(budget)] for case in cases]
+    answerable = 0
+    any_gold = 0
+    all_gold = 0
+    kept_total = 0
+    token_total = 0
+    truncated = 0
+    for case, row in zip(cases, rows, strict=True):
+        relevant = {str(value) for value in case.get("relevant_ids", ())}
+        kept = [str(value) for value in row["kept_ids"]]
+        expected = [str(value) for value in case["rankings"]["final"]][:k]
+        answerable += bool(relevant)
+        any_gold += bool(relevant.intersection(kept))
+        all_gold += bool(relevant) and relevant.issubset(kept)
+        kept_total += len(kept)
+        token_total += int(row["final_observation"]["token_count"])
+        truncated += kept != expected
+    denominator = max(1, answerable)
+    cases_count = len(cases)
+    return {
+        "budget": budget,
+        "policy": "exact_serialized_greedy",
+        "cases": cases_count,
+        "answerable_cases": answerable,
+        "any_gold_in_context": round(any_gold / denominator, 4),
+        "all_gold_in_context": round(all_gold / denominator, 4),
+        "mean_hits_kept": round(kept_total / max(1, cases_count), 4),
+        "mean_tokens": round(token_total / max(1, cases_count), 1),
+        "truncated_cases": truncated,
+    }
+
+
+def _artifact_path(path: Path) -> str:
+    """Keep repository artifacts portable while allowing explicit external output dirs."""
+
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(resolved)
+
+
+def _file_identity(path: Path) -> dict[str, Any]:
+    resolved = path.resolve()
+    if path.is_symlink() or not resolved.is_file():
+        raise ValueError(f"saved retrieval run is missing or unsafe: {path}")
+    content = resolved.read_bytes()
+    return {
+        "path": _artifact_path(resolved),
+        "bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+
+
+def retrieval_implementation_fingerprint() -> dict[str, Any]:
+    """Bind benchmark evidence to the exact retrieval implementation."""
+
+    paths = [
+        REPO_ROOT / "scripts" / "_longmemeval_common.py",
+        REPO_ROOT / "scripts" / "_longmemeval_tokenizer.py",
+        REPO_ROOT / "scripts" / "evaluate_retrieval_runs.py",
+        REPO_ROOT / "scripts" / "run_retrieval_eval.py",
+        REPO_ROOT / "pyproject.toml",
+        REPO_ROOT / "uv.lock",
+    ]
+    paths.extend((REPO_ROOT / "src" / "swarmbrain").rglob("*.py"))
+    files = {
+        path.relative_to(REPO_ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(set(paths))
+    }
+    canonical = json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "tree_sha256": hashlib.sha256(canonical).hexdigest(),
+        "files": files,
+    }
+
+
 def build_report(
     payload: dict[str, Any],
     run_path: Path,
@@ -984,7 +1343,29 @@ def build_report(
 ) -> dict[str, Any]:
     cases = payload["cases"]
     report: dict[str, Any] = {
-        "run": str(run_path.relative_to(REPO_ROOT)),
+        "artifact_type": REPORT_ARTIFACT_TYPE,
+        "schema_version": RETRIEVAL_ARTIFACT_SCHEMA_VERSION,
+        "run": _artifact_path(run_path),
+        "run_artifact": _file_identity(run_path),
+        "execution": {
+            "protocol_version": payload.get("protocol_version"),
+            "implementation": payload.get("implementation"),
+            "track": payload.get("track"),
+            "granularity": payload.get("granularity"),
+            "recall_limit": payload.get("recall_limit"),
+            "saved_ranking_depth": payload.get("saved_ranking_depth"),
+            "dense_lane_enabled": payload.get("dense_lane_enabled"),
+            "temporal_query_routing": payload.get("temporal_query_routing"),
+            "embedding": payload.get("embedding"),
+            "embedding_call_accounting": payload.get("embedding_call_accounting"),
+            "item_token_accounting": payload.get("item_token_accounting")
+            or context_token_accounting(),
+            # Schema-v2 runs created before this disclosure field existed still
+            # used the same stable proxy.  Make that limitation explicit in
+            # every rebuilt report instead of silently treating it as exact.
+            "context_token_accounting": payload.get("context_token_accounting")
+            or context_token_accounting(),
+        },
         "overall": {f"k={k}": evaluate_saved_run(run_path, k) for k in k_values},
         "by_category": {
             f"k={k}": {
@@ -1019,10 +1400,24 @@ def build_report(
         }
         for k in k_values
     }
-    # Answer-in-context: did the evidence survive the reader's context window,
-    # rather than merely place inside k.  Only meaningful once a run records
-    # per-hit token sizes; older runs report as untruncated.
-    if any(case.get("final_tokens") for case in cases):
+    # Answer-in-context: exact runs aggregate full-prompt decision observations;
+    # development runs retain the legacy additive chars/4 item replay.
+    token_accounting = report["execution"]["context_token_accounting"]
+    if isinstance(token_accounting, dict) and token_accounting.get("exact_model_tokenizer") is True:
+        if not all(isinstance(case.get("exact_context_packing"), dict) for case in cases):
+            raise ValueError("exact token accounting requires every case's packing observations")
+        report["answer_in_context"] = {
+            f"k={k}": {
+                _budget_label(budget): exact_answer_in_context_metrics(
+                    cases,
+                    k=k,
+                    budget=budget,
+                )
+                for budget in ANSWER_IN_CONTEXT_BUDGETS
+            }
+            for k in k_values
+        }
+    elif any(case.get("final_tokens") for case in cases):
         report["answer_in_context"] = {
             f"k={k}": {
                 ("budget=none" if budget is None else f"budget={budget}"): (
@@ -1034,6 +1429,34 @@ def build_report(
         }
     degraded = sorted({lane for case in cases for lane in case.get("degraded_lanes", ())})
     report["degraded_lanes"] = degraded
+    return report
+
+
+def build_longmemeval_report(
+    payload: dict[str, Any],
+    run_path: Path,
+    *,
+    k_values: Sequence[int] = DEFAULT_K,
+) -> dict[str, Any]:
+    """Build the canonical retrieval-only LongMemEval-S report from one saved run."""
+
+    report = build_report(payload, run_path, k_values=k_values)
+    report["dataset"] = payload["dataset"]
+    report["by_abstention"] = {
+        f"k={k}": {
+            "abstention_questions": slice_metrics(
+                payload["cases"],
+                k=k,
+                selector=lambda case: bool(case["abstention_question"]),
+            ),
+            "answerable_questions": slice_metrics(
+                payload["cases"],
+                k=k,
+                selector=lambda case: not case["abstention_question"],
+            ),
+        }
+        for k in k_values
+    }
     return report
 
 
@@ -1076,6 +1499,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--lme-sample", type=int, default=150)
     parser.add_argument("--lme-seed", type=int, default=20260807)
     parser.add_argument(
+        "--temporal-query-routing",
+        action="store_true",
+        help=(
+            "experimental A/B: parse closed referenced-time expressions against each "
+            "LongMemEval question_date and enable the temporal lane; disabled by default"
+        ),
+    )
+    parser.add_argument(
         "--embeddings",
         choices=("deterministic", "openai"),
         default="deterministic",
@@ -1083,7 +1514,42 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--embeddings-base-url", default=None)
     parser.add_argument("--embeddings-model", default=None)
+    parser.add_argument(
+        "--embeddings-api-key-env",
+        default="SWARMBRAIN_EMBEDDINGS_API_KEY",
+        help="environment variable holding the embedding API key; never pass the key itself",
+    )
+    parser.add_argument("--context-tokenizer-executable", type=Path, default=None)
+    parser.add_argument("--context-tokenizer-executable-sha256", default=None)
+    parser.add_argument("--context-tokenizer-artifact", type=Path, default=None)
+    parser.add_argument("--context-tokenizer-artifact-sha256", default=None)
+    parser.add_argument("--context-tokenizer-model", default=None)
+    parser.add_argument("--context-tokenizer-revision", default=None)
     return parser
+
+
+def _configured_context_tokenizer(args: argparse.Namespace) -> JsonlExactTokenizer | None:
+    values = (
+        args.context_tokenizer_executable,
+        args.context_tokenizer_executable_sha256,
+        args.context_tokenizer_artifact,
+        args.context_tokenizer_artifact_sha256,
+        args.context_tokenizer_model,
+        args.context_tokenizer_revision,
+    )
+    if not any(value is not None for value in values):
+        return None
+    if not all(value is not None for value in values):
+        raise ExactTokenizerError("exact context tokenizer configuration must provide all six pins")
+    return JsonlExactTokenizer(
+        executable=args.context_tokenizer_executable,
+        executable_sha256=args.context_tokenizer_executable_sha256,
+        artifact=args.context_tokenizer_artifact,
+        artifact_sha256=args.context_tokenizer_artifact_sha256,
+        model=args.context_tokenizer_model,
+        revision=args.context_tokenizer_revision,
+        repo_root=REPO_ROOT,
+    )
 
 
 async def _main(args: argparse.Namespace) -> int:
@@ -1093,12 +1559,18 @@ async def _main(args: argparse.Namespace) -> int:
         args.embeddings,
         base_url=args.embeddings_base_url,
         model_id=args.embeddings_model,
+        api_key=(
+            os.getenv(args.embeddings_api_key_env, "").strip() or None
+            if args.embeddings == "openai"
+            else None
+        ),
     )
     # Non-default embedders write to their own file family so the checked-in
     # deterministic baselines stay untouched for comparison.
     suffix = "-nodense" if args.no_dense else ""
     if args.embeddings != "deterministic":
         suffix = f"-{args.embeddings}{suffix}"
+    lme_suffix = f"{suffix}-temporal" if args.temporal_query_routing else suffix
     use_dense = not args.no_dense
 
     if args.track in {"swarm", "both"}:
@@ -1146,31 +1618,24 @@ async def _main(args: argparse.Namespace) -> int:
     if args.track in {"longmemeval", "both"}:
         dataset = args.lme_path or default_longmemeval_path()
         dataset = ensure_longmemeval(dataset, download=args.lme_download)
-        payload = await run_longmemeval(
-            dataset,
-            sample=args.lme_sample if args.lme_sample > 0 else None,
-            seed=args.lme_seed,
-            limit=args.limit,
-            use_dense=use_dense,
-        )
-        run_path = args.out_dir / f"longmemeval-s-memory{suffix}-run.json"
+        context_tokenizer = _configured_context_tokenizer(args)
+        try:
+            payload = await run_longmemeval(
+                dataset,
+                sample=args.lme_sample if args.lme_sample > 0 else None,
+                seed=args.lme_seed,
+                limit=args.limit,
+                use_dense=use_dense,
+                temporal_query_routing=args.temporal_query_routing,
+                context_tokenizer=context_tokenizer,
+            )
+        finally:
+            if context_tokenizer is not None:
+                context_tokenizer.close()
+        run_path = args.out_dir / f"longmemeval-s-memory{lme_suffix}-run.json"
         run_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        report = build_report(payload, run_path, k_values=k_values)
-        report["dataset"] = payload["dataset"]
-        report["by_abstention"] = {
-            f"k={k}": {
-                "abstention_questions": slice_metrics(
-                    payload["cases"], k=k, selector=lambda case: bool(case["abstention_question"])
-                ),
-                "answerable_questions": slice_metrics(
-                    payload["cases"],
-                    k=k,
-                    selector=lambda case: not case["abstention_question"],
-                ),
-            }
-            for k in k_values
-        }
-        report_path = args.out_dir / f"longmemeval-s-memory{suffix}-report.json"
+        report = build_longmemeval_report(payload, run_path, k_values=k_values)
+        report_path = args.out_dir / f"longmemeval-s-memory{lme_suffix}-report.json"
         report_path.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -1195,7 +1660,13 @@ __all__ = [
     # Re-exported from ``_longmemeval_common`` so callers and tests that already
     # treat this script as the Track 2 entry point keep working after the split.
     "_session_text",
+    "build_longmemeval_report",
     "build_report",
+    "context_token_accounting",
+    "exact_answer_in_context_metrics",
+    "exact_context_packing_evidence",
+    "exact_context_prompt_material",
+    "exact_context_serializer_metadata",
     "ensure_longmemeval",
     "evaluate_saved_run",
     "load_corpus",

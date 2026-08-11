@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import os
 import random
+import re
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -29,33 +30,74 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from swarmbrain.adapters.embeddings import DeterministicEmbeddingProvider
 from swarmbrain.adapters.embeddings.openai_compatible import OpenAICompatibleEmbeddingProvider
 from swarmbrain.adapters.extraction.in_memory import InMemoryWorkStore
-from swarmbrain.adapters.memory import InMemoryKernel, in_memory_hybrid_retrieval_gateways
-from swarmbrain.application.memory_policy import ConservativeMemoryPolicy
+from swarmbrain.adapters.memory import (
+    InMemoryKernel,
+    in_memory_hybrid_retrieval_gateways,
+    in_memory_retrieval_gateways,
+)
+from swarmbrain.application.memory_policy import ConservativeMemoryPolicy, memory_content_text
 from swarmbrain.application.memory_service import MemoryService
 from swarmbrain.application.retrieval_service import RetrievalExecution, RetrievalService
-from swarmbrain.application.work import DurableWorkService
 from swarmbrain.domain.agents import ActorContext, Capability
-from swarmbrain.domain.memory import MemoryState, RecallQuery, RememberCommand, Visibility
+from swarmbrain.domain.memory import (
+    EmbeddingVector,
+    Memory,
+    MemoryState,
+    RecallQuery,
+    RememberCommand,
+    Visibility,
+)
+from swarmbrain.domain.reranking import LearnedRerankPolicy
 from swarmbrain.domain.retrieval import DenseQuery, RetrievalPurpose, RetrievalSignal
 from swarmbrain.ports.embeddings import EmbeddingProvider
-from swarmbrain.workers.durable import LeasedWorkWorker
-from swarmbrain.workers.embedding import EmbedMemoryHandler
+from swarmbrain.ports.reranking import LearnedRerankerProvider
+from swarmbrain.retrieval.temporal_query import TemporalQueryParse, parse_referenced_time
 
 EMBEDDING_MODEL = "deterministic-eval-1024-v0"
 EMBEDDING_DIMENSIONS = 1024
+QWEN_QUERY_INSTRUCTION = "Given a coding-agent memory search query, retrieve relevant memories"
 ALL_CAPABILITIES = frozenset(item.value for item in Capability)
 
-# Pinned official release.  The digest is the git-lfs object id of the file,
-# which is its SHA-256, so a silent upstream replacement fails loudly here.
+# Pinned current official cleaned release.  LongMemEval replaced the original
+# histories in September 2025 while preserving the 500 question IDs and answer
+# keys.  The digest is the git-lfs object id of the file, which is its SHA-256,
+# so a silent upstream replacement fails loudly here.
 LONGMEMEVAL_S_URL = (
-    "https://huggingface.co/datasets/xiaowu0162/longmemeval/resolve/main/longmemeval_s"
+    "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/"
+    "longmemeval_s_cleaned.json"
 )
-LONGMEMEVAL_S_SHA256 = "08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894"
+LONGMEMEVAL_S_SHA256 = "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+
+# Official ``flat-session`` + ``nl`` reader serialization. Retrieval token
+# evidence and QA generation import this single definition so "exact context"
+# always means the bytes that the reader actually receives.
+OFFICIAL_READER_SERIALIZER_VERSION = "longmemeval-flat-session-nl-official-prompt-v1"
+OFFICIAL_ANSWER_TEMPLATE = (
+    "I will give you several history chats between you and a user. Please answer "
+    "the question based on the relevant chat history.\n\n\nHistory Chats:\n\n{}\n\n"
+    "Current Date: {}\nQuestion: {}\nAnswer:"
+)
+EMPTY_CONTEXT_NOTE = (
+    "(No stored session passed the memory relevance threshold for this question. "
+    "The memory returned nothing relevant.)"
+)
 
 # The clock every LongMemEval runtime starts from.  Fixed so ingestion order,
 # and therefore recency tie-breaking, is identical on every run and in both
 # harnesses.
 LONGMEMEVAL_CLOCK_START = datetime(2026, 8, 7, 9, tzinfo=UTC)
+
+# LongMemEval dates carry a local-looking wall clock but no timezone.  The
+# benchmark treats them as one internally consistent calendar, so UTC is an
+# explicit normalization convention here rather than an inference about the
+# user's real location.  Weekday validation catches corrupt or silently
+# reformatted dataset rows before they can affect temporal routing.
+_LONGMEMEVAL_DATETIME = re.compile(
+    r"(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2}) "
+    r"\((?P<weekday>Mon|Tue|Wed|Thu|Fri|Sat|Sun)\) "
+    r"(?P<hour>\d{2}):(?P<minute>\d{2})"
+)
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 # Selected once per process from ``--embeddings``; the deterministic default
 # keeps the original 2026-08-07 runs byte-reproducible.  A single shared
@@ -65,7 +107,11 @@ _provider_singleton: EmbeddingProvider | None = None
 
 
 def configure_embeddings(
-    kind: str, *, base_url: str | None = None, model_id: str | None = None
+    kind: str,
+    *,
+    base_url: str | None = None,
+    model_id: str | None = None,
+    api_key: str | None = None,
 ) -> None:
     global _provider_singleton
     if kind == "deterministic":
@@ -80,6 +126,9 @@ def configure_embeddings(
         base_url=base_url,
         model_id=model_id or "Qwen/Qwen3-Embedding-0.6B",
         dimensions=EMBEDDING_DIMENSIONS,
+        api_key=api_key,
+        required_response_model=model_id or "Qwen/Qwen3-Embedding-0.6B",
+        query_instruction=QWEN_QUERY_INSTRUCTION,
     )
 
 
@@ -95,16 +144,36 @@ def embedding_metadata(use_dense: bool) -> dict[str, Any] | None:
         return None
     provider = make_provider()
     deterministic = isinstance(provider, DeterministicEmbeddingProvider)
-    return {
+    metadata = {
         "provider": type(provider).__name__,
         "model": provider.model_name,
         "dimensions": provider.dimensions,
+        "document_batching": "one question-local corpus per embed_documents call",
         "note": (
             "hash bag-of-words; not a semantic model"
             if deterministic
             else "semantic model served over an OpenAI-compatible endpoint"
         ),
     }
+    if isinstance(provider, OpenAICompatibleEmbeddingProvider):
+        metadata["response_model_requirement"] = provider.required_response_model
+        metadata["query_instruction_sha256"] = hashlib.sha256(
+            QWEN_QUERY_INSTRUCTION.encode("utf-8")
+        ).hexdigest()
+    return metadata
+
+
+def reset_embedding_call_accounting() -> None:
+    provider = make_provider()
+    if isinstance(provider, OpenAICompatibleEmbeddingProvider):
+        provider.reset_call_accounting()
+
+
+def observed_embedding_call_accounting() -> dict[str, int] | None:
+    provider = make_provider()
+    if not isinstance(provider, OpenAICompatibleEmbeddingProvider):
+        return None
+    return provider.call_accounting
 
 
 # --------------------------------------------------------------------------- #
@@ -158,7 +227,7 @@ def default_longmemeval_path() -> Path:
 
     root = os.getenv("SWARMBRAIN_EVAL_DATA_DIR", "").strip()
     base = Path(root) if root else Path.home() / ".cache" / "swarmbrain-eval"
-    return base / "longmemeval_s.json"
+    return base / "longmemeval_s_cleaned.json"
 
 
 def ensure_longmemeval(path: Path, *, download: bool) -> Path:
@@ -207,6 +276,87 @@ def session_text(turns: Sequence[dict[str, Any]]) -> str:
     return "\n".join(f"{turn.get('role', 'user')}: {turn.get('content', '')}" for turn in turns)
 
 
+def render_reader_session(index: int, date: str, turns: Sequence[dict[str, Any]]) -> str:
+    """Serialize one session exactly as the official LongMemEval reader harness."""
+
+    body = ""
+    for turn in turns:
+        role = turn.get("role", "user")
+        content = str(turn.get("content", "")).strip()
+        body += f"\n\n{role}: {content}"
+    return f"\n### Session {index + 1}:\nSession Date: {date}\nSession Content:\n{body}\n"
+
+
+def render_reader_history(
+    sessions: Sequence[tuple[str, Sequence[dict[str, Any]]]],
+) -> str:
+    """Serialize retrieved sessions in the official chronological order."""
+
+    ordered = sorted(sessions, key=lambda item: item[0])
+    return "".join(
+        render_reader_session(index, date, turns) for index, (date, turns) in enumerate(ordered)
+    )
+
+
+def build_official_reader_prompt(
+    record: dict[str, Any],
+    sessions: Sequence[tuple[str, Sequence[dict[str, Any]]]],
+) -> str:
+    """Return the exact official reader input for one selected session set."""
+
+    history = render_reader_history(sessions) if sessions else EMPTY_CONTEXT_NOTE
+    return OFFICIAL_ANSWER_TEMPLATE.format(
+        history,
+        str(record["question_date"]),
+        str(record["question"]),
+    )
+
+
+def parse_longmemeval_datetime(value: str) -> datetime:
+    """Parse the dataset's timestamp format into the benchmark UTC calendar."""
+
+    match = _LONGMEMEVAL_DATETIME.fullmatch(value.strip())
+    if match is None:
+        raise ValueError(f"unsupported LongMemEval datetime: {value!r}")
+    parsed = datetime(
+        int(match.group("year")),
+        int(match.group("month")),
+        int(match.group("day")),
+        int(match.group("hour")),
+        int(match.group("minute")),
+        tzinfo=UTC,
+    )
+    expected_weekday = _WEEKDAYS[parsed.weekday()]
+    if match.group("weekday") != expected_weekday:
+        raise ValueError(f"LongMemEval datetime weekday mismatch: {value!r} is {expected_weekday}")
+    return parsed
+
+
+def parse_longmemeval_temporal_query(record: dict[str, Any]) -> TemporalQueryParse:
+    """Parse referenced time using only the record's explicit question date."""
+
+    anchor = parse_longmemeval_datetime(str(record["question_date"]))
+    return parse_referenced_time(str(record["question"]), timezone=UTC, now=anchor)
+
+
+def temporal_parse_metadata(parsed: TemporalQueryParse | None) -> dict[str, Any] | None:
+    """Content-free, replayable parser trace for benchmark A/B artifacts."""
+
+    if parsed is None:
+        return None
+    closed = parsed.closed_referenced_time
+    interval = parsed.interval
+    return {
+        "status": parsed.status.value,
+        "confidence": parsed.confidence.value,
+        "reason": parsed.reason.value,
+        "relative": parsed.relative,
+        "routed": closed is not None,
+        "valid_from": interval.valid_from.isoformat() if interval and interval.valid_from else None,
+        "valid_to": interval.valid_to.isoformat() if interval and interval.valid_to else None,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # ingestion and recall, one question at a time
 # --------------------------------------------------------------------------- #
@@ -235,6 +385,7 @@ class QuestionRetrieval:
     sessions: tuple[SessionMemory, ...]
     execution: RetrievalExecution
     wall_ms: float
+    temporal_parse: TemporalQueryParse | None = None
 
     @property
     def question_id(self) -> str:
@@ -251,9 +402,7 @@ class QuestionRetrieval:
     @property
     def relevant_keys(self) -> tuple[str, ...]:
         answers = {str(value) for value in self.record.get("answer_session_ids", ())}
-        return tuple(
-            session.key for session in self.sessions if session.session_id in answers
-        )
+        return tuple(session.key for session in self.sessions if session.session_id in answers)
 
     def retrieved_sessions(self) -> tuple[tuple[SessionMemory, float], ...]:
         """Hit sessions with their calibrated relevance, in rank order."""
@@ -279,6 +428,8 @@ async def execute_case(
     *,
     limit: int,
     min_score: float = 0.0,
+    referenced_valid_from: datetime | None = None,
+    referenced_valid_to: datetime | None = None,
 ) -> tuple[RetrievalExecution, float]:
     """Mirror ``MemoryService.recall``: embed outside the snapshot, then execute."""
 
@@ -290,7 +441,13 @@ async def execute_case(
             dimensions=provider.dimensions,
             values=tuple(values),
         )
-    query = RecallQuery(text=text, limit=limit, min_score=min_score)
+    query = RecallQuery(
+        text=text,
+        limit=limit,
+        min_score=min_score,
+        referenced_valid_from=referenced_valid_from,
+        referenced_valid_to=referenced_valid_to,
+    )
     started = perf_counter()
     execution = await retrieval.execute(
         actor,
@@ -307,6 +464,9 @@ async def retrieve_question(
     limit: int,
     min_score: float = 0.0,
     use_dense: bool = True,
+    temporal_query_routing: bool = False,
+    learned_reranker: LearnedRerankerProvider | None = None,
+    learned_rerank_policy: LearnedRerankPolicy | None = None,
 ) -> QuestionRetrieval:
     """Publish one question's haystack into a fresh runtime and recall once.
 
@@ -318,18 +478,24 @@ async def retrieve_question(
     clock = SteppingClock(LONGMEMEVAL_CLOCK_START)
     kernel = InMemoryKernel(clock=clock)
     work_queue = InMemoryWorkStore()
-    provider = make_provider()
+    provider = make_provider() if use_dense else None
     retrieval = RetrievalService(
-        in_memory_hybrid_retrieval_gateways(kernel, work_queue),
+        (
+            in_memory_hybrid_retrieval_gateways(kernel, work_queue)
+            if use_dense
+            else in_memory_retrieval_gateways(kernel)
+        ),
         kernel,
+        learned_reranker=learned_reranker,
+        learned_rerank_policy=learned_rerank_policy,
     )
     service = MemoryService(
         kernel,
         ConservativeMemoryPolicy(),
         review_store=kernel,
-        embeddings=provider,
-        embedding_index=work_queue,
-        work=DurableWorkService(work_queue),
+        # The benchmark projects the complete question-local corpus in one
+        # provider batch below. Publishing stays on the real memory path, while
+        # avoiding one HTTP embedding request per session.
         retrieval=retrieval,
         canonical_reader=kernel,
     )
@@ -338,6 +504,7 @@ async def retrieve_question(
     session_ids = [str(value) for value in record["haystack_session_ids"]]
     dates = [str(value) for value in record.get("haystack_dates", [])]
     sessions: list[SessionMemory] = []
+    stored_memories: list[Memory] = []
     for position, (session_id, turns) in enumerate(
         zip(session_ids, record["haystack_sessions"], strict=True)
     ):
@@ -346,6 +513,7 @@ async def retrieve_question(
         if not text:
             text = "(empty session)"
         date = dates[position] if position < len(dates) else ""
+        valid_from = parse_longmemeval_datetime(date) if date else None
         result = await service.publish(
             actor,
             RememberCommand(
@@ -356,10 +524,12 @@ async def retrieve_question(
                 title=f"Conversation session recorded {date}" if date else "Conversation session",
                 content=text,
                 tags=("longmemeval", "session"),
+                valid_from=valid_from,
             ),
         )
         if result.memory is None:
             raise RuntimeError(f"session {position:03d}:{session_id} was not stored")
+        stored_memories.append(result.memory)
         sessions.append(
             SessionMemory(
                 position=position,
@@ -370,23 +540,52 @@ async def retrieve_question(
             )
         )
     clock.step(3600)
-    worker = LeasedWorkWorker(work_queue, [EmbedMemoryHandler(provider)])
-    while await worker.run_once(f"lme-embed-{uuid4()}", limit=64):
-        pass
+    if provider is not None:
+        values = await provider.embed_documents(
+            [memory_content_text(memory.content) for memory in stored_memories]
+        )
+        if len(values) != len(stored_memories):
+            raise RuntimeError(
+                f"embedding provider returned {len(values)} vectors for "
+                f"{len(stored_memories)} sessions"
+            )
+        vectors = tuple(
+            EmbeddingVector(
+                memory_id=memory.memory_id,
+                model=provider.model_name,
+                dimensions=provider.dimensions,
+                values=tuple(vector),
+            )
+            for memory, vector in zip(stored_memories, values, strict=True)
+        )
+        projection_key = hashlib.sha256(
+            f"{record['question_id']}:{provider.model_name}".encode()
+        ).hexdigest()
+        await work_queue.upsert_embeddings(
+            actor,
+            vectors,
+            idempotency_key=f"lme-batch:{projection_key}",
+        )
+
+    parsed = parse_longmemeval_temporal_query(record) if temporal_query_routing else None
+    closed = parsed.closed_referenced_time if parsed is not None else None
 
     execution, wall_ms = await execute_case(
         retrieval,
-        provider if use_dense else None,
+        provider,
         actor,
         str(record["question"]),
         limit=limit,
         min_score=min_score,
+        referenced_valid_from=(closed.referenced_valid_from if closed is not None else None),
+        referenced_valid_to=(closed.referenced_valid_to if closed is not None else None),
     )
     return QuestionRetrieval(
         record=record,
         sessions=tuple(sessions),
         execution=execution,
         wall_ms=wall_ms,
+        temporal_parse=parsed,
     )
 
 
@@ -420,23 +619,34 @@ __all__ = [
     "ALL_CAPABILITIES",
     "EMBEDDING_DIMENSIONS",
     "EMBEDDING_MODEL",
+    "EMPTY_CONTEXT_NOTE",
     "LONGMEMEVAL_CLOCK_START",
     "LONGMEMEVAL_S_SHA256",
     "LONGMEMEVAL_S_URL",
+    "OFFICIAL_ANSWER_TEMPLATE",
+    "OFFICIAL_READER_SERIALIZER_VERSION",
     "QuestionRetrieval",
     "SessionMemory",
     "SteppingClock",
     "configure_embeddings",
+    "build_official_reader_prompt",
     "default_longmemeval_path",
     "embedding_metadata",
+    "observed_embedding_call_accounting",
+    "reset_embedding_call_accounting",
     "ensure_longmemeval",
     "execute_case",
     "make_actor",
     "make_provider",
     "mean",
     "percentiles",
+    "parse_longmemeval_datetime",
+    "parse_longmemeval_temporal_query",
     "retrieve_question",
+    "render_reader_history",
+    "render_reader_session",
     "scope_ids",
     "select_questions",
     "session_text",
+    "temporal_parse_metadata",
 ]

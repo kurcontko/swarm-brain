@@ -9,7 +9,10 @@ judge prompt selection copied from that same file.
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -107,7 +110,9 @@ def test_a_thin_bundle_is_announced_only_when_a_floor_was_applied() -> None:
     assert "requested sessions" not in unfloored
 
     # The official style stays byte-identical to the reference under a floor.
-    official = qa.build_reader_prompt(RECORD, SESSIONS, style="official", requested=10, floored=True)
+    official = qa.build_reader_prompt(
+        RECORD, SESSIONS, style="official", requested=10, floored=True
+    )
     assert official == qa.build_reader_prompt(RECORD, SESSIONS, style="official")
 
 
@@ -141,9 +146,7 @@ def test_hypothesis_line_is_exactly_what_evaluate_qa_consumes() -> None:
         ("single-session-preference", "Rubric:"),
     ],
 )
-def test_each_question_type_gets_its_official_judge_prompt(
-    question_type: str, marker: str
-) -> None:
+def test_each_question_type_gets_its_official_judge_prompt(question_type: str, marker: str) -> None:
     prompt = qa.judge_prompt(question_type, "q", "a", "r")
     assert marker in prompt
     assert prompt.endswith("Is the model response correct? Answer yes or no only.")
@@ -190,6 +193,8 @@ class _FakeResponse:
         self.status_code = status_code
         self._payload = payload or {}
         self.text = json.dumps(self._payload)
+        self.content = self.text.encode("utf-8")
+        self.headers: dict[str, str] = {}
 
     def json(self) -> dict[str, Any]:
         return self._payload
@@ -208,17 +213,32 @@ class _FakeClient:
         return None
 
 
-def _completion(content: str | None, *, reasoning: str = "", finish: str = "stop") -> _FakeResponse:
+def _completion(
+    content: str | None,
+    *,
+    reasoning: str = "",
+    finish: str = "stop",
+    model: str | None = "reasoner-1",
+    request_id: str | None = "chatcmpl-fixture",
+) -> _FakeResponse:
     return _FakeResponse(
         200,
         {
+            "id": request_id,
+            "model": model,
+            "system_fingerprint": "fp_fixture",
             "choices": [
                 {
-                    "message": {"content": content, "reasoning_content": reasoning},
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": content,
+                        "reasoning_content": reasoning,
+                    },
                     "finish_reason": finish,
                 }
             ],
-            "usage": {"prompt_tokens": 11, "completion_tokens": 3},
+            "usage": {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
         },
     )
 
@@ -240,14 +260,31 @@ def _client(responses: list[_FakeResponse], **kwargs: Any) -> tuple[qa.ChatClien
 
 
 async def test_reader_reads_content_and_ignores_reasoning_content() -> None:
-    client, fake = _client([_completion("under the blue plant pot", reasoning="thinking...")])
+    completion = _completion("under the blue plant pot", reasoning="thinking...")
+    expected_raw_response = completion.content
+    client, fake = _client([completion])
     result = await client.complete("prompt")
     assert result.content == "under the blue plant pot"
     assert result.prompt_tokens == 11
+    assert result.total_tokens == 14
     assert result.attempts == 1
+    assert result.response_model == "reasoner-1"
+    assert result.request_id == "chatcmpl-fixture"
+    assert result.system_fingerprint == "fp_fixture"
+    assert result.prompt_bytes == b"prompt"
+    assert result.prompt_sha256 == hashlib.sha256(b"prompt").hexdigest()
+    assert result.raw_request_sha256 == hashlib.sha256(result.raw_request).hexdigest()
+    assert result.raw_response == expected_raw_response
+    assert result.request_parser == qa.CHAT_REQUEST_PARSER
+    assert result.response_parser == qa.CHAT_RESPONSE_PARSER
     assert fake.requests[0]["url"] == "https://api.example.com/v1/chat/completions"
-    assert fake.requests[0]["json"]["max_tokens"] == 4096
-    assert fake.requests[0]["json"]["temperature"] == 0.0
+    request = json.loads(fake.requests[0]["content"])
+    assert request["max_tokens"] == 4096
+    assert request["temperature"] == 0.0
+    assert request["messages"] == [{"role": "user", "content": "prompt"}]
+    assert fake.requests[0]["headers"]["Content-Type"] == "application/json"
+    assert fake.requests[0]["headers"]["Accept-Encoding"] == "identity"
+    assert result.raw_request == fake.requests[0]["content"]
 
 
 async def test_empty_content_from_a_spent_reasoning_budget_is_retried(
@@ -275,10 +312,80 @@ async def test_rate_limits_are_retried_and_exhaustion_raises(
 
 
 async def test_a_protocol_error_fails_fast() -> None:
-    client, fake = _client([_FakeResponse(400, {"error": "bad model"})])
-    with pytest.raises(qa.ChatProtocolError, match="HTTP 400"):
+    client, fake = _client([_FakeResponse(400, {"error": "sensitive provider body"})])
+    with pytest.raises(qa.ChatProtocolError, match="HTTP 400") as raised:
         await client.complete("prompt")
     assert len(fake.requests) == 1
+    assert "sensitive provider body" not in str(raised.value)
+
+
+async def test_publishable_reader_requires_exact_response_model_and_request_id() -> None:
+    client, _ = _client(
+        [_completion("answer", model="alias-behind-the-endpoint")],
+        required_response_model="reasoner-1",
+        require_request_id=True,
+    )
+    with pytest.raises(qa.ChatProtocolError, match="response model mismatch"):
+        await client.complete("prompt")
+
+    client, _ = _client(
+        [_completion("answer", request_id=None)],
+        required_response_model="reasoner-1",
+        require_request_id=True,
+    )
+    with pytest.raises(qa.ChatProtocolError, match="no provider request id"):
+        await client.complete("prompt")
+
+
+def test_raw_chat_replay_rejects_usage_drift_duplicate_keys_and_normalized_tampering() -> None:
+    response = _completion("answer")
+    payload = json.loads(response.content)
+    payload["usage"]["total_tokens"] += 1
+    with pytest.raises(qa.ChatProtocolError, match="does not reconcile"):
+        qa.replay_chat_response(json.dumps(payload).encode())
+
+    duplicate = response.content.decode().replace(
+        '"id": "chatcmpl-fixture"',
+        '"id":"shadow","id": "chatcmpl-fixture"',
+        1,
+    )
+    with pytest.raises(qa.ChatProtocolError, match="malformed JSON"):
+        qa.replay_chat_response(duplicate.encode())
+
+    result = qa.chat_result_from_raw_response(
+        response.content,
+        prompt="prompt",
+        attempts=1,
+        latency_ms=1.0,
+    )
+    with pytest.raises(qa.ChatProtocolError, match="differs from replayed"):
+        replace(result, completion_tokens=result.completion_tokens + 1)
+    with pytest.raises(qa.ChatProtocolError, match="prompt bytes differ"):
+        replace(result, prompt_sha256="0" * 64)
+
+
+def test_raw_chat_request_replay_freezes_prompt_controls_and_thinking_mode() -> None:
+    raw = qa.chat_request_bytes(
+        prompt="question",
+        model="deepseek-v4-flash",
+        temperature=0.0,
+        max_tokens=4096,
+        thinking_mode="disabled",
+    )
+    replayed = qa.replay_chat_request(raw)
+    assert replayed.prompt == "question"
+    assert replayed.model == "deepseek-v4-flash"
+    assert replayed.temperature == 0.0
+    assert replayed.max_tokens == 4096
+    assert replayed.thinking_mode == "disabled"
+
+    duplicate = raw.decode().replace('"model":', '"model":"shadow","model":', 1)
+    with pytest.raises(qa.ChatProtocolError, match="malformed JSON"):
+        qa.replay_chat_request(duplicate.encode())
+    payload = json.loads(raw)
+    payload["unfrozen_parameter"] = True
+    with pytest.raises(qa.ChatProtocolError, match="fields differ"):
+        qa.replay_chat_request(json.dumps(payload).encode())
 
 
 def test_the_base_url_tolerates_a_trailing_v1() -> None:
@@ -295,9 +402,256 @@ def test_the_base_url_tolerates_a_trailing_v1() -> None:
     assert stripped.base_url == "https://api.example.com"
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://user:secret@api.example.com",
+        "https://api.example.com?api_key=secret",
+        "https://api.example.com#secret",
+    ],
+)
+def test_chat_base_url_rejects_secret_bearing_components(base_url: str) -> None:
+    with pytest.raises(ValueError, match="must not contain"):
+        qa.ChatClient(
+            base_url=base_url,
+            model="m",
+            api_key=None,
+            temperature=0.0,
+            max_tokens=16,
+            client=_FakeClient([]),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# retrieval replay
+# --------------------------------------------------------------------------- #
+
+
+def _replay_record() -> dict[str, Any]:
+    return {
+        **RECORD,
+        "answer_session_ids": ["gold"],
+        "haystack_session_ids": ["decoy", "gold"],
+        "haystack_dates": ["2026/02/01 (Sun) 11:02", "2026/02/06 (Fri) 08:12"],
+        "haystack_sessions": [
+            [{"role": "user", "content": "I replaced the hallway bulb."}],
+            [{"role": "user", "content": "The spare key is under the blue plant pot."}],
+        ],
+    }
+
+
+def _replay_case() -> dict[str, Any]:
+    return {
+        "case_id": RECORD["question_id"],
+        "wall_ms": 12.5,
+        "final_relevance": [0.9, 0.2],
+        "rankings": {"final": ["001:gold", "000:decoy"]},
+        "temporal_routing": None,
+        "haystack_sessions": 2,
+        "degraded_lanes": [],
+    }
+
+
+def _retrieval_fingerprint() -> dict[str, Any]:
+    files = {
+        "scripts/_longmemeval_common.py": "1" * 64,
+        "scripts/evaluate_retrieval_runs.py": "2" * 64,
+        "scripts/run_retrieval_eval.py": "3" * 64,
+        "pyproject.toml": "4" * 64,
+        "uv.lock": "5" * 64,
+        "src/swarmbrain/retrieval/service.py": "6" * 64,
+    }
+    canonical = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+    return {"tree_sha256": hashlib.sha256(canonical).hexdigest(), "files": files}
+
+
+def _dev_retrieval_payload() -> dict[str, Any]:
+    return {
+        "artifact_type": qa.RETRIEVAL_RUN_ARTIFACT_TYPE,
+        "schema_version": qa.RETRIEVAL_ARTIFACT_SCHEMA_VERSION,
+        "protocol_version": qa.RETRIEVAL_PROTOCOL_VERSION,
+        "implementation": _retrieval_fingerprint(),
+        "track": "longmemeval-s",
+        "dataset": {
+            "name": "LongMemEval-S",
+            "sha256": qa.LONGMEMEVAL_S_SHA256,
+            "total_questions": 500,
+            "evaluated_questions": 1,
+        },
+        "granularity": "one memory per haystack session",
+        "recall_limit": 10,
+        "saved_ranking_depth": 50,
+        "dense_lane_enabled": False,
+        "temporal_query_routing": {"enabled": False, "parser": None},
+        "embedding": None,
+        "embedding_call_accounting": None,
+        "cases": [_replay_case()],
+    }
+
+
+def test_saved_retrieval_replay_reconstructs_the_exact_sessions() -> None:
+    replayed = qa.replay_retrieval_case(
+        _replay_record(),
+        _replay_case(),
+        limit=2,
+        min_score=0.0,
+    )
+
+    assert [(session.key, score) for session, score in replayed.hits] == [
+        ("001:gold", 0.9),
+        ("000:decoy", 0.2),
+    ]
+    assert replayed.gold_keys == ("001:gold",)
+    assert replayed.wall_ms == 12.5
+
+    with pytest.raises(ValueError, match="requires --min-score 0.0"):
+        qa.replay_retrieval_case(
+            _replay_record(),
+            _replay_case(),
+            limit=2,
+            min_score=0.25,
+        )
+
+
+def test_saved_retrieval_replay_is_dataset_bound_and_fails_closed(tmp_path: Path) -> None:
+    payload = _dev_retrieval_payload()
+    path = tmp_path / "retrieval-run.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="is not publishable"):
+        qa.load_retrieval_run(path, [_replay_record()], limit=2)
+
+    cases, loaded = qa.load_retrieval_run(
+        path, [_replay_record()], limit=2, require_publishable=False
+    )
+    assert cases[RECORD["question_id"]]["rankings"]["final"][0] == "001:gold"
+    assert loaded["dataset"]["sha256"] == qa.LONGMEMEVAL_S_SHA256
+
+    payload["dataset"]["sha256"] = "0" * 64
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="different dataset digest"):
+        qa.load_retrieval_run(path, [_replay_record()], limit=2, require_publishable=False)
+
+    corrupt = _replay_case()
+    corrupt["rankings"] = {"final": ["001:decoy"]}
+    with pytest.raises(ValueError, match="disagrees with the pinned dataset"):
+        qa.replay_retrieval_case(_replay_record(), corrupt, limit=2, min_score=0.0)
+
+
+def test_publishable_replay_requires_qwen_metadata_and_observed_calls(tmp_path: Path) -> None:
+    selected = _replay_case()
+    cases = [selected]
+    remaining_sessions = qa.LONGMEMEVAL_S_SESSION_COUNT - selected["haystack_sessions"]
+    for index in range(499):
+        remaining_cases = 499 - index
+        session_count, remainder = divmod(remaining_sessions, remaining_cases)
+        if remainder:
+            session_count += 1
+        remaining_sessions -= session_count
+        cases.append(
+            {
+                "case_id": f"other-{index:03d}",
+                "haystack_sessions": session_count,
+                "degraded_lanes": [],
+            }
+        )
+    assert remaining_sessions == 0
+    payload = {
+        **_dev_retrieval_payload(),
+        "dataset": {
+            "name": "LongMemEval-S",
+            "sha256": qa.LONGMEMEVAL_S_SHA256,
+            "total_questions": 500,
+            "evaluated_questions": 500,
+        },
+        "dense_lane_enabled": True,
+        "embedding": {
+            "provider": qa.QWEN_EMBEDDING_PROVIDER,
+            "model": qa.QWEN_EMBEDDING_MODEL,
+            "dimensions": qa.QWEN_EMBEDDING_DIMENSIONS,
+            "response_model_requirement": qa.QWEN_EMBEDDING_MODEL,
+            "query_instruction_sha256": qa.QWEN_QUERY_INSTRUCTION_SHA256,
+        },
+        "embedding_call_accounting": {
+            "source": "provider-observed",
+            "document_inputs": qa.LONGMEMEVAL_S_SESSION_COUNT,
+            "document_batch_calls": 500,
+            "query_calls": 500,
+            "successful_http_calls": 1000,
+            "http_attempts": 1001,
+        },
+        "cases": cases,
+    }
+    path = tmp_path / "publishable-run.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded_cases, _ = qa.load_retrieval_run(path, [_replay_record()], limit=2)
+    assert loaded_cases[RECORD["question_id"]] == selected
+    assert qa.retrieval_publishability_errors(payload) == []
+
+    payload["embedding"]["model"] = "not-qwen"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="source embedding model"):
+        qa.load_retrieval_run(path, [_replay_record()], limit=2)
+
+
+def test_retrieval_replay_rejects_unbound_schema_or_fingerprint(tmp_path: Path) -> None:
+    payload = _dev_retrieval_payload()
+    path = tmp_path / "retrieval-run.json"
+
+    payload["schema_version"] = 1
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="schema_version"):
+        qa.load_retrieval_run(path, [_replay_record()], limit=2, require_publishable=False)
+
+    payload = _dev_retrieval_payload()
+    payload["implementation"]["tree_sha256"] = "0" * 64
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="tree_sha256"):
+        qa.load_retrieval_run(path, [_replay_record()], limit=2, require_publishable=False)
+
+
 # --------------------------------------------------------------------------- #
 # reporting
 # --------------------------------------------------------------------------- #
+
+
+def _chat_result(
+    content: str,
+    *,
+    model: str,
+    request_id: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    latency_ms: float,
+) -> qa.ChatResult:
+    raw_response = json.dumps(
+        {
+            "id": request_id,
+            "model": model,
+            "system_fingerprint": "fp_fixture",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            },
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return qa.chat_result_from_raw_response(
+        raw_response,
+        prompt=f"fixture prompt for {request_id}",
+        attempts=1,
+        latency_ms=latency_ms,
+    )
 
 
 def _outcome(
@@ -314,24 +668,24 @@ def _outcome(
         retrieved_relevance=tuple(0.5 for _ in retrieved),
         gold_keys=gold,
         hypothesis="answer" if label is not None else "",
-        reader=qa.ChatResult(
-            content="answer",
+        reader=_chat_result(
+            "answer",
+            model="reader-v1",
+            request_id=f"chatcmpl-{question_id}",
             prompt_tokens=20000,
             completion_tokens=40,
-            finish_reason="stop",
-            attempts=1,
             latency_ms=1200.0,
         ),
         reader_error=None,
         judge=(
             None
             if label is None
-            else qa.ChatResult(
-                content="yes" if label else "no",
+            else _chat_result(
+                "yes" if label else "no",
+                model="judge-v1",
+                request_id=f"judge-{question_id}",
                 prompt_tokens=300,
                 completion_tokens=1,
-                finish_reason="stop",
-                attempts=1,
                 latency_ms=400.0,
             )
         ),
@@ -343,7 +697,7 @@ def _outcome(
 
 
 def test_report_keys_the_accuracy_as_a_dev_judge_number_and_slices_abstention(
-    tmp_path: Any,
+    tmp_path: Path,
 ) -> None:
     outcomes = [
         _outcome("q1", "multi-session", True),
@@ -351,13 +705,21 @@ def test_report_keys_the_accuracy_as_a_dev_judge_number_and_slices_abstention(
         _outcome("q3_abs", "temporal-reasoning", True),
         _outcome("q4", "temporal-reasoning", None),
     ]
+    hypothesis_path = tmp_path / "x-hypotheses.jsonl"
+    run_path = tmp_path / "x-run.json"
+    hypothesis_path.write_text('{"question_id":"q1","hypothesis":"answer"}\n')
+    run_path.write_text('{"run":"fixture"}\n')
     report = qa.build_report(
         outcomes,
         metadata={"harness": "test"},
-        hypothesis_path=qa.REPO_ROOT / "benchmarks" / "retrieval" / "x-hypotheses.jsonl",
-        run_path=qa.REPO_ROOT / "benchmarks" / "retrieval" / "x-run.json",
+        hypothesis_path=hypothesis_path,
+        run_path=run_path,
     )
 
+    assert report["artifact_type"] == qa.QA_REPORT_ARTIFACT_TYPE
+    assert report["schema_version"] == qa.QA_ARTIFACT_SCHEMA_VERSION
+    assert report["run_artifact"]["bytes"] == run_path.stat().st_size
+    assert len(report["hypothesis_artifact"]["sha256"]) == 64
     assert report["overall"]["dev_judge_accuracy"] == 0.6667
     assert report["overall"]["judged_questions"] == 3
     assert report["overall"]["unjudged_questions"] == 1
@@ -370,15 +732,92 @@ def test_report_keys_the_accuracy_as_a_dev_judge_number_and_slices_abstention(
     assert report["judge_tokens"]["prompt_total"] == 900  # the unjudged question contributes none
 
 
-def test_run_record_carries_the_evidence_for_every_question() -> None:
+def test_run_record_carries_the_evidence_for_every_question(tmp_path: Path) -> None:
+    hypothesis_path = tmp_path / "x-hypotheses.jsonl"
+    receipt_path = tmp_path / "x-chat-receipts.jsonl"
+    hypothesis_path.write_text('{"question_id":"q1","hypothesis":"answer"}\n')
+    outcomes = [
+        _outcome("q1", "multi-session", True, retrieved=("000:a", "001:b"), gold=("000:a",))
+    ]
+    qa.write_chat_receipts(outcomes, receipt_path)
     run = qa.build_run(
-        [_outcome("q1", "multi-session", True, retrieved=("000:a", "001:b"), gold=("000:a",))],
+        outcomes,
         metadata={"harness": "test"},
-        hypothesis_path=qa.REPO_ROOT / "benchmarks" / "retrieval" / "x-hypotheses.jsonl",
+        hypothesis_path=hypothesis_path,
+        chat_receipt_path=receipt_path,
     )
+    assert run["artifact_type"] == qa.QA_RUN_ARTIFACT_TYPE
+    assert run["schema_version"] == qa.QA_ARTIFACT_SCHEMA_VERSION
+    assert run["hypothesis_artifact"]["bytes"] == hypothesis_path.stat().st_size
+    assert len(run["implementation"]["tree_sha256"]) == 64
     entry = run["questions"][0]
     assert entry["question_id"] == "q1"
     assert entry["retrieved_session_keys"] == ["000:a", "001:b"]
     assert entry["gold_sessions_in_bundle"] == 1
     assert entry["dev_judge_label"] is True
     assert entry["reader_prompt_tokens"] == 20000
+    assert entry["reader_response_model"] == "reader-v1"
+    assert entry["reader_request_id"] == "chatcmpl-q1"
+    assert entry["reader_total_tokens"] == 20040
+    assert entry["reader_raw_response_sha256"] == outcomes[0].reader.raw_response_sha256
+    assert entry["reader_receipt"]["index"] == 0
+    assert entry["dev_judge_receipt"]["index"] == 1
+    assert run["chat_receipt_count"] == 2
+    assert (
+        run["chat_receipt_artifact"]["sha256"]
+        == hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    )
+
+
+def test_chat_receipt_sidecar_replays_and_rejects_tampering_or_unbound_observations(
+    tmp_path: Path,
+) -> None:
+    outcomes = [_outcome("q1", "multi-session", True)]
+    receipt_path = tmp_path / "receipts.jsonl"
+    hypothesis_path = tmp_path / "hypotheses.jsonl"
+    hypothesis_path.write_text('{"question_id":"q1","hypothesis":"answer"}\n')
+    qa.write_chat_receipts(outcomes, receipt_path)
+
+    identity, records = qa.load_chat_receipt_artifact(receipt_path)
+    assert identity["sha256"] == hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    replayed = qa.validate_chat_receipt_record(records[0])
+    assert replayed.content == "answer"
+    assert replayed.prompt_bytes == outcomes[0].reader.prompt_bytes
+    assert replayed.raw_request == outcomes[0].reader.raw_request
+    assert replayed.raw_response == outcomes[0].reader.raw_response
+
+    changed = json.loads(receipt_path.read_text().splitlines()[0])
+    changed["transport"]["latency_ms"] += 1.0
+    receipt_path.write_text(
+        json.dumps(changed, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    )
+    with pytest.raises(ValueError, match="differs from the supplied QA outcomes"):
+        qa.build_run(
+            outcomes,
+            metadata={"harness": "test"},
+            hypothesis_path=hypothesis_path,
+            chat_receipt_path=receipt_path,
+        )
+
+    changed["provider_response"]["raw_sha256"] = "0" * 64
+    receipt_path.write_text(
+        json.dumps(changed, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    )
+    with pytest.raises(ValueError, match="raw response digest is inconsistent"):
+        qa.load_chat_receipt_artifact(receipt_path)
+
+    qa.write_chat_receipts(outcomes, receipt_path)
+    changed = json.loads(receipt_path.read_text().splitlines()[0])
+    changed["provider_request"]["raw_sha256"] = "0" * 64
+    receipt_path.write_text(
+        json.dumps(changed, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    )
+    with pytest.raises(ValueError, match="raw request digest is inconsistent"):
+        qa.load_chat_receipt_artifact(receipt_path)
+
+    qa.write_chat_receipts(outcomes, receipt_path)
+    receipt_path.write_bytes(
+        receipt_path.read_bytes() + receipt_path.read_bytes().splitlines()[0] + b"\n"
+    )
+    with pytest.raises(ValueError, match="repeats route"):
+        qa.load_chat_receipt_artifact(receipt_path)
