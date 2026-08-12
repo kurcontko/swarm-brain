@@ -1,0 +1,52 @@
+{
+  "ann_vector_indexes": [
+    "memory_vector_embeddings_ann"
+  ],
+  "artifact": "cloud-schema-install",
+  "cloud_regions": [
+    "('aws-us-east-1', ['aws-us-east-1a', 'aws-us-east-1b', 'aws-us-east-1c', 'aws-us-east-1d', 'aws-us-east-1f'], ['swarmbrain', 'system'], ['swarmbrain', 'system'], [])"
+  ],
+  "cluster_host": "postgresql://***@<cluster-host>.aws-us-east-1.cockroachlabs.cloud:26257",
+  "cockroachdb_version": "CockroachDB CCL v26.2.5 (x86_64-pc-linux-gnu, built 2026/07/28 18:56:00, go1.25.5)",
+  "database": "swarmbrain",
+  "generated_at": "2026-08-12T12:38:39.624640+00:00",
+  "install": "swarmbrain-schema install \u2192 installed and verified Swarm Brain schema (84 statements)",
+  "schema_version_row": "(12, 'Swarm Brain v12 provenance-backed event occurrence with v11 content-free observational memory/outcome associations', b'\\x8e\\xec\\xffz\\xd4\\xf3\\x85\\x80S\\x07\\xeeL\\xb6\\xcd\\xe3\"m\\x0b{\\xfcI\\xb1\\xa4\\xc1\\x8c\\xcbo\\xbf\\x1d\\xe8\\xec:', datetime.datetime(2026, 8, 12, 12, 38, 5, 879044, tzinfo=datetime.timezone.utc))",
+  "table_count": 33,
+  "tables": [
+    "action_attempts",
+    "agent_tokens",
+    "agents",
+    "conflict_evidence",
+    "evidence",
+    "idempotency_records",
+    "memories",
+    "memory_conflict_members",
+    "memory_conflicts",
+    "memory_embeddings",
+    "memory_evidence",
+    "memory_links",
+    "memory_outcome_associations",
+    "memory_vector_embeddings",
+    "outbox_events",
+    "outbox_work_attempts",
+    "outbox_work_effects",
+    "outbox_work_items",
+    "retrieval_documents",
+    "retrieval_exact_terms",
+    "retrieval_reuse_counters",
+    "retrieval_vectors_1024",
+    "runs",
+    "source_chunks",
+    "source_extractions",
+    "sources",
+    "swarm_events",
+    "swarmbrain_schema_versions",
+    "task_checkpoints",
+    "task_completions",
+    "task_dependencies",
+    "task_leases",
+    "tasks"
+  ],
+  "verify": "swarmbrain-schema verify \u2192 Swarm Brain schema is installed and current"
+}
