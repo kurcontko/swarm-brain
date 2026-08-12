@@ -334,19 +334,51 @@ maintenance window.
   distinction the application genuinely needs, and CockroachDB reports it
   accurately.
 
-## On the Managed MCP Server — what we want from it
+## On the Managed MCP Server — now from real usage
 
-We have not run it yet, so this is a design request rather than a friction
-report. Our intent is to attach the read-only, audit-logged Managed MCP server
-to a coding agent as an **observability** surface over the live swarm — inspect
-supersession lineage, active leases, run metrics, ANN plans — while the swarm's
-own seven-tool stdio bridge remains the only write path. The write path has to
-enforce capabilities, scope, lease fencing, idempotency, and the memory policy;
-a general SQL tool cannot.
+We ran it on 2026-08-12: an OAuth session (PKCE + dynamic client registration —
+which worked on the first attempt, against a stock Python MCP client, and
+deserves credit for that) pinned to one cluster, driving a ten-call read-only
+inspection of the swarm's live memory store, including a vector search through
+`select_query` and an `explain_query` receipt showing the ANN index in the
+plan (`evidence/20260812T131535Z-managed-mcp-inspection.json`).
 
-The ask that follows from that: make **read-only mode plus per-session audit
-export a first-class, verifiable artifact**. For a memory system, "here is the
-audit log of every query the agent ran against the memory store" is not a
-nice-to-have — it is the thing that makes an agent's access to a shared brain
-reviewable. If a Managed MCP session can emit a signed, exportable transcript,
-that becomes a compliance story rather than a convenience feature.
+Friction found, in order of impact:
+
+1. **`explain_query` failures are opaque.** A query that `EXPLAIN` accepts
+   over a SQL connection failed through the tool with only
+   `explain query: SQL execution failed` — no SQLSTATE, no server message. By
+   contrast `select_query` relays the real error (`column "m.superseded_by"
+   does not exist`), which let an agent self-correct in one step. The
+   `explain_query` path should relay the underlying error the same way; an
+   agent cannot repair a query it cannot see the failure of.
+2. **No parameter binding.** Understandable for an agent-facing SQL tool, but
+   for vector workloads it means inlining a 1024-dimension literal (~8 KB of
+   text) into the statement. A documented size ceiling — or a first-class
+   "embed this text with the cluster's model, then search" tool — would remove
+   the sharpest edge for exactly the workload this hackathon is about.
+3. **`select_query`'s guard is precise and its message is good** ("only SELECT
+   statements are allowed, got EXPLAIN") — but it means plan inspection is
+   exclusively `explain_query`'s job, which loops back to point 1.
+
+The standing design ask: make **read-only mode plus per-session audit export a
+first-class, verifiable artifact**. For a memory system, "here is the audit log
+of every query the agent ran against the memory store" is not a nice-to-have —
+it is the thing that makes an agent's access to a shared brain reviewable. If a
+Managed MCP session can emit a signed, exportable transcript, that becomes a
+compliance story rather than a convenience feature.
+
+## Why this workload should matter to CockroachDB
+
+Agentic memory is not one more OLTP app; it is a workload whose buying criteria
+are CockroachDB's exact differentiators. Fleet coordination is `SERIALIZABLE`
+contention by construction. Governance wants lineage and audit — append-only,
+bitemporal SQL. Platform teams want the agent layer to inherit the survivability
+and horizontal scale the database was already approved for, and they want
+memory that no model vendor owns. Every enterprise standing up an agent
+platform in the next two years will need somewhere to put exactly this state —
+and the alternatives on the table today are a vendor's opaque session store or
+a Redis cache with none of the above. The sharper the vector prefix story, the
+managed MCP audit surface, and the filtered-ANN ergonomics get, the easier that
+argument becomes to make inside those organizations. We wrote this entry partly
+to be able to make it.

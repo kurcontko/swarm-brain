@@ -24,6 +24,25 @@ See the [current retrieval status](docs/retrieval-status.md), the
 the [agent memory & retrieval SOTA research dump](docs/research/sota-agent-memory-retrieval-2026-08-07.md),
 and the [paper-to-runtime implementation map](docs/paper-driven-memory-runtime.md).
 
+## Who this is for
+
+- **Platform engineering teams running AI agent fleets.** Uncoordinated agents
+  redo each other's work: in our measured A/B over the same task set, the fleet
+  without the shared brain performed 4.12× the work (78 of 103 agent-steps
+  eliminated; evidence artifacts in `evidence/`, reproduced against CockroachDB
+  Cloud). Exactly-once task claims, crash handoff, and memory reuse are the
+  cost control.
+- **AI governance and compliance owners.** Bitemporal memory with supersession
+  lineage answers *which agent knew what, when, and on what evidence* — wrong
+  claims are corrected, never erased; poisoning attempts are rejected and
+  recorded. A read-only, audit-logged Managed MCP session gives auditors a
+  window without a write path.
+- **Engineering organizations avoiding model-vendor lock-in.** The brain lives
+  in your database, not in a vendor's session: one vendor's agent dies mid-task
+  and another vendor's agent resumes from its durable checkpoint. Coding agents
+  are the demo vertical; the claims/leases/memory contract is domain-agnostic
+  and serves any agent fleet.
+
 ## What it includes
 
 - authenticated tenant/project/repository/swarm/run/agent context;
