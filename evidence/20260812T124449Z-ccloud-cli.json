@@ -1,0 +1,9 @@
+{
+  "artifact": "ccloud-cli-evidence",
+  "auth": "OAuth browser login via `ccloud auth login`",
+  "cluster_info": " name: <cluster> \n id: <cluster-id> \n cockroach version: v26.2.5 \n cloud: AWS \n plan type: SERVERLESS \n state: CREATED \n spend limit: <spend-limit> \n regions: us-east-1 (primary) \nCluster info ",
+  "cluster_list": "NAME          ID                                    PLAN TYPE   CREATED AT                            STATE    CLOUD  VERSION\n<cluster>  <cluster-id>  SERVERLESS  2026-08-01 19:12:05.078829 +0000 UTC  CREATED  AWS    v26.2.5",
+  "generated_at": "2026-08-12T12:44:49.729577+00:00",
+  "notes": "Cluster <cluster> (<cluster-id>), AWS us-east-1, v26.2.5, hosts the swarmbrain database whose schema install/verify is captured in the cloud-schema-install artifact.",
+  "tool": "ccloud 0.6.12 (CCAPI 2023-04-10), installed from binaries.cockroachdb.com"
+}
