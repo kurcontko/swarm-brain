@@ -52,9 +52,10 @@ COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Manifests first so the dependency layer survives a source-only edit.
-# README.md is a build input, not documentation shipped for its own sake:
-# pyproject.toml names it as `readme`, and hatchling reads it to build metadata.
-COPY pyproject.toml uv.lock README.md ./
+# README.md and LICENSE are build inputs, not documentation shipped for their
+# own sake: pyproject.toml names them as `readme` and `license`, and hatchling
+# reads both to build metadata.
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
 
 # `--frozen`        the lock is the authority; a drifted pyproject fails the

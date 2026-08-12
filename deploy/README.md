@@ -188,9 +188,15 @@ scripts/provision_cloud.sh # approval-gated: creates the cluster
 ```
 
 It creates the Basic cluster in `us-east-1`, creates a SQL user, and prints the
-connection URL shape. **Basic clusters use a publicly trusted CA**, so no CA
-file is needed — `sslmode=verify-full` works against the container's system
-trust store.
+connection URL shape. **Basic clusters use a publicly trusted CA** (Let's
+Encrypt, chaining to ISRG Root X1), so no cluster-specific CA file is needed —
+but the DSN must say **where** the trust store is:
+`&sslrootcert=/etc/ssl/certs/ca-certificates.crt`. Verified in a container on
+2026-08-13: with no `sslrootcert`, libpq looks for `~/.postgresql/root.crt` in
+the unprivileged user's nonexistent home; `sslrootcert=system` also fails
+because psycopg's bundled OpenSSL carries its own default CA path that does not
+exist in this image. The explicit Debian bundle path works and is what the
+Secrets Manager DSN must carry.
 
 ### 2. Install the schema
 
@@ -226,7 +232,9 @@ aws secretsmanager create-secret \
   --tags Key=project,Value=swarm-brain Key=event,Value=crdb-aws-hackathon-2026
 ```
 
-The database URL **must** carry `sslmode=verify-full`. Anything weaker —
+The database URL **must** carry `sslmode=verify-full` **and**
+`sslrootcert=/etc/ssl/certs/ca-certificates.crt` (see step 1 for why the
+explicit path is required in this image). Anything weaker than `verify-full` —
 `require`, `prefer`, or nothing — authenticates the client to the server
 without authenticating the server to the client, which leaves the connection
 open to an active man-in-the-middle and makes "accountable memory" a claim the
