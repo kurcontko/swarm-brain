@@ -1,0 +1,514 @@
+{
+  "artifact": "managed-mcp-inspection",
+  "auth": "OAuth 2.0 authorization-code (PKCE, dynamic client registration), scope mcp:read mcp:write; session used read-only tools exclusively",
+  "calls": [
+    {
+      "arguments": {},
+      "is_error": false,
+      "result": {
+        "rows": [
+          {
+            "cloud_provider": "AWS",
+            "cockroach_version": "v26.2.5",
+            "created_at": "2026-08-01T19:12:05Z",
+            "id": "<cluster-id>",
+            "name": "<cluster>",
+            "plan": "BASIC",
+            "regions": [
+              {
+                "name": "us-east-1",
+                "node_count": 0
+              }
+            ],
+            "state": "CREATED",
+            "updated_at": "2026-08-07T03:34:19Z"
+          }
+        ]
+      },
+      "tool": "list_clusters"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>"
+      },
+      "is_error": false,
+      "result": {
+        "cloud_provider": "AWS",
+        "cockroach_version": "v26.2.5",
+        "created_at": "2026-08-01T19:12:05Z",
+        "id": "<cluster-id>",
+        "name": "<cluster>",
+        "plan": "BASIC",
+        "regions": [
+          {
+            "name": "us-east-1",
+            "node_count": 0
+          }
+        ],
+        "state": "CREATED",
+        "updated_at": "2026-08-07T03:34:19Z"
+      },
+      "tool": "get_cluster"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>"
+      },
+      "is_error": false,
+      "result": {
+        "rows": [
+          {
+            "database_name": "defaultdb",
+            "owner": "root",
+            "primary_region": null,
+            "regions": [],
+            "secondary_region": null,
+            "survival_goal": null
+          },
+          {
+            "database_name": "swarmbrain",
+            "owner": "<db-owner>",
+            "primary_region": "aws-us-east-1",
+            "regions": [
+              "aws-us-east-1"
+            ],
+            "secondary_region": "",
+            "survival_goal": "zone"
+          }
+        ]
+      },
+      "tool": "list_databases"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>",
+        "database": "swarmbrain"
+      },
+      "is_error": false,
+      "result": {
+        "rows": [
+          {
+            "estimated_row_count": 1,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "swarmbrain_schema_versions",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "runs",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "agents",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "agent_tokens",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "tasks",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "task_dependencies",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "task_leases",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "task_checkpoints",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "task_completions",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "sources",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "source_chunks",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memories",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memory_outcome_associations",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "retrieval_documents",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "retrieval_exact_terms",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memory_embeddings",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memory_vector_embeddings",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "retrieval_vectors_1024",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "retrieval_reuse_counters",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "evidence",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memory_evidence",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memory_links",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memory_conflicts",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "memory_conflict_members",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "conflict_evidence",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "idempotency_records",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "action_attempts",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "outbox_events",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "source_extractions",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "outbox_work_items",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "outbox_work_attempts",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "outbox_work_effects",
+            "type": "table"
+          },
+          {
+            "estimated_row_count": 0,
+            "locality": "REGIONAL BY TABLE IN PRIMARY REGION",
+            "owner": "<db-owner>",
+            "schema_name": "public",
+            "table_name": "swarm_events",
+            "type": "table"
+          }
+        ]
+      },
+      "tool": "list_tables"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>",
+        "database": "swarmbrain",
+        "table": "memories"
+      },
+      "is_error": false,
+      "result": {
+        "rows": [
+          {
+            "create_statement": "CREATE TABLE public.memories (\n\tid UUID NOT NULL DEFAULT gen_random_uuid(),\n\ttenant_id STRING NOT NULL,\n\tproject_id STRING NOT NULL,\n\trepository_id STRING NOT NULL,\n\tswarm_id STRING NOT NULL,\n\trun_id STRING NOT NULL,\n\ttask_id UUID NULL,\n\tagent_id STRING NOT NULL,\n\tkind STRING NOT NULL,\n\tstate STRING NOT NULL DEFAULT 'tentative':::STRING,\n\tvisibility STRING NOT NULL DEFAULT 'run':::STRING,\n\tcontent STRING NOT NULL,\n\tcontent_json JSONB NULL,\n\ttitle STRING NULL,\n\ttags STRING[] NOT NULL DEFAULT ARRAY[]:::STRING[],\n\tnormalized_sha256 BYTES NOT NULL,\n\tdedup_scope STRING NOT NULL,\n\tconfidence DECIMAL(5,4) NOT NULL DEFAULT 0.5000:::DECIMAL,\n\toccurred_at TIMESTAMPTZ NULL,\n\tvalid_from TIMESTAMPTZ NOT NULL DEFAULT now():::TIMESTAMPTZ,\n\tvalid_to TIMESTAMPTZ NULL,\n\trecorded_from TIMESTAMPTZ NOT NULL DEFAULT now():::TIMESTAMPTZ,\n\trecorded_to TIMESTAMPTZ NULL,\n\tsupersedes_id UUID NULL,\n\tsuperseded_by_id UUID NULL,\n\tsource_id UUID NULL,\n\tprevious_state STRING NULL,\n\tpolicy_reason STRING NOT NULL DEFAULT '':::STRING,\n\tpolicy_confidence DECIMAL(5,4) NOT NULL DEFAULT 1.0000:::DECIMAL,\n\tversion INT8 NOT NULL DEFAULT 1:::INT8,\n\tmetadata JSONB NOT NULL DEFAULT '{}':::JSONB,\n\tCONSTRAINT memories_pkey PRIMARY KEY (id ASC),\n\tCONSTRAINT memories_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE SET NULL,\n\tCONSTRAINT memories_supersedes_id_fkey FOREIGN KEY (supersedes_id) REFERENCES public.memories(id) ON DELETE RESTRICT,\n\tCONSTRAINT memories_superseded_by_id_fkey FOREIGN KEY (superseded_by_id) REFERENCES public.memories(id) ON DELETE RESTRICT,\n\tCONSTRAINT memories_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id) ON DELETE SET NULL,\n\tINDEX memories_current_scope (tenant_id ASC, repository_id ASC, run_id ASC, visibility ASC, state ASC, recorded_from DESC, id ASC) STORING (task_id, agent_id, kind, confidence, valid_from, valid_to, content) WHERE recorded_to IS NULL,\n\tINDEX memories_task_current (task_id ASC, state ASC, recorded_from DESC, id ASC) STORING (kind, confidence, content, agent_id) WHERE (task_id IS NOT NULL) AND (recorded_to IS NULL),\n\tINDEX memories_source (source_id ASC) STORING (state, recorded_to, supersedes_id, superseded_by_id) WHERE source_id IS NOT NULL,\n\tUNIQUE INDEX memories_one_successor (supersedes_id ASC) WHERE supersedes_id IS NOT NULL,\n\tINDEX memories_current_fingerprint (tenant_id ASC, repository_id ASC, dedup_scope ASC, kind ASC, normalized_sha256 ASC) WHERE (recorded_to IS NULL) AND (state != 'refuted':::STRING),\n\tCONSTRAINT memories_state_check CHECK (state IN ('tentative':::STRING, 'confirmed':::STRING, 'refuted':::STRING, 'superseded':::STRING)),\n\tCONSTRAINT memories_visibility_check CHECK (visibility IN ('task':::STRING, 'run':::STRING, 'repository':::STRING)),\n\tCONSTRAINT memories_task_visibility_check CHECK ((visibility != 'task':::STRING) OR (task_id IS NOT NULL)),\n\tCONSTRAINT memories_confidence_check CHECK ((confidence >= 0:::DECIMAL) AND (confidence <= 1:::DECIMAL)),\n\tCONSTRAINT memories_policy_confidence_check CHECK ((policy_confidence >= 0:::DECIMAL) AND (policy_confidence <= 1:::DECIMAL)),\n\tCONSTRAINT memories_previous_state_check CHECK ((previous_state IS NULL) OR (previous_state IN ('tentative':::STRING, 'confirmed':::STRING, 'refuted':::STRING))),\n\tCONSTRAINT memories_valid_interval_check CHECK ((valid_to IS NULL) OR (valid_to > valid_from)),\n\tCONSTRAINT memories_recorded_interval_check CHECK ((recorded_to IS NULL) OR (recorded_to > recorded_from)),\n\tCONSTRAINT memories_supersession_check CHECK ((supersedes_id IS NULL) OR (supersedes_id != id))\n) WITH (schema_locked = true) LOCALITY REGIONAL BY TABLE IN PRIMARY REGION;",
+            "table_name": "swarmbrain.public.memories"
+          }
+        ]
+      },
+      "tool": "get_table_schema"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>",
+        "database": "swarmbrain",
+        "table": "memory_vector_embeddings"
+      },
+      "is_error": false,
+      "result": {
+        "rows": [
+          {
+            "create_statement": "CREATE TABLE public.memory_vector_embeddings (\n\tmemory_id UUID NOT NULL,\n\ttenant_id STRING NOT NULL,\n\tproject_id STRING NOT NULL,\n\trepository_id STRING NOT NULL,\n\tmodel STRING(255) NOT NULL,\n\tdimensions INT8 NOT NULL,\n\tembedding VECTOR(1024) NOT NULL,\n\tcreated_at TIMESTAMPTZ NOT NULL DEFAULT now():::TIMESTAMPTZ,\n\tCONSTRAINT memory_vector_embeddings_pkey PRIMARY KEY (memory_id ASC, model ASC),\n\tCONSTRAINT memory_vector_embeddings_memory_id_fkey FOREIGN KEY (memory_id) REFERENCES public.memories(id) ON DELETE CASCADE,\n\tVECTOR INDEX memory_vector_embeddings_ann (tenant_id, project_id, repository_id, model, embedding vector_cosine_ops),\n\tCONSTRAINT memory_vector_embeddings_dimensions_check CHECK (dimensions = 1024:::INT8)\n) WITH (schema_locked = true) LOCALITY REGIONAL BY TABLE IN PRIMARY REGION;",
+            "table_name": "swarmbrain.public.memory_vector_embeddings"
+          }
+        ]
+      },
+      "tool": "get_table_schema"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>",
+        "database": "swarmbrain",
+        "query": "SELECT * FROM swarmbrain_schema_versions ORDER BY 1 DESC LIMIT 3"
+      },
+      "is_error": false,
+      "result": {
+        "rows": [
+          {
+            "description": "Swarm Brain v12 provenance-backed event occurrence with v11 content-free observational memory/outcome associations",
+            "installed_at": "2026-08-12T12:38:05.879044Z",
+            "schema_sha256": "\\x8eecff7ad4f385805307ee4cb6cde3226d0b7bfc49b1a4c18ccb6fbf1de8ec3a",
+            "version": 12
+          }
+        ]
+      },
+      "tool": "select_query"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>",
+        "database": "swarmbrain",
+        "query": "SELECT m.id, m.kind, m.state, m.supersedes_id, m.superseded_by_id, m.recorded_from, m.recorded_to\nFROM memories AS m\nORDER BY m.recorded_from DESC\nLIMIT 10"
+      },
+      "is_error": false,
+      "result": {
+        "rows": []
+      },
+      "tool": "select_query"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>",
+        "database": "swarmbrain",
+        "query": "SELECT v.memory_id FROM memory_vector_embeddings AS v WHERE v.tenant_id='demo' AND v.project_id='demo' AND v.repository_id='demo' AND v.model='amazon.titan-embed-text-v2:0' ORDER BY v.embedding <=> '[0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125]'::VECTOR(1024) LIMIT 10"
+      },
+      "is_error": false,
+      "result": {
+        "rows": []
+      },
+      "tool": "select_query"
+    },
+    {
+      "arguments": {
+        "cluster_id": "<cluster-id>",
+        "database": "swarmbrain",
+        "query": "SELECT v.memory_id FROM memory_vector_embeddings AS v WHERE v.tenant_id='demo' AND v.project_id='demo' AND v.repository_id='demo' AND v.model='amazon.titan-embed-text-v2:0' ORDER BY v.embedding <=> '[0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125]'::VECTOR(1024) LIMIT 10"
+      },
+      "is_error": false,
+      "result": {
+        "rows": [
+          {
+            "info": "distribution: local"
+          },
+          {
+            "info": ""
+          },
+          {
+            "info": "\u2022 top-k"
+          },
+          {
+            "info": "\u2502 estimated row count: 1"
+          },
+          {
+            "info": "\u2502 order: +column13"
+          },
+          {
+            "info": "\u2502 k: 10"
+          },
+          {
+            "info": "\u2502"
+          },
+          {
+            "info": "\u2514\u2500\u2500 \u2022 render"
+          },
+          {
+            "info": "    \u2502"
+          },
+          {
+            "info": "    \u2514\u2500\u2500 \u2022 lookup join"
+          },
+          {
+            "info": "        \u2502 table: memory_vector_embeddings@memory_vector_embeddings_pkey"
+          },
+          {
+            "info": "        \u2502 equality: (memory_id, model) = (memory_id, model)"
+          },
+          {
+            "info": "        \u2502 equality cols are key"
+          },
+          {
+            "info": "        \u2502"
+          },
+          {
+            "info": "        \u2514\u2500\u2500 \u2022 vector search"
+          },
+          {
+            "info": "              table: memory_vector_embeddings@memory_vector_embeddings_ann"
+          },
+          {
+            "info": "              target count: 10"
+          },
+          {
+            "info": "              prefix spans: [/'demo'/'demo'/'demo'/'amazon.titan-embed-text-v2:0' - /'demo'/'demo'/'demo'/'amazon.titan-embed-text-v2:0']"
+          }
+        ]
+      },
+      "tool": "explain_query"
+    }
+  ],
+  "cluster_id": "<cluster-id>",
+  "database": "swarmbrain",
+  "generated_at": "2026-08-12T13:15:29.952661+00:00",
+  "server_info": {
+    "icons": null,
+    "name": "cockroachdb-cloud",
+    "title": null,
+    "version": "1.0.0",
+    "websiteUrl": null
+  },
+  "server_url": "https://cockroachlabs.cloud/mcp"
+}
