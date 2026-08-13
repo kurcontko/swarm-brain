@@ -2,114 +2,46 @@
   "answer_in_context": {
     "k=10": {
       "budget=16000": {
-        "all_gold_in_context": 0.822,
+        "all_gold_in_context": 0.816,
         "answerable_cases": 500,
-        "any_gold_in_context": 0.96,
+        "any_gold_in_context": 0.964,
         "budget": 16000,
         "cases": 500,
-        "mean_hits_kept": 4.828,
-        "mean_tokens": 15139.2,
+        "mean_hits_kept": 4.766,
+        "mean_tokens": 15107.4,
         "policy": "greedy",
         "truncated_cases": 500
       },
       "budget=2000": {
-        "all_gold_in_context": 0.094,
+        "all_gold_in_context": 0.092,
         "answerable_cases": 500,
-        "any_gold_in_context": 0.118,
+        "any_gold_in_context": 0.116,
         "budget": 2000,
         "cases": 500,
-        "mean_hits_kept": 0.786,
-        "mean_tokens": 1009.4,
+        "mean_hits_kept": 0.752,
+        "mean_tokens": 996.8,
         "policy": "greedy",
         "truncated_cases": 500
       },
       "budget=32000": {
-        "all_gold_in_context": 0.94,
+        "all_gold_in_context": 0.936,
         "answerable_cases": 500,
-        "any_gold_in_context": 0.994,
+        "any_gold_in_context": 0.99,
         "budget": 32000,
         "cases": 500,
-        "mean_hits_kept": 9.232,
-        "mean_tokens": 29996.5,
+        "mean_hits_kept": 9.188,
+        "mean_tokens": 30037.6,
         "policy": "greedy",
-        "truncated_cases": 302
+        "truncated_cases": 316
       },
       "budget=4000": {
         "all_gold_in_context": 0.222,
         "answerable_cases": 500,
-        "any_gold_in_context": 0.722,
+        "any_gold_in_context": 0.726,
         "budget": 4000,
         "cases": 500,
-        "mean_hits_kept": 1.318,
-        "mean_tokens": 3393.5,
-        "policy": "greedy",
-        "truncated_cases": 500
-      },
-      "budget=8000": {
-        "all_gold_in_context": 0.584,
-        "answerable_cases": 500,
-        "any_gold_in_context": 0.918,
-        "budget": 8000,
-        "cases": 500,
-        "mean_hits_kept": 2.464,
-        "mean_tokens": 7224.4,
-        "policy": "greedy",
-        "truncated_cases": 500
-      },
-      "budget=none": {
-        "all_gold_in_context": 0.952,
-        "answerable_cases": 500,
-        "any_gold_in_context": 0.994,
-        "budget": null,
-        "cases": 500,
-        "mean_hits_kept": 10.0,
-        "mean_tokens": 32749.8,
-        "policy": "greedy",
-        "truncated_cases": 0
-      }
-    },
-    "k=5": {
-      "budget=16000": {
-        "all_gold_in_context": 0.814,
-        "answerable_cases": 500,
-        "any_gold_in_context": 0.956,
-        "budget": 16000,
-        "cases": 500,
-        "mean_hits_kept": 4.298,
-        "mean_tokens": 14267.3,
-        "policy": "greedy",
-        "truncated_cases": 327
-      },
-      "budget=2000": {
-        "all_gold_in_context": 0.09,
-        "answerable_cases": 500,
-        "any_gold_in_context": 0.114,
-        "budget": 2000,
-        "cases": 500,
-        "mean_hits_kept": 0.39,
-        "mean_tokens": 542.1,
-        "policy": "greedy",
-        "truncated_cases": 500
-      },
-      "budget=32000": {
-        "all_gold_in_context": 0.858,
-        "answerable_cases": 500,
-        "any_gold_in_context": 0.966,
-        "budget": 32000,
-        "cases": 500,
-        "mean_hits_kept": 5.0,
-        "mean_tokens": 16849.2,
-        "policy": "greedy",
-        "truncated_cases": 0
-      },
-      "budget=4000": {
-        "all_gold_in_context": 0.218,
-        "answerable_cases": 500,
-        "any_gold_in_context": 0.718,
-        "budget": 4000,
-        "cases": 500,
-        "mean_hits_kept": 1.13,
-        "mean_tokens": 3208.1,
+        "mean_hits_kept": 1.294,
+        "mean_tokens": 3391.1,
         "policy": "greedy",
         "truncated_cases": 500
       },
@@ -119,24 +51,93 @@
         "any_gold_in_context": 0.914,
         "budget": 8000,
         "cases": 500,
-        "mean_hits_kept": 2.192,
-        "mean_tokens": 6892.8,
+        "mean_hits_kept": 2.43,
+        "mean_tokens": 7215.7,
         "policy": "greedy",
         "truncated_cases": 500
       },
       "budget=none": {
-        "all_gold_in_context": 0.858,
+        "all_gold_in_context": 0.942,
         "answerable_cases": 500,
-        "any_gold_in_context": 0.966,
+        "any_gold_in_context": 0.99,
+        "budget": null,
+        "cases": 500,
+        "mean_hits_kept": 10.0,
+        "mean_tokens": 32984.9,
+        "policy": "greedy",
+        "truncated_cases": 0
+      }
+    },
+    "k=5": {
+      "budget=16000": {
+        "all_gold_in_context": 0.812,
+        "answerable_cases": 500,
+        "any_gold_in_context": 0.962,
+        "budget": 16000,
+        "cases": 500,
+        "mean_hits_kept": 4.274,
+        "mean_tokens": 14264.4,
+        "policy": "greedy",
+        "truncated_cases": 333
+      },
+      "budget=2000": {
+        "all_gold_in_context": 0.09,
+        "answerable_cases": 500,
+        "any_gold_in_context": 0.114,
+        "budget": 2000,
+        "cases": 500,
+        "mean_hits_kept": 0.382,
+        "mean_tokens": 532.8,
+        "policy": "greedy",
+        "truncated_cases": 500
+      },
+      "budget=32000": {
+        "all_gold_in_context": 0.852,
+        "answerable_cases": 500,
+        "any_gold_in_context": 0.968,
+        "budget": 32000,
+        "cases": 500,
+        "mean_hits_kept": 5.0,
+        "mean_tokens": 16925.8,
+        "policy": "greedy",
+        "truncated_cases": 0
+      },
+      "budget=4000": {
+        "all_gold_in_context": 0.22,
+        "answerable_cases": 500,
+        "any_gold_in_context": 0.724,
+        "budget": 4000,
+        "cases": 500,
+        "mean_hits_kept": 1.124,
+        "mean_tokens": 3214.3,
+        "policy": "greedy",
+        "truncated_cases": 500
+      },
+      "budget=8000": {
+        "all_gold_in_context": 0.578,
+        "answerable_cases": 500,
+        "any_gold_in_context": 0.912,
+        "budget": 8000,
+        "cases": 500,
+        "mean_hits_kept": 2.184,
+        "mean_tokens": 6894.3,
+        "policy": "greedy",
+        "truncated_cases": 500
+      },
+      "budget=none": {
+        "all_gold_in_context": 0.852,
+        "answerable_cases": 500,
+        "any_gold_in_context": 0.968,
         "budget": null,
         "cases": 500,
         "mean_hits_kept": 5.0,
-        "mean_tokens": 16849.2,
+        "mean_tokens": 16925.8,
         "policy": "greedy",
         "truncated_cases": 0
       }
     }
   },
+  "artifact_type": "swarmbrain-retrieval-eval-report",
   "bundle_by_floor": {
     "k=10": {
       "floor=0.0": {
@@ -146,58 +147,58 @@
         "mean_bundle_size": 10.0,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision": 0.1842,
-        "recall": 0.9763
+        "precision": 0.183,
+        "recall": 0.9704
       },
       "floor=0.3": {
         "abstained_cases": 0,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 10.0,
+        "mean_bundle_size": 6.044,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision": 0.1842,
-        "recall": 0.9763
+        "precision": 0.3506,
+        "recall": 0.9499
       },
       "floor=0.4": {
-        "abstained_cases": 0,
+        "abstained_cases": 5,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 10.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 4.152,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.1842,
-        "recall": 0.9763
+        "precision": 0.5066,
+        "recall": 0.894
       },
       "floor=0.5": {
-        "abstained_cases": 0,
+        "abstained_cases": 28,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 10.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 2.854,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.1842,
-        "recall": 0.9763
+        "precision": 0.5962,
+        "recall": 0.7944
       },
       "floor=0.6": {
-        "abstained_cases": 0,
+        "abstained_cases": 102,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 10.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 1.594,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.1842,
-        "recall": 0.9763
+        "precision": 0.6248,
+        "recall": 0.6171
       },
       "floor=0.7": {
-        "abstained_cases": 0,
+        "abstained_cases": 207,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 10.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 0.926,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.1842,
-        "recall": 0.9763
+        "precision": 0.5097,
+        "recall": 0.4456
       }
     },
     "k=5": {
@@ -208,58 +209,58 @@
         "mean_bundle_size": 5.0,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision": 0.3452,
-        "recall": 0.9237
+        "precision": 0.344,
+        "recall": 0.9211
       },
       "floor=0.3": {
-        "abstained_cases": 0,
+        "abstained_cases": 1,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 5.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 3.914,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.3452,
-        "recall": 0.9237
+        "precision": 0.4678,
+        "recall": 0.9135
       },
       "floor=0.4": {
-        "abstained_cases": 0,
+        "abstained_cases": 8,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 5.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 3.04,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.3452,
-        "recall": 0.9237
+        "precision": 0.5869,
+        "recall": 0.8732
       },
       "floor=0.5": {
-        "abstained_cases": 0,
+        "abstained_cases": 35,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 5.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 2.276,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.3452,
-        "recall": 0.9237
+        "precision": 0.6479,
+        "recall": 0.7842
       },
       "floor=0.6": {
-        "abstained_cases": 0,
+        "abstained_cases": 107,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 5.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 1.41,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.3452,
-        "recall": 0.9237
+        "precision": 0.6452,
+        "recall": 0.6139
       },
       "floor=0.7": {
-        "abstained_cases": 0,
+        "abstained_cases": 210,
         "answerable_cases": 500,
         "cases": 500,
-        "mean_bundle_size": 5.0,
-        "no_answer_precision": 1.0,
+        "mean_bundle_size": 0.878,
+        "no_answer_precision": 0.0,
         "no_answer_recall": 1.0,
-        "precision": 0.3452,
-        "recall": 0.9237
+        "precision": 0.516,
+        "recall": 0.4451
       }
     }
   },
@@ -269,19 +270,21 @@
         "dense": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8167,
-          "ndcg_at_k": 0.8244,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.85,
+          "ndcg_at_k": 0.8536,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.9167
+          "precision_at_k": 0.1867,
+          "recall_at_k": 0.95
         },
         "direct_fused": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8909,
-          "ndcg_at_k": 0.8617,
+          "mrr_at_k": 0.9194,
+          "ndcg_at_k": 0.8764,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.18,
           "recall_at_k": 0.95
         },
         "exact": {
@@ -291,24 +294,27 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "final": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8909,
-          "ndcg_at_k": 0.8617,
+          "mrr_at_k": 0.9194,
+          "ndcg_at_k": 0.8764,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.18,
           "recall_at_k": 0.95
         },
         "fused": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8909,
-          "ndcg_at_k": 0.8617,
+          "mrr_at_k": 0.9194,
+          "ndcg_at_k": 0.8764,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.18,
           "recall_at_k": 0.95
         },
         "fuzzy": {
@@ -318,6 +324,7 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "graph": {
@@ -327,6 +334,7 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "lexical": {
@@ -336,6 +344,7 @@
           "ndcg_at_k": 0.7607,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.1633,
           "recall_at_k": 0.8806
         }
       },
@@ -343,20 +352,22 @@
         "dense": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9201,
-          "ndcg_at_k": 0.9192,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.9229,
+          "ndcg_at_k": 0.9239,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.9649
+          "precision_at_k": 0.1843,
+          "recall_at_k": 0.9725
         },
         "direct_fused": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9068,
-          "ndcg_at_k": 0.909,
+          "mrr_at_k": 0.9072,
+          "ndcg_at_k": 0.9062,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.9779
+          "precision_at_k": 0.1832,
+          "recall_at_k": 0.9717
         },
         "exact": {
           "answerable_cases": 470,
@@ -365,25 +376,28 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "final": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9068,
-          "ndcg_at_k": 0.909,
+          "mrr_at_k": 0.9072,
+          "ndcg_at_k": 0.9062,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.9779
+          "precision_at_k": 0.1832,
+          "recall_at_k": 0.9717
         },
         "fused": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9068,
-          "ndcg_at_k": 0.909,
+          "mrr_at_k": 0.9072,
+          "ndcg_at_k": 0.9062,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.9779
+          "precision_at_k": 0.1832,
+          "recall_at_k": 0.9717
         },
         "fuzzy": {
           "answerable_cases": 470,
@@ -392,6 +406,7 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "graph": {
@@ -401,15 +416,17 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "lexical": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.7917,
-          "ndcg_at_k": 0.7803,
+          "mrr_at_k": 0.7924,
+          "ndcg_at_k": 0.7807,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.1657,
           "recall_at_k": 0.885
         }
       }
@@ -419,20 +436,22 @@
         "dense": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8111,
-          "ndcg_at_k": 0.8035,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.8444,
+          "ndcg_at_k": 0.8327,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.8667
+          "precision_at_k": 0.3533,
+          "recall_at_k": 0.9
         },
         "direct_fused": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8861,
-          "ndcg_at_k": 0.8308,
+          "mrr_at_k": 0.9194,
+          "ndcg_at_k": 0.8513,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.8722
+          "precision_at_k": 0.3333,
+          "recall_at_k": 0.8889
         },
         "exact": {
           "answerable_cases": 30,
@@ -441,25 +460,28 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "final": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8861,
-          "ndcg_at_k": 0.8308,
+          "mrr_at_k": 0.9194,
+          "ndcg_at_k": 0.8513,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.8722
+          "precision_at_k": 0.3333,
+          "recall_at_k": 0.8889
         },
         "fused": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.8861,
-          "ndcg_at_k": 0.8308,
+          "mrr_at_k": 0.9194,
+          "ndcg_at_k": 0.8513,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.8722
+          "precision_at_k": 0.3333,
+          "recall_at_k": 0.8889
         },
         "fuzzy": {
           "answerable_cases": 30,
@@ -468,6 +490,7 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "graph": {
@@ -477,6 +500,7 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "lexical": {
@@ -486,6 +510,7 @@
           "ndcg_at_k": 0.7285,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.2933,
           "recall_at_k": 0.7972
         }
       },
@@ -493,20 +518,22 @@
         "dense": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9191,
-          "ndcg_at_k": 0.9107,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.9216,
+          "ndcg_at_k": 0.9133,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.9438
+          "precision_at_k": 0.3545,
+          "recall_at_k": 0.9459
         },
         "direct_fused": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9029,
-          "ndcg_at_k": 0.8888,
+          "mrr_at_k": 0.9039,
+          "ndcg_at_k": 0.8867,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.927
+          "precision_at_k": 0.3447,
+          "recall_at_k": 0.9232
         },
         "exact": {
           "answerable_cases": 470,
@@ -515,25 +542,28 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "final": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9029,
-          "ndcg_at_k": 0.8888,
+          "mrr_at_k": 0.9039,
+          "ndcg_at_k": 0.8867,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.927
+          "precision_at_k": 0.3447,
+          "recall_at_k": 0.9232
         },
         "fused": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.9029,
-          "ndcg_at_k": 0.8888,
+          "mrr_at_k": 0.9039,
+          "ndcg_at_k": 0.8867,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.927
+          "precision_at_k": 0.3447,
+          "recall_at_k": 0.9232
         },
         "fuzzy": {
           "answerable_cases": 470,
@@ -542,6 +572,7 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "graph": {
@@ -551,16 +582,18 @@
           "ndcg_at_k": 0.0,
           "no_answer_precision": 0.0,
           "no_answer_recall": 1.0,
+          "precision_at_k": 0.0,
           "recall_at_k": 0.0
         },
         "lexical": {
           "answerable_cases": 470,
           "cases": 470,
-          "mrr_at_k": 0.7862,
-          "ndcg_at_k": 0.7464,
+          "mrr_at_k": 0.7868,
+          "ndcg_at_k": 0.7472,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "recall_at_k": 0.7994
+          "precision_at_k": 0.2945,
+          "recall_at_k": 0.8001
         }
       }
     }
@@ -571,18 +604,18 @@
         "dense": {
           "answerable_cases": 78,
           "cases": 78,
-          "mrr_at_k": 0.9423,
-          "ndcg_at_k": 0.9498,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.9615,
+          "ndcg_at_k": 0.9665,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.2,
-          "recall_at_k": 0.9872
+          "recall_at_k": 1.0
         },
         "direct_fused": {
           "answerable_cases": 78,
           "cases": 78,
           "mrr_at_k": 0.9808,
-          "ndcg_at_k": 0.9743,
+          "ndcg_at_k": 0.9732,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1987,
@@ -602,7 +635,7 @@
           "answerable_cases": 78,
           "cases": 78,
           "mrr_at_k": 0.9808,
-          "ndcg_at_k": 0.9743,
+          "ndcg_at_k": 0.9732,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1987,
@@ -612,7 +645,7 @@
           "answerable_cases": 78,
           "cases": 78,
           "mrr_at_k": 0.9808,
-          "ndcg_at_k": 0.9743,
+          "ndcg_at_k": 0.9732,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1987,
@@ -653,22 +686,22 @@
         "dense": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.952,
-          "ndcg_at_k": 0.9241,
+          "mrr_at_k": 0.9521,
+          "ndcg_at_k": 0.9284,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.2481,
-          "recall_at_k": 0.9574
+          "precision_at_k": 0.2504,
+          "recall_at_k": 0.9668
         },
         "direct_fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.9408,
-          "ndcg_at_k": 0.9129,
+          "mrr_at_k": 0.9433,
+          "ndcg_at_k": 0.9063,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.2466,
-          "recall_at_k": 0.9549
+          "precision_at_k": 0.2429,
+          "recall_at_k": 0.9405
         },
         "exact": {
           "answerable_cases": 133,
@@ -683,22 +716,22 @@
         "final": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.9408,
-          "ndcg_at_k": 0.9129,
+          "mrr_at_k": 0.9433,
+          "ndcg_at_k": 0.9063,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.2466,
-          "recall_at_k": 0.9549
+          "precision_at_k": 0.2429,
+          "recall_at_k": 0.9405
         },
         "fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.9408,
-          "ndcg_at_k": 0.9129,
+          "mrr_at_k": 0.9433,
+          "ndcg_at_k": 0.9063,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.2466,
-          "recall_at_k": 0.9549
+          "precision_at_k": 0.2429,
+          "recall_at_k": 0.9405
         },
         "fuzzy": {
           "answerable_cases": 133,
@@ -723,8 +756,8 @@
         "lexical": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.824,
-          "ndcg_at_k": 0.7679,
+          "mrr_at_k": 0.8259,
+          "ndcg_at_k": 0.7689,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.2158,
@@ -745,12 +778,12 @@
         "direct_fused": {
           "answerable_cases": 56,
           "cases": 56,
-          "mrr_at_k": 0.9157,
-          "ndcg_at_k": 0.9359,
+          "mrr_at_k": 0.9129,
+          "ndcg_at_k": 0.9298,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.1,
-          "recall_at_k": 1.0
+          "precision_at_k": 0.0982,
+          "recall_at_k": 0.9821
         },
         "exact": {
           "answerable_cases": 56,
@@ -765,22 +798,22 @@
         "final": {
           "answerable_cases": 56,
           "cases": 56,
-          "mrr_at_k": 0.9157,
-          "ndcg_at_k": 0.9359,
+          "mrr_at_k": 0.9129,
+          "ndcg_at_k": 0.9298,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.1,
-          "recall_at_k": 1.0
+          "precision_at_k": 0.0982,
+          "recall_at_k": 0.9821
         },
         "fused": {
           "answerable_cases": 56,
           "cases": 56,
-          "mrr_at_k": 0.9157,
-          "ndcg_at_k": 0.9359,
+          "mrr_at_k": 0.9129,
+          "ndcg_at_k": 0.9298,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.1,
-          "recall_at_k": 1.0
+          "precision_at_k": 0.0982,
+          "recall_at_k": 0.9821
         },
         "fuzzy": {
           "answerable_cases": 56,
@@ -827,8 +860,8 @@
         "direct_fused": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.6616,
-          "ndcg_at_k": 0.734,
+          "mrr_at_k": 0.6624,
+          "ndcg_at_k": 0.7348,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.0967,
@@ -847,8 +880,8 @@
         "final": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.6616,
-          "ndcg_at_k": 0.734,
+          "mrr_at_k": 0.6624,
+          "ndcg_at_k": 0.7348,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.0967,
@@ -857,8 +890,8 @@
         "fused": {
           "answerable_cases": 30,
           "cases": 30,
-          "mrr_at_k": 0.6616,
-          "ndcg_at_k": 0.734,
+          "mrr_at_k": 0.6624,
+          "ndcg_at_k": 0.7348,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.0967,
@@ -899,18 +932,18 @@
         "dense": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.8369,
-          "ndcg_at_k": 0.8606,
+          "mrr_at_k": 0.8337,
+          "ndcg_at_k": 0.8615,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.0929,
-          "recall_at_k": 0.9286
+          "precision_at_k": 0.0943,
+          "recall_at_k": 0.9429
         },
         "direct_fused": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.8655,
-          "ndcg_at_k": 0.8987,
+          "mrr_at_k": 0.8662,
+          "ndcg_at_k": 0.8993,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1,
@@ -929,8 +962,8 @@
         "final": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.8655,
-          "ndcg_at_k": 0.8987,
+          "mrr_at_k": 0.8662,
+          "ndcg_at_k": 0.8993,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1,
@@ -939,8 +972,8 @@
         "fused": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.8655,
-          "ndcg_at_k": 0.8987,
+          "mrr_at_k": 0.8662,
+          "ndcg_at_k": 0.8993,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1,
@@ -969,8 +1002,8 @@
         "lexical": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.8109,
-          "ndcg_at_k": 0.8469,
+          "mrr_at_k": 0.8116,
+          "ndcg_at_k": 0.8475,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.0957,
@@ -981,18 +1014,18 @@
         "dense": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8842,
-          "ndcg_at_k": 0.884,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.8917,
+          "ndcg_at_k": 0.8925,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.2106,
-          "recall_at_k": 0.9449
+          "precision_at_k": 0.2113,
+          "recall_at_k": 0.9549
         },
         "direct_fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8993,
-          "ndcg_at_k": 0.8897,
+          "mrr_at_k": 0.905,
+          "ndcg_at_k": 0.8925,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.2128,
@@ -1011,8 +1044,8 @@
         "final": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8993,
-          "ndcg_at_k": 0.8897,
+          "mrr_at_k": 0.905,
+          "ndcg_at_k": 0.8925,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.2128,
@@ -1021,8 +1054,8 @@
         "fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8993,
-          "ndcg_at_k": 0.8897,
+          "mrr_at_k": 0.905,
+          "ndcg_at_k": 0.8925,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.2128,
@@ -1065,22 +1098,22 @@
         "dense": {
           "answerable_cases": 78,
           "cases": 78,
-          "mrr_at_k": 0.9423,
-          "ndcg_at_k": 0.9498,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.9615,
+          "ndcg_at_k": 0.9665,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.4,
-          "recall_at_k": 0.9872
+          "recall_at_k": 1.0
         },
         "direct_fused": {
           "answerable_cases": 78,
           "cases": 78,
           "mrr_at_k": 0.9808,
-          "ndcg_at_k": 0.9717,
+          "ndcg_at_k": 0.9678,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.3949,
-          "recall_at_k": 0.9872
+          "precision_at_k": 0.3923,
+          "recall_at_k": 0.9808
         },
         "exact": {
           "answerable_cases": 78,
@@ -1096,21 +1129,21 @@
           "answerable_cases": 78,
           "cases": 78,
           "mrr_at_k": 0.9808,
-          "ndcg_at_k": 0.9717,
+          "ndcg_at_k": 0.9678,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.3949,
-          "recall_at_k": 0.9872
+          "precision_at_k": 0.3923,
+          "recall_at_k": 0.9808
         },
         "fused": {
           "answerable_cases": 78,
           "cases": 78,
           "mrr_at_k": 0.9808,
-          "ndcg_at_k": 0.9717,
+          "ndcg_at_k": 0.9678,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.3949,
-          "recall_at_k": 0.9872
+          "precision_at_k": 0.3923,
+          "recall_at_k": 0.9808
         },
         "fuzzy": {
           "answerable_cases": 78,
@@ -1148,7 +1181,7 @@
           "answerable_cases": 133,
           "cases": 133,
           "mrr_at_k": 0.9499,
-          "ndcg_at_k": 0.9085,
+          "ndcg_at_k": 0.9091,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.4752,
@@ -1157,12 +1190,12 @@
         "direct_fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.9386,
-          "ndcg_at_k": 0.8886,
+          "mrr_at_k": 0.9411,
+          "ndcg_at_k": 0.8849,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.4602,
-          "recall_at_k": 0.9025
+          "precision_at_k": 0.4571,
+          "recall_at_k": 0.8954
         },
         "exact": {
           "answerable_cases": 133,
@@ -1177,22 +1210,22 @@
         "final": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.9386,
-          "ndcg_at_k": 0.8886,
+          "mrr_at_k": 0.9411,
+          "ndcg_at_k": 0.8849,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.4602,
-          "recall_at_k": 0.9025
+          "precision_at_k": 0.4571,
+          "recall_at_k": 0.8954
         },
         "fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.9386,
-          "ndcg_at_k": 0.8886,
+          "mrr_at_k": 0.9411,
+          "ndcg_at_k": 0.8849,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.4602,
-          "recall_at_k": 0.9025
+          "precision_at_k": 0.4571,
+          "recall_at_k": 0.8954
         },
         "fuzzy": {
           "answerable_cases": 133,
@@ -1217,12 +1250,12 @@
         "lexical": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8222,
-          "ndcg_at_k": 0.722,
+          "mrr_at_k": 0.8241,
+          "ndcg_at_k": 0.7242,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
-          "precision_at_k": 0.3714,
-          "recall_at_k": 0.7534
+          "precision_at_k": 0.3729,
+          "recall_at_k": 0.7559
         }
       },
       "single-session-assistant": {
@@ -1393,8 +1426,8 @@
         "dense": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.8369,
-          "ndcg_at_k": 0.8606,
+          "mrr_at_k": 0.8321,
+          "ndcg_at_k": 0.8572,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1857,
@@ -1403,8 +1436,8 @@
         "direct_fused": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.864,
-          "ndcg_at_k": 0.8946,
+          "mrr_at_k": 0.8648,
+          "ndcg_at_k": 0.8952,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1971,
@@ -1423,8 +1456,8 @@
         "final": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.864,
-          "ndcg_at_k": 0.8946,
+          "mrr_at_k": 0.8648,
+          "ndcg_at_k": 0.8952,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1971,
@@ -1433,8 +1466,8 @@
         "fused": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.864,
-          "ndcg_at_k": 0.8946,
+          "mrr_at_k": 0.8648,
+          "ndcg_at_k": 0.8952,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1971,
@@ -1463,8 +1496,8 @@
         "lexical": {
           "answerable_cases": 70,
           "cases": 70,
-          "mrr_at_k": 0.8093,
-          "ndcg_at_k": 0.8426,
+          "mrr_at_k": 0.81,
+          "ndcg_at_k": 0.8432,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.1886,
@@ -1475,22 +1508,22 @@
         "dense": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8835,
-          "ndcg_at_k": 0.8695,
-          "no_answer_precision": 0.0,
+          "mrr_at_k": 0.891,
+          "ndcg_at_k": 0.8767,
+          "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.3985,
-          "recall_at_k": 0.908
+          "recall_at_k": 0.9155
         },
         "direct_fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8947,
-          "ndcg_at_k": 0.8568,
+          "mrr_at_k": 0.9029,
+          "ndcg_at_k": 0.8599,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.385,
-          "recall_at_k": 0.8858
+          "recall_at_k": 0.8871
         },
         "exact": {
           "answerable_cases": 133,
@@ -1505,22 +1538,22 @@
         "final": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8947,
-          "ndcg_at_k": 0.8568,
+          "mrr_at_k": 0.9029,
+          "ndcg_at_k": 0.8599,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.385,
-          "recall_at_k": 0.8858
+          "recall_at_k": 0.8871
         },
         "fused": {
           "answerable_cases": 133,
           "cases": 133,
-          "mrr_at_k": 0.8947,
-          "ndcg_at_k": 0.8568,
+          "mrr_at_k": 0.9029,
+          "ndcg_at_k": 0.8599,
           "no_answer_precision": 1.0,
           "no_answer_recall": 1.0,
           "precision_at_k": 0.385,
-          "recall_at_k": 0.8858
+          "recall_at_k": 0.8871
         },
         "fuzzy": {
           "answerable_cases": 133,
@@ -1559,49 +1592,226 @@
     "evaluated_questions": 500,
     "name": "LongMemEval-S",
     "sample_seed": null,
-    "sha256": "08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894",
-    "source": "https://huggingface.co/datasets/xiaowu0162/longmemeval/resolve/main/longmemeval_s",
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+    "source": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
     "total_questions": 500
   },
   "degraded_lanes": [],
+  "execution": {
+    "context_token_accounting": {
+      "characters_per_token": 4,
+      "counted_surface": "memory_title_and_content_per_hit",
+      "exact_model_tokenizer": false,
+      "method": "ceil_unicode_characters_div_4",
+      "minimum_nonempty_tokens": 1,
+      "mode": "development-only",
+      "packing_observation_source": "additive_item_estimate",
+      "tokenizer_model": null,
+      "tokenizer_revision": null
+    },
+    "dense_lane_enabled": true,
+    "embedding": {
+      "dimensions": 1024,
+      "document_batching": "one question-local corpus per embed_documents call",
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "note": "semantic model served over an OpenAI-compatible endpoint",
+      "provider": "OpenAICompatibleEmbeddingProvider",
+      "query_instruction_sha256": "a695bbf99f6e2c59bbedb4ca2b397a995afbe92114c2d965a84acfac4253727f",
+      "response_model_requirement": "Qwen/Qwen3-Embedding-0.6B"
+    },
+    "embedding_call_accounting": {
+      "document_batch_calls": 500,
+      "document_inputs": 23867,
+      "http_attempts": 1006,
+      "query_calls": 500,
+      "source": "provider-observed",
+      "successful_http_calls": 1000
+    },
+    "granularity": "one memory per haystack session",
+    "implementation": {
+      "files": {
+        "pyproject.toml": "228ebe4550fc04cb8e92b07f15c6bc02a9341c9e3479e81dab4c7304926af017",
+        "scripts/_longmemeval_common.py": "0638d8b083584fc9cec2248c454efe27c54dd2dedb1072d53813bc74e081cfcb",
+        "scripts/_longmemeval_tokenizer.py": "ae0f88f257ac37de5301e316149fb1f27c5a5d6a1d87695e637423341b73df25",
+        "scripts/evaluate_retrieval_runs.py": "031f85f9b54fd32e70838deddc7b16f277a645eff05ebd04497e9c4bd9e84f86",
+        "scripts/run_retrieval_eval.py": "2c1363590798299960dfb8b6cba039ec1aedc5609325c4feef29dcac6fc7be3d",
+        "src/swarmbrain/__init__.py": "fa7e607d7c72ae543b08dd71e8e701552b4206a246bc1716235975f749bc9d83",
+        "src/swarmbrain/adapters/__init__.py": "1c6753293196e0cc5f40fa2ad1ac3cedcf194d4fa66ec7cacc61746b949cbc99",
+        "src/swarmbrain/adapters/auth/__init__.py": "92ec23505397e6d87add43aa5f128049e2ce904b7887c8c5e9123b61f847d696",
+        "src/swarmbrain/adapters/auth/tokens.py": "9ced3d6021426aec7937567173d34d08d9ada84f18db99f350e6dfd20ff2ef14",
+        "src/swarmbrain/adapters/cockroach/__init__.py": "3550cb3d46bea4886f338e756c57f4c5096f08ed6fd85d89d84d45e99802de28",
+        "src/swarmbrain/adapters/cockroach/coordination.py": "eb24572fdaf465092a467e703dc92dbbc5de1abfacd8222a993a4358abc9783f",
+        "src/swarmbrain/adapters/cockroach/database.py": "9b0ca9ee8df8e2d9a8cdb89397bacc91d796bba4102b48d5af0841ed021dbf82",
+        "src/swarmbrain/adapters/cockroach/memory.py": "066a04d6ffd11e1e9f1e29b824a3294bdb97190047550a701bff7ae7c595a07d",
+        "src/swarmbrain/adapters/cockroach/memory_mappers.py": "18c38265a4d3c40ad0dcfcb3361c2fdd35ee0709a209fc7290fa0acee4ff12ae",
+        "src/swarmbrain/adapters/cockroach/retrieval.py": "fa73a2dc96cc8688fec5eaa74bd2758557752292af2c16052dcad10f7a62bf14",
+        "src/swarmbrain/adapters/cockroach/retry.py": "108d2a6e1e8db034291475479d516c8fd982850d4d9e01e9d7ace584ebd2ae51",
+        "src/swarmbrain/adapters/cockroach/schema.py": "6ff19acb01504d37b16dd3da47a8aada40b66a4753edc77b407b30762f79a167",
+        "src/swarmbrain/adapters/cockroach/vector.py": "94395062d34af65e5a7f86bd597dcfb4ff40dbc2acfe7c003186f9aa191a1edf",
+        "src/swarmbrain/adapters/cockroach/work_store.py": "8cc16bd0810693541a3d67d03d3287fd06015992ae0a4f81af0167b9d83dbdf1",
+        "src/swarmbrain/adapters/consolidation/__init__.py": "6ce0534caef10c206f0e8d905da93161552ca460e52f907c2ee7ba4ed0c53856",
+        "src/swarmbrain/adapters/consolidation/deterministic.py": "326b9a33b5b330a31433a5370b1c27c5cb0ffff12609e11bfc27dd646b081491",
+        "src/swarmbrain/adapters/consolidation/openai_compatible.py": "d5eaf92cd39b57ec8a0bdf3662a48b703d1ec6d3595119f958c32e09ad855a89",
+        "src/swarmbrain/adapters/embeddings/__init__.py": "6e582ee15784146acf60439256f302870eed282f76741fb1c8d5f3ad0b2a79a1",
+        "src/swarmbrain/adapters/embeddings/bedrock.py": "40ae9f23295efd52ef1a6b874e64a1edadc6b6dc634a5e16c9a491f2f25b286d",
+        "src/swarmbrain/adapters/embeddings/deterministic.py": "0958f34161e43c860e169bc42d2cb456b07ad71e86655dc9014fc59ad83e25a7",
+        "src/swarmbrain/adapters/embeddings/openai_compatible.py": "0ab0f3d79ea9a7834d0875fc78eae1d9fba348898b19703a82e6c62bdcaae60b",
+        "src/swarmbrain/adapters/extraction/__init__.py": "c1a36c54db10fb0f8938b6e903bfd78e6aadecfc68b0e754f6a390e1cadc55e9",
+        "src/swarmbrain/adapters/extraction/coding.py": "e393150740b286ee4b4c3899dfff0868cdbfa43f921f510451a0661b01463f4e",
+        "src/swarmbrain/adapters/extraction/in_memory.py": "931ea491c51df1dad90024f44b38b56a8b7bf4fabb78b8a85072cf344e59cd4f",
+        "src/swarmbrain/adapters/extraction/openai_compatible.py": "fe4cdc4e6d91c3cff06fe570a899473cf781c401db6e3d1fceb74b695457c2a4",
+        "src/swarmbrain/adapters/extraction/provider.py": "a998533b6504bacad90bf9b75c2f983dd07efc988099cd0ac45eccde43207165",
+        "src/swarmbrain/adapters/extraction/structured.py": "3bd85e1213ada25840f65e65bfd2a269783e45cc18b61b1bfc8134dd9f611499",
+        "src/swarmbrain/adapters/memory/__init__.py": "7d3ad8c3ce1987718293990b605846a05a33e0ccf924f51c08505243b93b0e49",
+        "src/swarmbrain/adapters/memory/in_memory.py": "b7bf502b4b15cee9afe9a73d64ae02bd8dfcd413d357c241797da12f61e3981e",
+        "src/swarmbrain/adapters/memory/retrieval.py": "e791adc89edee5d6dd836738aa885911769b0560e973ae1f74baeb51bd086066",
+        "src/swarmbrain/adapters/reranking/__init__.py": "5c052405d733f75bb18b0cb273db1914f1f067a284cdff00f401a42f4a57c196",
+        "src/swarmbrain/adapters/reranking/local_jsonl.py": "fc74c59fa7b19470b78d4bdd94ff2fc0739848708073e189a111aae5eecbdd97",
+        "src/swarmbrain/application/__init__.py": "2e6c6f8b28341b5e1b83e0af161fd33bd705b766cc4e7cfebaf83f5c46c479d5",
+        "src/swarmbrain/application/activation.py": "1f4bf4cf57637a66e6cd497fc821a7cddb8855c7466d36793c6bce8aa4bd468c",
+        "src/swarmbrain/application/audit.py": "9d647c4f8f66fff478e38ed9220732c2d9af425a966cbf56ff316a68fa9b3f7c",
+        "src/swarmbrain/application/capabilities.py": "321714b75b8a87abaacf09f68cd6d10df5d7dcf6800e0f891fcee46ab051df92",
+        "src/swarmbrain/application/conflict_service.py": "3c59d8bc36fae9103ea7a07e6277826f0603deb84d4af5872ea1794597866a61",
+        "src/swarmbrain/application/consolidation.py": "d54768770f2c0507755ef5f63ac1e3b88c90956a544df4d26961d04de70cb9eb",
+        "src/swarmbrain/application/coordination.py": "450d2fa8dda26afa9d2f020d889854a648e76c0660afe07c09233f578921b462",
+        "src/swarmbrain/application/errors.py": "2837618833c2779bfe31636edbba7fd3acbec64a013b97a81c970b1d4efb615e",
+        "src/swarmbrain/application/evidence_service.py": "65a1c23584df04687037f5f63737db5dab81139a9a0df0c82bd7889c63a9a7b5",
+        "src/swarmbrain/application/extraction.py": "42cf7915cf98b257d51b0e6f58fdea7d58deab3b7f8324b6f86a94cd2bd7c8c0",
+        "src/swarmbrain/application/handoff.py": "e6b59f2ff2914ee635808cc0bc6dfa46a0987e249fcd74108417fe86c25057ae",
+        "src/swarmbrain/application/memory_policy.py": "893a976eebf30343f2240406111315eb7a06a8770c828f9ce2ff55669e905528",
+        "src/swarmbrain/application/memory_service.py": "53ae1d9e037d62019482011294d32ac978398e182dd99921ffaafadb876e4d36",
+        "src/swarmbrain/application/retrieval_service.py": "45e3fb20cb0e412a9f283b24da0f56e9d3cac823df88284ddc9b2c589b8df8f6",
+        "src/swarmbrain/application/runtime.py": "bc550bef409744ce2551f79177e5cc6264a29e18f6e5de63f4f8801563361f5e",
+        "src/swarmbrain/application/work.py": "711b2ec2a8478a502719d8f43c403ec7c9db7a8d4cb78bb2278ffa36705643ac",
+        "src/swarmbrain/cli/__init__.py": "a5225118b93063d611bb9b3214680442966cfaa32f5faeceb231057935d8a86c",
+        "src/swarmbrain/cli/api.py": "049b324a89237122f6513a3aae1b8915212274472aca112945bdd5df0a857a4f",
+        "src/swarmbrain/cli/demo.py": "8b97cf7960a1979ec3a11a0f4bfd6fe6352eeaacd331007ba2d03cbcf50db273",
+        "src/swarmbrain/cli/schema.py": "4d5272372024b1f06f44e7cef09bf2f3986dfb8b30788b967e7383ab003b7f3f",
+        "src/swarmbrain/cli/token.py": "3ffa9c419a4315fb0dff5034d21152faa5741ea3f751024b11bef5926ef4fe36",
+        "src/swarmbrain/cli/worker.py": "aef02ac02bd64a466e6abb1c45caba9399e91a4f865c8f162b4dd65b14ed4e47",
+        "src/swarmbrain/config.py": "2efbe9219a6d58f5d1603e8f7cd9446cbc6573ee8f20e6e6ccbd8e34c05e29b5",
+        "src/swarmbrain/demo/__init__.py": "b81c6f5de14771e69f95814f9197ee9c142913a95d381cfa3d2f8e290848f835",
+        "src/swarmbrain/demo/ab.py": "28d54eedd2f4efc029e104c0ba2a5bc1db50f67321e5e67ab028692e72000ea7",
+        "src/swarmbrain/demo/runner.py": "c29aff0d5c60ef4bb5e927b5423e36f8be0d3c2bfc07d0eb1661a8586d549059",
+        "src/swarmbrain/demo/scenario.py": "76275388d0f2e4f30f3621c5ff71c5cb94d60f7fac5785b943d45556e3a53c5a",
+        "src/swarmbrain/demo/verification.py": "14690cdc324a8a3d133e256d3ee53102729f253a4813901a95111cca49bd5d76",
+        "src/swarmbrain/domain/__init__.py": "c04a32672a0511410b566e133d1cb5c10779c07b6cc6617f24ffc266ec2fcebb",
+        "src/swarmbrain/domain/activation.py": "7188636c8a39af20c82a6c867134965cfe0d7c78f29ab9a54093d9d252f50ed7",
+        "src/swarmbrain/domain/agents.py": "f804f49fa52332c387b7fbcaf4d47a8c9640db9f2ca33e521e1afed4c5247d2f",
+        "src/swarmbrain/domain/common.py": "ff7ffc8ecb897e8f57757846662adb2972d06eb114fa863bb72758e1f5205d3d",
+        "src/swarmbrain/domain/conflicts.py": "6e832da34c2017fb6a6971cb3896fd901668e5ca656c113973cfe2db626c0c3c",
+        "src/swarmbrain/domain/consolidation.py": "90192234827e20807531f1bdea420c887ff001ca3bff7670b92fa9e9945da29a",
+        "src/swarmbrain/domain/events.py": "a0aec64518cfdf76944293928c7e73d574e8b9f8f829b8b82025d83c0f15a56f",
+        "src/swarmbrain/domain/evidence.py": "fcbf14a05a5dde3fd53d23b90b75e365c0c3600ba90db0720aa359f5e3855b8c",
+        "src/swarmbrain/domain/exploration.py": "e0aea81f0bcebb708d34b97bd0d1864d1e45f05b7e29c1a90bcf1c8bed14a4a1",
+        "src/swarmbrain/domain/extraction.py": "946bae46c550178922aa69bc51366c3b9ab32bd020ad1172aed73aae30002c23",
+        "src/swarmbrain/domain/leases.py": "2dd07d833c14b5a92736d3c477d84c93a5c04ed3f6f78484798aa48f7e9fcf75",
+        "src/swarmbrain/domain/memory.py": "bfb5d904994d5eb746393198d73789f14174aa6613e0dabe400416c87800549d",
+        "src/swarmbrain/domain/outcome_feedback.py": "e8c8bedd5b9369580248ba89808ed05d2096e82d34cdd5cb443b15033451b77d",
+        "src/swarmbrain/domain/reranking.py": "cd49b406a6f382192b2c2e8b15f7d342d81c3492c553d10377f56f1d0bffe73c",
+        "src/swarmbrain/domain/retrieval.py": "3384f628cfd434f2c97cfd839f57f990a315af515f6e1edeff5ce839c1d9be75",
+        "src/swarmbrain/domain/tasks.py": "7981a7e09aa74837a169ba9cdd177966df3cd100ee40b508a41b48a4eeca2c63",
+        "src/swarmbrain/domain/work.py": "d8407195f4324c0d748020487f007781886d012f826ade1cffd06390977365c6",
+        "src/swarmbrain/ports/__init__.py": "d97c67e9ab609b5ac784ecab69c1e809f17707bd5c845ef408f92a49d9f881e6",
+        "src/swarmbrain/ports/artifacts.py": "1f4d79fc37dd17b7e19eeac8fb5a52e36c49bc09ecd0ac53b2997f12b3d9953e",
+        "src/swarmbrain/ports/consolidation.py": "31225933fea6b59550e56cda3cc4e6046e0f537dabb61c00195f530562a6fcca",
+        "src/swarmbrain/ports/coordination_store.py": "576d3fd64a291571e0559860992c2b14d3774ebd492d33cdde599652f795baa5",
+        "src/swarmbrain/ports/embeddings.py": "2583a77b60660730a4196fc2a06de03e889b140d7d86023d72f79500a7afb0f0",
+        "src/swarmbrain/ports/event_sink.py": "65a8e8e237b2732f2bf89dce5960ceb89f059426700ff6b5e863d2501e57d2e4",
+        "src/swarmbrain/ports/extraction.py": "6c592ea8b07037573d4ee7b23607f413a9d295682d8df669fb66870d0e09e9ba",
+        "src/swarmbrain/ports/memory_store.py": "be09a4936533e5591c950715584f6635db9ef8a7664719a975548c7a52a82fe0",
+        "src/swarmbrain/ports/reranking.py": "549e985e1fdaed15d18e0218dec1ff692f5dfd6b55facab04eab5b4925b563cf",
+        "src/swarmbrain/ports/retrieval.py": "b20a2c3cc0dcc3270d7cfa025360a0a95c5754d1361c49aea8230329e6806695",
+        "src/swarmbrain/ports/work_queue.py": "c436a4a1e3fbff076f2282ba1cbcc3f1c94bc9a8954f505ee3e695eb1ad0ef50",
+        "src/swarmbrain/retrieval/__init__.py": "05137125cf090e8a3618959a3bd985ba3aa5e90a9edbc9b12a5c7baa618147e1",
+        "src/swarmbrain/retrieval/adaptive_policy.py": "481d79990302743f47b27b1166ae270cba6006d0595a126c9bfc0c5934c451d6",
+        "src/swarmbrain/retrieval/dense.py": "92e7a8b9915e41ceeb65d8694305b067a38641e4673f621bec2882944a8134ba",
+        "src/swarmbrain/retrieval/evaluation.py": "c5cdaa94166750f7c6fd48aa91854384c8b622010fb51d2a825492cd4cc25d16",
+        "src/swarmbrain/retrieval/fusion.py": "0f50fdaa93d70212800e327953aaaad1f183490c990569d8dd10c0bedc45f85d",
+        "src/swarmbrain/retrieval/graph.py": "842d6ad2348403dc47ef63de07bde0bb0a59de6d71aa254ed3a73abbfeb26b07",
+        "src/swarmbrain/retrieval/learned_reranking.py": "d42d219f32a43472a4fe723090774af1d3f964c02832f122a1a1710718e12b65",
+        "src/swarmbrain/retrieval/packing.py": "6815814dc286970acf57b169158712521b03a53bc0533465456df425cc08f9bd",
+        "src/swarmbrain/retrieval/planner.py": "f451d09850550b940a5f286828cca9b5a0873cca3a02b476fa905d4066f18622",
+        "src/swarmbrain/retrieval/projection.py": "607393408887cba31ad9a949f9c8898b3a84d7fb646773a08706176895567f11",
+        "src/swarmbrain/retrieval/relevance.py": "480623116726be24cb45325482c71feb5dfb9ada4092330a8eb40dbf0ec60c07",
+        "src/swarmbrain/retrieval/temporal_query.py": "d72c2b29f8afaca714cdae668e205669828949db6f5eccd87d5bde184bc69d91",
+        "src/swarmbrain/transports/__init__.py": "d658d3a1bb44e170520f855a332258453136015fefbabee3c3a0a3f0f0ddd886",
+        "src/swarmbrain/transports/http/__init__.py": "430958b3d98751abed8776bfab4f2a651f33bc0d64e9ca33c115caef3fcd77b7",
+        "src/swarmbrain/transports/http/app.py": "af432106958c6d88742d132133845a839b37c22a7bb734a61eaf81f062fac498",
+        "src/swarmbrain/transports/http/console/__init__.py": "574f32b6640ff0fe52c3c78db8197410ef4315716c0edfd2eef345bca52244bf",
+        "src/swarmbrain/transports/http/contracts.py": "c1ee23cb9af30d426b9a3f090b69d0df5ea836de1eb2231df64728567a4133d5",
+        "src/swarmbrain/transports/mcp/__init__.py": "26af4102fe42afc9588191f0855d625b0f965e4e7e0209e9841feea5c85f7c68",
+        "src/swarmbrain/transports/mcp/client.py": "5015531bb2cf10ad2bb407c1f9cd355c67cfe75eb2599bd5dfeaefe4222dc489",
+        "src/swarmbrain/transports/mcp/server.py": "a00c82abe821615b8f4b28e87876c57ad26d030626e3ed33c84d2a06542cbf74",
+        "src/swarmbrain/workers/__init__.py": "a11729036c4af5e8125e78f46633cac9b88e8ddc2c0bd04134fdacff76744bae",
+        "src/swarmbrain/workers/consolidation.py": "ea055f349fdd2dc9a4256cec931fb0d2957f6e82847d1df93ba375652911c8c3",
+        "src/swarmbrain/workers/durable.py": "c4be75d3d88c1c17b9b38be39c566ebdb4883480e80b54be39e4a17881eba814",
+        "src/swarmbrain/workers/embedding.py": "51f27fff30ffc496bd75093238f3a2bf7c7e7caf93de7efac78c42fa4aa4e5c8",
+        "src/swarmbrain/workers/extraction.py": "d40d1eaf3c40cbfb35e5e1c4fd5cc71a537f44cc0f85dface4313c249234d144",
+        "src/swarmbrain/workers/runtime.py": "d97e1a40a3a596d8f19cb2e7e0a039e3ebd66736ebeb9a6e046e782eaccbf1a5",
+        "uv.lock": "f017810b158729ce7396e2d15940ffd6fd94a9daea9726805cd5dba43c323841"
+      },
+      "tree_sha256": "8c4a075250a134d5af5bcf7011087db419f2c6b632d107d0330198d491ba77a6"
+    },
+    "item_token_accounting": {
+      "characters_per_token": 4,
+      "counted_surface": "memory_title_and_content_per_hit",
+      "exact_model_tokenizer": false,
+      "method": "ceil_unicode_characters_div_4",
+      "minimum_nonempty_tokens": 1,
+      "mode": "development-only",
+      "packing_observation_source": "additive_item_estimate",
+      "tokenizer_model": null,
+      "tokenizer_revision": null
+    },
+    "protocol_version": "swarmbrain-longmemeval-retrieval-v2",
+    "recall_limit": 10,
+    "saved_ranking_depth": 50,
+    "temporal_query_routing": {
+      "enabled": false,
+      "parser": null,
+      "session_valid_from": "LongMemEval haystack_dates normalized to UTC"
+    },
+    "track": "longmemeval-s"
+  },
   "latency_ms": {
     "lanes": {
       "dense": {
-        "max": 55.159,
-        "p50": 5.657,
-        "p95": 6.288,
-        "p99": 7.579
+        "max": 66.99,
+        "p50": 3.777,
+        "p95": 4.368,
+        "p99": 5.623
       },
       "exact": {
-        "max": 125.425,
-        "p50": 74.039,
-        "p95": 82.124,
-        "p99": 87.347
+        "max": 109.071,
+        "p50": 51.423,
+        "p95": 57.391,
+        "p99": 66.855
       },
       "fuzzy": {
-        "max": 119.531,
-        "p50": 73.451,
-        "p95": 77.816,
-        "p99": 85.093
+        "max": 115.666,
+        "p50": 53.447,
+        "p95": 58.188,
+        "p99": 81.864
       },
       "graph": {
-        "max": 1.081,
-        "p50": 0.092,
-        "p95": 0.124,
-        "p99": 0.146
+        "max": 0.56,
+        "p50": 0.07,
+        "p95": 0.104,
+        "p99": 0.219
       },
       "lexical": {
-        "max": 61.042,
-        "p50": 30.835,
-        "p95": 33.125,
-        "p99": 38.405
+        "max": 44.311,
+        "p50": 22.376,
+        "p95": 24.787,
+        "p99": 29.57
       }
     },
     "wall": {
-      "max": 268.722,
-      "p50": 217.137,
-      "p95": 231.632,
-      "p99": 249.882
+      "max": 267.768,
+      "p50": 154.656,
+      "p95": 173.415,
+      "p99": 208.963
     }
   },
   "overall": {
@@ -1609,22 +1819,22 @@
       "dense": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.9139222222222222,
-        "ndcg_at_k": 0.9134978014930382,
-        "no_answer_precision": 0.0,
+        "mrr_at_k": 0.9185055555555556,
+        "ndcg_at_k": 0.9196532112613811,
+        "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.18333333333333332,
-        "recall_at_k": 0.962
+        "precision_at_k": 0.1844,
+        "recall_at_k": 0.9711666666666666
       },
       "direct_fused": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.905868253968254,
-        "ndcg_at_k": 0.9061507359019425,
+        "mrr_at_k": 0.9078968253968254,
+        "ndcg_at_k": 0.9044578191830821,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.18420000000000003,
-        "recall_at_k": 0.9762666666666666
+        "precision_at_k": 0.183,
+        "recall_at_k": 0.9704333333333333
       },
       "exact": {
         "answerable_cases": 500,
@@ -1639,22 +1849,22 @@
       "final": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.905868253968254,
-        "ndcg_at_k": 0.9061507359019425,
+        "mrr_at_k": 0.9078968253968254,
+        "ndcg_at_k": 0.9044578191830821,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.18420000000000003,
-        "recall_at_k": 0.9762666666666666
+        "precision_at_k": 0.183,
+        "recall_at_k": 0.9704333333333333
       },
       "fused": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.905868253968254,
-        "ndcg_at_k": 0.9061507359019425,
+        "mrr_at_k": 0.9078968253968254,
+        "ndcg_at_k": 0.9044578191830821,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.18420000000000003,
-        "recall_at_k": 0.9762666666666666
+        "precision_at_k": 0.183,
+        "recall_at_k": 0.9704333333333333
       },
       "fuzzy": {
         "answerable_cases": 500,
@@ -1679,8 +1889,8 @@
       "lexical": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.7917055555555556,
-        "ndcg_at_k": 0.779090949390149,
+        "mrr_at_k": 0.7923055555555556,
+        "ndcg_at_k": 0.7794727524516204,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
         "precision_at_k": 0.1656,
@@ -1691,22 +1901,22 @@
       "dense": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.9126666666666666,
-        "ndcg_at_k": 0.9042542540977545,
-        "no_answer_precision": 0.0,
+        "mrr_at_k": 0.917,
+        "ndcg_at_k": 0.90845343560606,
+        "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.3542168674698795,
-        "recall_at_k": 0.9391666666666666
+        "precision_at_k": 0.35440000000000005,
+        "recall_at_k": 0.9431666666666666
       },
       "direct_fused": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.9018666666666667,
-        "ndcg_at_k": 0.8852952059250709,
+        "mrr_at_k": 0.9047999999999999,
+        "ndcg_at_k": 0.8846050534625113,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.3452,
-        "recall_at_k": 0.9237000000000001
+        "precision_at_k": 0.344,
+        "recall_at_k": 0.9211333333333334
       },
       "exact": {
         "answerable_cases": 500,
@@ -1721,22 +1931,22 @@
       "final": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.9018666666666667,
-        "ndcg_at_k": 0.8852952059250709,
+        "mrr_at_k": 0.9047999999999999,
+        "ndcg_at_k": 0.8846050534625113,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.3452,
-        "recall_at_k": 0.9237000000000001
+        "precision_at_k": 0.344,
+        "recall_at_k": 0.9211333333333334
       },
       "fused": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.9018666666666667,
-        "ndcg_at_k": 0.8852952059250709,
+        "mrr_at_k": 0.9047999999999999,
+        "ndcg_at_k": 0.8846050534625113,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.3452,
-        "recall_at_k": 0.9237000000000001
+        "precision_at_k": 0.344,
+        "recall_at_k": 0.9211333333333334
       },
       "fuzzy": {
         "answerable_cases": 500,
@@ -1761,14 +1971,20 @@
       "lexical": {
         "answerable_cases": 500,
         "cases": 500,
-        "mrr_at_k": 0.7859333333333333,
-        "ndcg_at_k": 0.7453653570903498,
+        "mrr_at_k": 0.7865333333333333,
+        "ndcg_at_k": 0.7460587238816263,
         "no_answer_precision": 1.0,
         "no_answer_recall": 1.0,
-        "precision_at_k": 0.294,
-        "recall_at_k": 0.7992333333333334
+        "precision_at_k": 0.29440000000000005,
+        "recall_at_k": 0.7998999999999999
       }
     }
   },
-  "run": "benchmarks/retrieval/longmemeval-s-memory-openai-run.json"
+  "run": "benchmarks/retrieval/longmemeval-s-memory-openai-run.json",
+  "run_artifact": {
+    "bytes": 3718347,
+    "path": "benchmarks/retrieval/longmemeval-s-memory-openai-run.json",
+    "sha256": "f258e73ff9ef5fd1444ee43ba693b83e3f073b609576d48cb5b51c989bfc9768"
+  },
+  "schema_version": 2
 }
