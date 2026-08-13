@@ -24,6 +24,12 @@ See the [current retrieval status](docs/retrieval-status.md), the
 the [agent memory & retrieval SOTA research dump](docs/research/sota-agent-memory-retrieval-2026-08-07.md),
 and the [paper-to-runtime implementation map](docs/paper-driven-memory-runtime.md).
 
+**Measured retrieval quality** (artifacts in `benchmarks/retrieval/`): on the
+full 500-question cleaned LongMemEval-S release, the fused hybrid retriever
+scores Recall@10 0.970 / MRR@10 0.908 with no-answer precision and recall
+both 1.00; on the swarm-native corpus on CockroachDB, the ANN vector index
+matches exhaustive exact search (top-10 parity 1.000) at 3× lower latency.
+
 ## Who this is for
 
 - **Platform engineering teams running AI agent fleets.** Uncoordinated agents
