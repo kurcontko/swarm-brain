@@ -545,8 +545,13 @@ async def retrieve_question(
         )
     clock.step(3600)
     if provider is not None:
+        # Head-truncate pathological outliers client-side (5 of 23,867 cleaned
+        # LongMemEval-S sessions exceed 30k chars; the longest is 78k). 32k
+        # chars is ~8k tokens of English, matching the model window, and stays
+        # under the input size at which vLLM 0.26's pooling path has been
+        # observed to hang even with truncate_prompt_tokens set.
         values = await provider.embed_documents(
-            [memory_content_text(memory.content) for memory in stored_memories]
+            [memory_content_text(memory.content)[:32_000] for memory in stored_memories]
         )
         if len(values) != len(stored_memories):
             raise RuntimeError(
