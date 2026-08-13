@@ -43,8 +43,11 @@ class OpenAICompatibleEmbeddingProvider:
         query_instruction: str | None = (
             "Given a coding-agent memory search query, retrieve relevant memories"
         ),
+        truncate_prompt_tokens: int | None = None,
         client: Any | None = None,
     ) -> None:
+        if truncate_prompt_tokens is not None and truncate_prompt_tokens < 1:
+            raise ValueError("truncate_prompt_tokens must be at least 1")
         if dimensions < 2:
             raise ValueError("dimensions must be at least 2")
         if not model_id or len(model_id) > 255:
@@ -75,6 +78,7 @@ class OpenAICompatibleEmbeddingProvider:
         self._api_key = api_key
         self._required_response_model = required_response_model
         self._query_instruction = query_instruction
+        self._truncate_prompt_tokens = truncate_prompt_tokens
         self._client = client
         self._owns_client = client is None
         self._document_inputs = 0
@@ -144,9 +148,16 @@ class OpenAICompatibleEmbeddingProvider:
         for attempt in range(_TRANSIENT_ATTEMPTS):
             try:
                 self._http_attempts += 1
+                body: dict[str, Any] = {"model": self._model_id, "input": texts}
+                if self._truncate_prompt_tokens is not None:
+                    # vLLM extension: server-side head truncation for inputs
+                    # beyond the model's context window. Part of the embedding
+                    # identity, so it must be reflected in any projection
+                    # signature naming this provider configuration.
+                    body["truncate_prompt_tokens"] = self._truncate_prompt_tokens
                 response = await client.post(
                     f"{self._base_url}/v1/embeddings",
-                    json={"model": self._model_id, "input": texts},
+                    json=body,
                     headers=headers,
                     timeout=_REQUEST_TIMEOUT_SECONDS,
                 )

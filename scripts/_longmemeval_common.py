@@ -129,6 +129,10 @@ def configure_embeddings(
         api_key=api_key,
         required_response_model=model_id or "Qwen/Qwen3-Embedding-0.6B",
         query_instruction=QWEN_QUERY_INSTRUCTION,
+        # Qwen3-Embedding-0.6B serves an 8192-token window; a handful of
+        # LongMemEval haystack sessions exceed it, and vLLM 400s instead of
+        # truncating unless the request opts in.
+        truncate_prompt_tokens=8192,
     )
 
 
