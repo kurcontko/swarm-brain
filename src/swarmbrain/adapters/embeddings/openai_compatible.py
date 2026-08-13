@@ -9,7 +9,11 @@ from typing import Any
 from urllib.parse import urlsplit
 
 _MAX_BATCH_SIZE = 64
-_REQUEST_TIMEOUT_SECONDS = 60.0
+# A full batch of near-window documents is ~500k tokens; a cold vLLM instance
+# additionally spends its first heavy batches compiling CUDA graphs. 60s
+# produced spurious ReadTimeouts on real workloads; five minutes bounds a hang
+# without amputating a slow-but-succeeding batch.
+_REQUEST_TIMEOUT_SECONDS = 300.0
 # One in-flight embedding request is retried through brief network faults so a
 # multi-hour benchmark or backfill does not die on a single dropped connection.
 # Protocol-shape errors (wrong dimensions, bad payload) never retry.
