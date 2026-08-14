@@ -131,6 +131,11 @@ class ApiSettings:
     # operator explicitly sets SWARMBRAIN_CONSOLE_DEMO=enabled. Any other
     # value (including unset, empty, or a typo) leaves the route absent.
     console_demo_enabled: bool = False
+    # Work-lease duration for console-triggered demo runs. The 20s default
+    # assumes the API and CockroachDB are co-located; an operator running the
+    # demo across a slower link (or a cautious hosted deployment) can widen it
+    # rather than have the run die on lease fencing mid-beat.
+    console_demo_lease_seconds: int = 20
     # Same fail-closed pattern for the anonymous OpenAPI surface: /docs,
     # /redoc, and /openapi.json exist only under SWARMBRAIN_PUBLIC_DOCS=enabled
     # (the hosted /docs pages also pull assets from third-party CDNs).
@@ -309,6 +314,9 @@ class ApiSettings:
                 ),
                 console_demo_enabled=(
                     (_env("SWARMBRAIN_CONSOLE_DEMO", default="") or "").casefold() == "enabled"
+                ),
+                console_demo_lease_seconds=_integer_env(
+                    "SWARMBRAIN_CONSOLE_DEMO_LEASE_SECONDS", default=20
                 ),
                 public_docs_enabled=(
                     (_env("SWARMBRAIN_PUBLIC_DOCS", default="") or "").casefold() == "enabled"

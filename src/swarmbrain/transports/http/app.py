@@ -153,8 +153,11 @@ def create_app(
     runtime: SwarmBrainRuntime,
     *,
     console_demo: bool = False,
+    console_demo_lease_seconds: int = REAL_TIME_LEASE_SECONDS,
     public_docs: bool = False,
 ) -> FastAPI:
+    if console_demo_lease_seconds < 1:
+        raise ValueError("console_demo_lease_seconds must be at least 1")
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runtime.start()
@@ -275,7 +278,11 @@ def create_app(
             )
             viewer_token = runtime.tokens.issue(viewer, ttl=DEMO_VIEWER_TTL)
             demo_gate.last_started_at = time.monotonic()
-            demo_gate.task = asyncio.create_task(_drive_console_demo(app, runtime, scenario))
+            demo_gate.task = asyncio.create_task(
+                _drive_console_demo(
+                    app, runtime, scenario, lease_seconds=console_demo_lease_seconds
+                )
+            )
 
         return JSONResponse(
             status_code=202,
@@ -535,6 +542,8 @@ async def _drive_console_demo(
     app: FastAPI,
     runtime: SwarmBrainRuntime,
     scenario: DemoScenario,
+    *,
+    lease_seconds: int = REAL_TIME_LEASE_SECONDS,
 ) -> None:
     """Run the scripted scenario against this very app, in this very process.
 
@@ -556,7 +565,7 @@ async def _drive_console_demo(
                 runtime=runtime,
                 scenario=scenario,
                 expire_leases=real_time_lease_expiry(lambda _line: None),
-                lease_seconds=REAL_TIME_LEASE_SECONDS,
+                lease_seconds=lease_seconds,
                 narrate=None,
                 now=None,
             )

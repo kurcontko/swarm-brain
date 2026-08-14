@@ -12,6 +12,7 @@ def main() -> None:
     app = create_app(
         build_runtime(settings),
         console_demo=settings.console_demo_enabled,
+        console_demo_lease_seconds=settings.console_demo_lease_seconds,
         public_docs=settings.public_docs_enabled,
     )
     uvicorn.run(app, host=settings.host, port=settings.port)
