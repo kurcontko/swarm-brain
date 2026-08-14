@@ -28,17 +28,17 @@
   <!-- two headline stats -->
   <rect class="stat" x="50" y="164" width="880" height="380" rx="16"/>
   <text class="biglb" x="90" y="216">RECALL@10</text>
-  <text class="big" x="90" y="392">0.885</text>
+  <text class="big" x="90" y="392">0.970</text>
   <text class="bignt" x="90" y="452">the labelled evidence sessions are inside the top ten of</text>
-  <text class="bignt" x="90" y="486">roughly fifty candidate sessions 88.5% of the time</text>
-  <text class="bignt" x="90" y="520">best measured configuration: fused ranking, dense lane off</text>
+  <text class="bignt" x="90" y="486">roughly fifty candidate sessions 97.0% of the time</text>
+  <text class="bignt" x="90" y="520">full 500 questions, cleaned release · fused ranking, dense lane on</text>
 
   <rect class="stat" x="990" y="164" width="880" height="380" rx="16"/>
   <text class="biglb" x="1030" y="216">MRR@10</text>
-  <text class="big" x="1030" y="392">0.792</text>
+  <text class="big" x="1030" y="392">0.908</text>
   <text class="bignt" x="1030" y="452">same run, same configuration</text>
-  <text class="bignt" x="1030" y="486">Recall@5 0.799 · nDCG@10 0.779</text>
-  <text class="bignt" x="1030" y="520">in-memory kernel; hash embedder is not a semantic model</text>
+  <text class="bignt" x="1030" y="486">Recall@5 0.921 · nDCG@10 0.905 · no-answer P/R 1.00</text>
+  <text class="bignt" x="1030" y="520">Qwen3-Embedding-0.6B dense lane · artifacts in benchmarks/retrieval/</text>
 
   <!-- swarm-native line -->
   <rect class="side" x="50" y="574" width="1820" height="112" rx="14"/>
