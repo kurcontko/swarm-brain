@@ -18,7 +18,11 @@ from conftest import make_actor
 from swarmbrain.application.runtime import build_in_memory_runtime
 from swarmbrain.config import ApiSettings, BackendKind
 from swarmbrain.transports.http import create_app
-from swarmbrain.transports.http.app import DEMO_VIEWER_CAPABILITIES
+from swarmbrain.transports.http.app import (
+    DEMO_DAILY_RUN_LIMIT,
+    DEMO_DAILY_WINDOW_SECONDS,
+    DEMO_VIEWER_CAPABILITIES,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -168,6 +172,29 @@ async def test_enabling_the_trigger_does_not_weaken_any_existing_route(
 
         headers = {"Authorization": f"Bearer {token}"}
         assert (await client.get(f"/v1/runs/{run_id}/events", headers=headers)).status_code == 200
+
+
+async def test_daily_run_limit_blocks_the_trigger_even_outside_the_cooldown() -> None:
+    app = create_app(build_in_memory_runtime(SECRET), console_demo=True)
+
+    try:
+        async with _client(app) as client:
+            assert (await client.post("/console/demo")).status_code == 202
+            await _stop(app)
+
+            gate = app.state.console_demo_gate
+            gate.last_started_at -= 3_600  # cooldown long over
+            gate.window_run_count = DEMO_DAILY_RUN_LIMIT  # but the day's budget is spent
+
+            blocked = await client.post("/console/demo")
+            assert blocked.status_code == 429
+            assert blocked.json()["error"]["code"] == "demo_daily_limit"
+            assert blocked.json()["error"]["retryable"] is True
+
+            gate.window_started_at -= DEMO_DAILY_WINDOW_SECONDS + 1  # next day
+            assert (await client.post("/console/demo")).status_code == 202
+    finally:
+        await _stop(app)
 
 
 async def test_cooldown_blocks_a_restart_even_after_the_first_scenario_stops() -> None:

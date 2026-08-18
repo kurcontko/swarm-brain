@@ -24,6 +24,12 @@
 #   scope       the same token reading a *different* run's metrics gets 404.
 #               The token cannot see outside the run it was minted for.
 #
+# Set SMOKE_PUBLIC_ONLY=1 when production token material is deliberately not
+# available. That mode performs health, readiness, console, and negative-auth
+# checks only. It neither mints a token nor writes a row, and reports the
+# authenticated metrics/scope checks as skipped rather than pretending they
+# passed.
+#
 # WHAT IT WRITES
 #   By default it joins one agent to one run in a namespace of freshly
 #   generated UUIDs that this script invents and nothing else will ever
@@ -40,7 +46,8 @@
 #   SWARMBRAIN_TOKEN_SECRET   the same secret the target is running with.
 #                             Tokens are minted locally by swarmbrain-token;
 #                             none is ever sent anywhere but the target, and
-#                             none is printed.
+#                             none is printed. Not required when
+#                             SMOKE_PUBLIC_ONLY=1.
 #   python3                   required — for JSON reads and as the HTTP
 #                             fallback transport.
 #   curl                      optional — used when present.
@@ -48,8 +55,11 @@
 #                             named explicitly with SMOKE_TOKEN_CMD.
 #
 # Environment:
-#   SWARMBRAIN_TOKEN_SECRET   required — the target's token secret
+#   SWARMBRAIN_TOKEN_SECRET   required unless SMOKE_PUBLIC_ONLY=1 — the
+#                             target's token secret
 #   SMOKE_JOIN                1 (default) join first; 0 read-only
+#   SMOKE_PUBLIC_ONLY         0 (default); 1 skips token minting and all
+#                             authenticated/write checks
 #   SMOKE_TIMEOUT             per-request timeout in seconds (default: 30)
 #   SMOKE_TOKEN_CMD           override the swarmbrain-token invocation
 
@@ -57,7 +67,19 @@ set -uo pipefail
 
 BASE_URL="${1:-}"
 SMOKE_JOIN="${SMOKE_JOIN:-1}"
+SMOKE_PUBLIC_ONLY="${SMOKE_PUBLIC_ONLY:-0}"
 SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-30}"
+
+case "$SMOKE_PUBLIC_ONLY" in
+0 | 1) ;;
+*)
+  echo "smoke: SMOKE_PUBLIC_ONLY must be 0 or 1" >&2
+  exit 2
+  ;;
+esac
+if [ "$SMOKE_PUBLIC_ONLY" = "1" ]; then
+  SMOKE_JOIN=0
+fi
 
 if [ -z "$BASE_URL" ]; then
   echo "usage: $0 <base-url>    e.g. $0 http://127.0.0.1:8080" >&2
@@ -81,7 +103,7 @@ else
   HTTP_TRANSPORT="python3"
 fi
 
-if [ -z "${SWARMBRAIN_TOKEN_SECRET:-}" ]; then
+if [ "$SMOKE_PUBLIC_ONLY" != "1" ] && [ -z "${SWARMBRAIN_TOKEN_SECRET:-}" ]; then
   echo "smoke: SWARMBRAIN_TOKEN_SECRET is not set." >&2
   echo "smoke: it must match the secret the target is running with." >&2
   echo "smoke: load it with:  set -a; source .env; set +a" >&2
@@ -128,11 +150,14 @@ resolve_token_cmd() {
   return 1
 }
 
-TOKEN_CMD="$(resolve_token_cmd)" || {
-  echo "smoke: swarmbrain-token not found." >&2
-  echo "smoke: install the project, activate its venv, or set SMOKE_TOKEN_CMD." >&2
-  exit 2
-}
+TOKEN_CMD=""
+if [ "$SMOKE_PUBLIC_ONLY" != "1" ]; then
+  TOKEN_CMD="$(resolve_token_cmd)" || {
+    echo "smoke: swarmbrain-token not found." >&2
+    echo "smoke: install the project, activate its venv, or set SMOKE_TOKEN_CMD." >&2
+    exit 2
+  }
+fi
 
 uuid() { python3 -c 'import uuid; print(uuid.uuid4())'; }
 
@@ -165,11 +190,14 @@ mint_token() {
     --ttl-seconds 300 2>/dev/null
 }
 
-TOKEN="$(mint_token)"
-if [ -z "$TOKEN" ]; then
-  echo "smoke: could not mint a token with: $TOKEN_CMD" >&2
-  echo "smoke: check SWARMBRAIN_TOKEN_SECRET is at least 16 bytes." >&2
-  exit 2
+TOKEN=""
+if [ "$SMOKE_PUBLIC_ONLY" != "1" ]; then
+  TOKEN="$(mint_token)"
+  if [ -z "$TOKEN" ]; then
+    echo "smoke: could not mint a token with: $TOKEN_CMD" >&2
+    echo "smoke: check SWARMBRAIN_TOKEN_SECRET is at least 16 bytes." >&2
+    exit 2
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -359,10 +387,14 @@ esac
 # The page is static and fetches run data in the browser with a token the
 # operator pastes in. If a credential ever appears in the served bytes, that is
 # the single worst thing this deployment could do, so it is checked explicitly.
-case "$body" in
-*"$SWARMBRAIN_TOKEN_SECRET"*) fail "the console body contains the token secret" ;;
-*) pass "console body carries no token secret" ;;
-esac
+if [ -n "${SWARMBRAIN_TOKEN_SECRET:-}" ]; then
+  case "$body" in
+  *"$SWARMBRAIN_TOKEN_SECRET"*) fail "the console body contains the token secret" ;;
+  *) pass "console body carries no token secret" ;;
+  esac
+else
+  info "exact token-secret leak check skipped (SMOKE_PUBLIC_ONLY=1; no secret supplied)"
+fi
 case "$body" in
 *"postgresql://"* | *"postgres://"*) fail "the console body contains a database URL" ;;
 *) pass "console body carries no database URL" ;;
@@ -379,6 +411,24 @@ expect_status 401 "GET metrics without a token"
 
 request GET "$METRICS_URL" "not-a-real-token"
 expect_status 401 "GET metrics with a malformed token"
+
+if [ "$SMOKE_PUBLIC_ONLY" = "1" ]; then
+  section "authenticated read and run scope"
+  info "skipped (SMOKE_PUBLIC_ONLY=1; no production token material used)"
+
+  section "summary"
+  info "base url: $BASE_URL"
+  info "console:  $console_bytes bytes"
+  info "join:     not attempted (public-only)"
+
+  echo
+  if [ "$failures" -eq 0 ]; then
+    echo "smoke: PASSED (public-only)"
+    exit 0
+  fi
+  echo "smoke: FAILED ($failures check(s))" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 section "authenticated read"

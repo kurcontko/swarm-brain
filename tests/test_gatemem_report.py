@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,19 @@ from benchmarks.integrations.gatemem.report import (
 )
 
 CHECKOUT = Path("/private/tmp/swarmbrain-gatemem")
+
+
+def _readable_git_checkout(path: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
@@ -216,7 +230,10 @@ def _domain_fixture(tmp_path: Path, checkout: GateMemCheckout, domain: str) -> D
     )
 
 
-@pytest.mark.skipif(not (CHECKOUT / ".git").exists(), reason="pinned GateMem checkout absent")
+@pytest.mark.skipif(
+    not _readable_git_checkout(CHECKOUT),
+    reason="pinned GateMem checkout absent or unreadable",
+)
 def test_report_compiler_requires_full_pinned_official_coverage(tmp_path: Path) -> None:
     checkout = GateMemCheckout(CHECKOUT)
     evidence = tuple(
@@ -258,7 +275,10 @@ def test_report_compiler_requires_full_pinned_official_coverage(tmp_path: Path) 
     assert completion["execution_lineage"]["resume_enabled"] is False
 
 
-@pytest.mark.skipif(not (CHECKOUT / ".git").exists(), reason="pinned GateMem checkout absent")
+@pytest.mark.skipif(
+    not _readable_git_checkout(CHECKOUT),
+    reason="pinned GateMem checkout absent or unreadable",
+)
 def test_report_compiler_rejects_official_answer_token_drift(tmp_path: Path) -> None:
     checkout = GateMemCheckout(CHECKOUT)
     evidence = tuple(
@@ -273,7 +293,10 @@ def test_report_compiler_rejects_official_answer_token_drift(tmp_path: Path) -> 
         build_gatemem_report(checkout=checkout, evidence=evidence)
 
 
-@pytest.mark.skipif(not (CHECKOUT / ".git").exists(), reason="pinned GateMem checkout absent")
+@pytest.mark.skipif(
+    not _readable_git_checkout(CHECKOUT),
+    reason="pinned GateMem checkout absent or unreadable",
+)
 def test_report_compiler_rejects_a_stale_prediction_audit_pair(tmp_path: Path) -> None:
     checkout = GateMemCheckout(CHECKOUT)
     evidence = tuple(
@@ -288,7 +311,10 @@ def test_report_compiler_rejects_a_stale_prediction_audit_pair(tmp_path: Path) -
         build_gatemem_report(checkout=checkout, evidence=evidence)
 
 
-@pytest.mark.skipif(not (CHECKOUT / ".git").exists(), reason="pinned GateMem checkout absent")
+@pytest.mark.skipif(
+    not _readable_git_checkout(CHECKOUT),
+    reason="pinned GateMem checkout absent or unreadable",
+)
 @pytest.mark.parametrize("tamper", ["resume_flag", "implementation_digest"])
 def test_report_compiler_rejects_tampered_completion_lineage(tmp_path: Path, tamper: str) -> None:
     checkout = GateMemCheckout(CHECKOUT)

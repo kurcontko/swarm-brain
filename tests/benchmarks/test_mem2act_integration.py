@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,19 @@ from swarmbrain.adapters.embeddings import DeterministicEmbeddingProvider
 from swarmbrain.application.runtime import build_in_memory_runtime
 
 OFFICIAL_CHECKOUT = Path("/private/tmp/swarmbrain-mem2act")
+
+
+def _readable_git_checkout(path: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def test_mem2act_implementation_fingerprint_covers_runtime_and_lockfiles() -> None:
@@ -245,7 +259,10 @@ class _FakeReader:
         )
 
 
-@pytest.mark.skipif(not OFFICIAL_CHECKOUT.exists(), reason="official checkout is not present")
+@pytest.mark.skipif(
+    not _readable_git_checkout(OFFICIAL_CHECKOUT),
+    reason="official checkout is not present or not readable",
+)
 def test_official_release_loads_all_400_tasks_and_429_sessions() -> None:
     dataset = load_mem2act_dataset(OFFICIAL_CHECKOUT)
     assert len(dataset.tasks) == 400

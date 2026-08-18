@@ -18,6 +18,7 @@ from .common import (
     MemoryId,
     MutationCommand,
     ProjectId,
+    QueryText,
     RepositoryId,
     RunId,
     SemanticLabel,
@@ -260,7 +261,7 @@ class RecallQuery(ContractModel):
     time, but never changes canonical eligibility.
     """
 
-    text: ContentText
+    text: QueryText
     task_id: TaskId | None = None
     memory_ids: frozenset[MemoryId] = Field(
         default_factory=frozenset,

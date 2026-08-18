@@ -256,7 +256,9 @@ async def test_cockroach_fuzzy_query_is_normalized_and_bounded_before_sql(
     now = datetime(2026, 8, 5, 12, tzinfo=UTC)
     connection = _Connection(now)
     database = SimpleNamespace(pool=_Pool(connection))
-    raw_query = "STRAßE" + (" " * 20_000) + "x"
+    # The longest text RecallQuery itself accepts; the SQL layer must still
+    # normalize and shrink it far below that.
+    raw_query = "STRAßE" + (" " * 8_000) + "x"
     query = RecallQuery(text=raw_query)
     plan = RetrievalPlanner().plan(
         actor,
@@ -275,7 +277,7 @@ async def test_cockroach_fuzzy_query_is_normalized_and_bounded_before_sql(
         for statement, values in connection.calls
         if "retrieval_documents_lookup_trgm" in statement
     )
-    assert "strasse" in parameters
+    assert "strasse x" in parameters
     assert raw_query not in parameters
     assert max(len(value) for value in parameters if isinstance(value, str)) < 1_000
 

@@ -50,6 +50,12 @@ ShortText = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=4096),
 ]
 ContentText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+# Query text reaches the embedding provider verbatim, so unlike stored content
+# it is bounded — the same 8k limit read-expand applies to its query_text.
+QueryText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=8_192),
+]
 SemanticLabel = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
@@ -125,6 +131,7 @@ __all__ = [
     "MutationCommand",
     "NestedJsonValue",
     "ProjectId",
+    "QueryText",
     "RepositoryId",
     "RunId",
     "SemanticLabel",

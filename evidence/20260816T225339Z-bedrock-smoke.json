@@ -1,0 +1,36 @@
+{
+  "artifact": "bedrock-smoke",
+  "generated_at": "2026-08-16T22:53:23.821084+00:00",
+  "mode": "live-bedrock",
+  "provider": {
+    "dimensions": 1024,
+    "elapsed_ms": 1204,
+    "max_unrelated_cosine": 0.9,
+    "model": "amazon.titan-embed-text-v2:0",
+    "sentence_a_sha256": "628be2390301848714b3ec9fcd90800799405e254ccd4d23bf9b59e2073b4c60",
+    "sentence_b_sha256": "402fc8db43ce7a1d6013e1f950547aeed3eda29318fa4a642b94f6149984d5f4",
+    "unrelated_cosine": 0.07082,
+    "vector_a_norm": 1.0,
+    "vector_a_sha256": "e473b6de841170cfd50be593b1665f1eb078d3ca10e63c44f409be4473dd3cf8",
+    "vector_b_norm": 1.0,
+    "vector_b_sha256": "0bb376f070477bd9ee29dd923f5b7761d6b220533f1778cc2e7dd77f5b3c021a"
+  },
+  "region": "us-east-1",
+  "round_trip": {
+    "embed_elapsed_ms": 1890,
+    "memory_id": "fadca903-14d5-48cf-b8ed-ca073448f4c7",
+    "min_round_trip_cosine": 0.5,
+    "recall_reasons": [
+      "signal:lexical",
+      "fts_simple",
+      "signal:dense",
+      "semantic_match",
+      "dense_cosine_ann",
+      "purpose:interactive_recall"
+    ],
+    "recall_score": 1.0,
+    "run_id": "58bf3ef2-032d-4cb4-b394-b0413cf74e05",
+    "total_hits": 1,
+    "work_items_completed": 1
+  }
+}

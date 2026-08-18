@@ -1,0 +1,542 @@
+{
+  "beats": [
+    {
+      "checks": [
+        {
+          "detail": "4 unique agents joined across ['anthropic', 'google', 'openai', 'qwen']",
+          "name": "exactly_four_agents_four_providers",
+          "ok": true
+        }
+      ],
+      "data": {
+        "joined": 4
+      },
+      "key": "join",
+      "ok": true,
+      "title": "Four agents across four vendors join the run"
+    },
+    {
+      "checks": [
+        {
+          "detail": "Wave A owners are ['replay-invariant', 'replay-procedure']",
+          "name": "exactly_two_wave_a_wins",
+          "ok": true
+        },
+        {
+          "detail": "2 agents received no_task_available while Wave B was blocked",
+          "name": "two_agents_wait_for_dependencies",
+          "ok": true
+        }
+      ],
+      "data": {
+        "owners": {
+          "replay-invariant": {
+            "agent": "verifier-04-opencode",
+            "provider": "qwen"
+          },
+          "replay-procedure": {
+            "agent": "investigator-02-codex-cli",
+            "provider": "openai"
+          }
+        },
+        "waiting": [
+          "investigator-01-claude-code",
+          "builder-03-gemini-cli"
+        ]
+      },
+      "key": "claim_race",
+      "ok": true,
+      "title": "Four agents race two Wave-A investigations \u2014 exactly two wait"
+    },
+    {
+      "checks": [
+        {
+          "detail": "two different Wave-A owners published the required current memories",
+          "name": "two_confirmed_memories_published",
+          "ok": true
+        },
+        {
+          "detail": "both waiting agents recalled current evidence: ['investigator-01-claude-code', 'builder-03-gemini-cli']",
+          "name": "cross_vendor_recall",
+          "ok": true
+        }
+      ],
+      "data": {
+        "publisher": {
+          "agent": "verifier-04-opencode",
+          "provider": "qwen"
+        },
+        "publishers": [
+          {
+            "agent": "verifier-04-opencode",
+            "provider": "qwen"
+          },
+          {
+            "agent": "investigator-02-codex-cli",
+            "provider": "openai"
+          }
+        ],
+        "recalled_by": [
+          {
+            "agent": "investigator-01-claude-code",
+            "provider": "anthropic"
+          },
+          {
+            "agent": "builder-03-gemini-cli",
+            "provider": "google"
+          }
+        ],
+        "required_memory_ids": [
+          "3f08e90d-7e66-4953-ab62-020c028d1e90",
+          "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+        ]
+      },
+      "key": "shared_discovery",
+      "ok": true,
+      "title": "Wave A publishes two opaque, evidence-backed facts for Wave B"
+    },
+    {
+      "checks": [
+        {
+          "detail": "ordinary recall exposes the procedure and hides stale charge-first advice",
+          "name": "current_recall_returns_correction_only",
+          "ok": true
+        },
+        {
+          "detail": "historical recall retains both versions for audit",
+          "name": "history_keeps_both",
+          "ok": true
+        },
+        {
+          "detail": "lineage keeps both versions and marks only the correction current",
+          "name": "lineage_links_two_versions",
+          "ok": true
+        },
+        {
+          "detail": "unsupported tentative supersession of confirmed evidence is a noop",
+          "name": "poisoning_rejected",
+          "ok": true
+        },
+        {
+          "detail": "the evidence-backed procedure remains current after the attack",
+          "name": "confirmed_memory_still_current",
+          "ok": true
+        }
+      ],
+      "data": {
+        "correction_memory_id": "82312e02-fb9b-4543-8788-7fba4cacf5d4",
+        "poison_memory_id": null,
+        "wrong_memory_id": "83db4876-7f61-4252-980d-3cb0e1bb3855"
+      },
+      "key": "supersession_poisoning",
+      "ok": true,
+      "title": "Current recall hides stale advice and an unsupported supersession bounces"
+    },
+    {
+      "checks": [
+        {
+          "detail": "verifier-04-opencode completed replay-invariant",
+          "name": "completed_replay-invariant",
+          "ok": true
+        },
+        {
+          "detail": "the duplicate completion returned the stored result",
+          "name": "duplicate_completion_replayed",
+          "ok": true
+        },
+        {
+          "detail": "investigator-02-codex-cli completed replay-procedure",
+          "name": "completed_replay-procedure",
+          "ok": true
+        },
+        {
+          "detail": "dependencies released ['implement-replay-guard', 'verify-replay-guard']",
+          "name": "two_wave_b_tasks_unblocked",
+          "ok": true
+        },
+        {
+          "detail": "claim bootstrap IDs by task: {'verify-replay-guard': ['3f08e90d-7e66-4953-ab62-020c028d1e90', '82312e02-fb9b-4543-8788-7fba4cacf5d4'], 'implement-replay-guard': ['3f08e90d-7e66-4953-ab62-020c028d1e90', '82312e02-fb9b-4543-8788-7fba4cacf5d4']}",
+          "name": "wave_b_bootstrap_is_current",
+          "ok": true
+        }
+      ],
+      "data": {
+        "wave_b_bootstrap_memory_ids": {
+          "implement-replay-guard": [
+            "3f08e90d-7e66-4953-ab62-020c028d1e90",
+            "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+          ],
+          "verify-replay-guard": [
+            "3f08e90d-7e66-4953-ab62-020c028d1e90",
+            "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+          ]
+        },
+        "wave_b_owners": {
+          "implement-replay-guard": {
+            "agent": "investigator-01-claude-code",
+            "provider": "anthropic"
+          },
+          "verify-replay-guard": {
+            "agent": "builder-03-gemini-cli",
+            "provider": "google"
+          }
+        }
+      },
+      "key": "complete_replay",
+      "ok": true,
+      "title": "Wave A completes once; replay is idempotent; Wave B becomes claimable"
+    },
+    {
+      "checks": [
+        {
+          "detail": "the same verifier rejects an empty delivered context",
+          "name": "memory_disabled_verification_fails",
+          "ok": true
+        },
+        {
+          "detail": "the actual claim bundle supplies both opaque tokens and passes",
+          "name": "memory_enabled_verification_passes",
+          "ok": true
+        },
+        {
+          "detail": "the verifier received neither the superseded version nor a poison memory",
+          "name": "stale_and_poison_excluded",
+          "ok": true
+        },
+        {
+          "detail": "the crashing builder durably cited the exact memories that passed the gate",
+          "name": "checkpoint_cites_delivered_memories",
+          "ok": true
+        },
+        {
+          "detail": "builder-03-gemini-cli completed its own task with explicit citations",
+          "name": "peer_verifier_cites_current_memories",
+          "ok": true
+        },
+        {
+          "detail": "builder-03-gemini-cli received investigator-01-claude-code's durable checkpoint",
+          "name": "successor_resumes_with_checkpoint",
+          "ok": true
+        },
+        {
+          "detail": "checkpoint seed IDs force both causal memories into resumed context",
+          "name": "bootstrap_memory_included",
+          "ok": true
+        },
+        {
+          "detail": "the expired lease was fenced (lease_lost)",
+          "name": "dead_worker_fenced",
+          "ok": true
+        },
+        {
+          "detail": "builder-03-gemini-cli finished the task with checkpoint-seeded citations",
+          "name": "successor_completed",
+          "ok": true
+        }
+      ],
+      "data": {
+        "causal_verification": {
+          "expected_sha256": "cdd7559c8df734c4356d549f35a1bde115a34e21b7710a5c61b489420ce8ad00",
+          "isolation": "same hidden verifier; only delivered memory hits differ",
+          "kind": "measured_deterministic_context_ablation",
+          "resumed_memory_ids": [
+            "3f08e90d-7e66-4953-ab62-020c028d1e90",
+            "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+          ],
+          "verifier_version": "demo-causal-v1",
+          "with_memory": {
+            "accepted_memory_ids": [
+              "3f08e90d-7e66-4953-ab62-020c028d1e90",
+              "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+            ],
+            "answer_sha256": "cdd7559c8df734c4356d549f35a1bde115a34e21b7710a5c61b489420ce8ad00",
+            "cited_memory_ids": [
+              "3f08e90d-7e66-4953-ab62-020c028d1e90",
+              "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+            ],
+            "delivered_memory_ids": [
+              "82312e02-fb9b-4543-8788-7fba4cacf5d4",
+              "3f08e90d-7e66-4953-ab62-020c028d1e90"
+            ],
+            "missing_slots": [],
+            "passed": true
+          },
+          "without_memory": {
+            "accepted_memory_ids": [],
+            "answer_sha256": null,
+            "delivered_memory_ids": [],
+            "missing_slots": [
+              "guard",
+              "procedure"
+            ],
+            "passed": false
+          }
+        },
+        "crashed": {
+          "agent": "investigator-01-claude-code",
+          "provider": "anthropic"
+        },
+        "successor": {
+          "agent": "builder-03-gemini-cli",
+          "provider": "google"
+        }
+      },
+      "key": "crash_handoff",
+      "ok": true,
+      "title": "Memory passes the hidden gate; a cross-provider successor resumes it"
+    },
+    {
+      "checks": [
+        {
+          "detail": "the two agents blocked in Wave A became the Wave-B owners",
+          "name": "wave_b_owned_by_waiting_agents",
+          "ok": true
+        },
+        {
+          "detail": "4/4 tasks completed",
+          "name": "all_tasks_completed",
+          "ok": true
+        }
+      ],
+      "data": {
+        "wave_a": [
+          "replay-invariant",
+          "replay-procedure"
+        ],
+        "wave_b": [
+          "implement-replay-guard",
+          "verify-replay-guard"
+        ]
+      },
+      "key": "dag_unblock",
+      "ok": true,
+      "title": "The two-wave DAG finishes only after its evidence dependencies"
+    },
+    {
+      "checks": [
+        {
+          "detail": "4/4 tasks completed",
+          "name": "four_tasks_completed",
+          "ok": true
+        },
+        {
+          "detail": "every lease completed, expired, or was fenced",
+          "name": "no_lease_left_behind",
+          "ok": true
+        },
+        {
+          "detail": "1 crash handoff recorded",
+          "name": "crash_handoff_counted",
+          "ok": true
+        },
+        {
+          "detail": "1 duplicate mutation replayed",
+          "name": "idempotent_replay_counted",
+          "ok": true
+        },
+        {
+          "detail": "6 activated, 8 cited, 6 cross-agent uses",
+          "name": "memory_lifecycle_measured",
+          "ok": true
+        },
+        {
+          "detail": "durable task events cite both current memories and never the stale claim",
+          "name": "only_current_memories_cited",
+          "ok": true
+        },
+        {
+          "detail": "26 durable events are available to the dashboard",
+          "name": "event_timeline_present",
+          "ok": true
+        }
+      ],
+      "data": {
+        "causal_verification": {
+          "expected_sha256": "cdd7559c8df734c4356d549f35a1bde115a34e21b7710a5c61b489420ce8ad00",
+          "isolation": "same hidden verifier; only delivered memory hits differ",
+          "kind": "measured_deterministic_context_ablation",
+          "resumed_memory_ids": [
+            "3f08e90d-7e66-4953-ab62-020c028d1e90",
+            "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+          ],
+          "verifier_version": "demo-causal-v1",
+          "with_memory": {
+            "accepted_memory_ids": [
+              "3f08e90d-7e66-4953-ab62-020c028d1e90",
+              "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+            ],
+            "answer_sha256": "cdd7559c8df734c4356d549f35a1bde115a34e21b7710a5c61b489420ce8ad00",
+            "cited_memory_ids": [
+              "3f08e90d-7e66-4953-ab62-020c028d1e90",
+              "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+            ],
+            "delivered_memory_ids": [
+              "82312e02-fb9b-4543-8788-7fba4cacf5d4",
+              "3f08e90d-7e66-4953-ab62-020c028d1e90"
+            ],
+            "missing_slots": [],
+            "passed": true
+          },
+          "without_memory": {
+            "accepted_memory_ids": [],
+            "answer_sha256": null,
+            "delivered_memory_ids": [],
+            "missing_slots": [
+              "guard",
+              "procedure"
+            ],
+            "passed": false
+          }
+        },
+        "cited_memory_ids": [
+          "3f08e90d-7e66-4953-ab62-020c028d1e90",
+          "82312e02-fb9b-4543-8788-7fba4cacf5d4"
+        ],
+        "event_count": 26,
+        "event_types": [
+          "agent.joined",
+          "evidence.added",
+          "memory.activated",
+          "memory.added",
+          "memory.superseded",
+          "source.registered",
+          "task.checkpointed",
+          "task.claimed",
+          "task.completed"
+        ],
+        "metrics": {
+          "active_leases": 0,
+          "checkpoints": 1,
+          "conflicts_open": 0,
+          "conflicts_resolved": 0,
+          "crash_handoffs": 1,
+          "cross_agent_memory_uses": 6,
+          "custom": {},
+          "duplicate_claims_prevented": 0,
+          "duplicate_mutations_replayed": 1,
+          "measured_at": "2026-08-17T12:46:23.284462Z",
+          "memories_activated": 6,
+          "memories_cited": 8,
+          "memories_published": 2,
+          "memories_reused": 17,
+          "memory_activation_attempts": 5,
+          "run_id": "0f453c34-1605-42bf-8cb7-153fc92aef9a",
+          "tasks_claimed": 0,
+          "tasks_completed": 4,
+          "tasks_failed": 0,
+          "tasks_total": 4
+        }
+      },
+      "key": "telemetry",
+      "ok": true,
+      "title": "Durable events distinguish activation from explicit cross-agent use"
+    }
+  ],
+  "finished_at": "2026-08-17T12:46:23.302597+00:00",
+  "metrics": {
+    "active_leases": 0,
+    "checkpoints": 1,
+    "conflicts_open": 0,
+    "conflicts_resolved": 0,
+    "crash_handoffs": 1,
+    "cross_agent_memory_uses": 6,
+    "custom": {},
+    "duplicate_claims_prevented": 0,
+    "duplicate_mutations_replayed": 1,
+    "measured_at": "2026-08-17T12:46:23.284462Z",
+    "memories_activated": 6,
+    "memories_cited": 8,
+    "memories_published": 2,
+    "memories_reused": 17,
+    "memory_activation_attempts": 5,
+    "run_id": "0f453c34-1605-42bf-8cb7-153fc92aef9a",
+    "tasks_claimed": 0,
+    "tasks_completed": 4,
+    "tasks_failed": 0,
+    "tasks_total": 4
+  },
+  "ok": true,
+  "scenario": {
+    "agents": [
+      {
+        "agent_id": "41990a29-7c35-407c-ad00-72a1f18369de",
+        "harness": "claude-code",
+        "model": "claude-sonnet-5",
+        "name": "investigator-01-claude-code",
+        "provider": "anthropic"
+      },
+      {
+        "agent_id": "cb7878ef-cf7c-40a3-94ee-410223e3205d",
+        "harness": "codex-cli",
+        "model": "gpt-5-codex",
+        "name": "investigator-02-codex-cli",
+        "provider": "openai"
+      },
+      {
+        "agent_id": "2644bdae-697b-4e91-b699-e2b4babd392b",
+        "harness": "gemini-cli",
+        "model": "gemini-3-pro",
+        "name": "builder-03-gemini-cli",
+        "provider": "google"
+      },
+      {
+        "agent_id": "30182941-b413-4caf-a54e-4362004f086a",
+        "harness": "opencode",
+        "model": "qwen3-coder-27b",
+        "name": "verifier-04-opencode",
+        "provider": "qwen"
+      }
+    ],
+    "execution": {
+      "backend": "cockroach",
+      "http_path": "canonical_api_via_in_process_asgi",
+      "lease_time_source": "cockroachdb_wall_clock"
+    },
+    "mode": "four_agent_causal",
+    "repository_id": "02a27e8b-240b-4e3c-9f3c-ab216b12aac7",
+    "run_id": "0f453c34-1605-42bf-8cb7-153fc92aef9a",
+    "tasks": [
+      {
+        "depends_on": [],
+        "key": "replay-invariant",
+        "task_id": "b75fbe1c-1e38-40c1-b573-15be269b9e61",
+        "title": "Identify the webhook replay identity invariant"
+      },
+      {
+        "depends_on": [],
+        "key": "replay-procedure",
+        "task_id": "fc5b991e-d65a-42ef-a360-06d193d2a23f",
+        "title": "Derive the safe webhook replay procedure"
+      },
+      {
+        "depends_on": [
+          "replay-invariant",
+          "replay-procedure"
+        ],
+        "key": "implement-replay-guard",
+        "task_id": "b724c13d-f870-48c7-aa48-5d8f486569dd",
+        "title": "Implement the webhook replay identity guard procedure"
+      },
+      {
+        "depends_on": [
+          "replay-invariant",
+          "replay-procedure"
+        ],
+        "key": "verify-replay-guard",
+        "task_id": "00079817-bbb6-4946-8ab0-094dcf2a623a",
+        "title": "Verify the webhook replay identity guard procedure"
+      }
+    ],
+    "waves": {
+      "wave_a": [
+        "replay-invariant",
+        "replay-procedure"
+      ],
+      "wave_b": [
+        "implement-replay-guard",
+        "verify-replay-guard"
+      ]
+    }
+  },
+  "started_at": "2026-08-17T12:46:00.790510+00:00"
+}

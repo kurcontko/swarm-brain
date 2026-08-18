@@ -95,6 +95,8 @@ JsonBody = Annotated[dict[str, Any], Body(default_factory=dict)]
 # One-click demo guard rails. The trigger takes no body and no secret, so the
 # only thing standing between it and a scenario storm is this in-process gate.
 DEMO_COOLDOWN_SECONDS = 30.0
+DEMO_DAILY_RUN_LIMIT = 200
+DEMO_DAILY_WINDOW_SECONDS = 86_400.0
 DEMO_VIEWER_TTL = timedelta(minutes=30)
 # A viewer token is a read-only credential for exactly the run the trigger just
 # created: it can read that run's events and metrics and recall its memories,
@@ -112,11 +114,16 @@ DEMO_VIEWER_CAPABILITIES = frozenset(
 
 @dataclass(slots=True)
 class _DemoGate:
-    """At most one scenario in flight, and no restart inside the cooldown."""
+    """At most one scenario in flight, no restart inside the cooldown, and a
+    rolling daily run cap — every run persists rows forever under a fresh
+    tenant, so an unattended public trigger needs a volume bound, not just a
+    rate bound."""
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     task: asyncio.Task[Any] | None = None
     last_started_at: float | None = None
+    window_started_at: float | None = None
+    window_run_count: int = 0
 
     def running(self) -> bool:
         return self.task is not None and not self.task.done()
@@ -125,6 +132,23 @@ class _DemoGate:
         if self.last_started_at is None:
             return 0.0
         return max(0.0, DEMO_COOLDOWN_SECONDS - (time.monotonic() - self.last_started_at))
+
+    def daily_runs_remaining(self) -> int:
+        if self.window_started_at is None or (
+            time.monotonic() - self.window_started_at >= DEMO_DAILY_WINDOW_SECONDS
+        ):
+            return DEMO_DAILY_RUN_LIMIT
+        return max(0, DEMO_DAILY_RUN_LIMIT - self.window_run_count)
+
+    def record_start(self) -> None:
+        now = time.monotonic()
+        if self.window_started_at is None or (
+            now - self.window_started_at >= DEMO_DAILY_WINDOW_SECONDS
+        ):
+            self.window_started_at = now
+            self.window_run_count = 0
+        self.window_run_count += 1
+        self.last_started_at = now
 
 
 async def _authenticated_actor(
@@ -158,6 +182,7 @@ def create_app(
 ) -> FastAPI:
     if console_demo_lease_seconds < 1:
         raise ValueError("console_demo_lease_seconds must be at least 1")
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runtime.start()
@@ -262,6 +287,16 @@ def create_app(
                     True,
                     {"cooldown_seconds": round(remaining, 1)},
                 )
+            if demo_gate.daily_runs_remaining() <= 0:
+                return _error_response(
+                    request,
+                    429,
+                    "demo_daily_limit",
+                    "the demo trigger accepts at most "
+                    f"{DEMO_DAILY_RUN_LIMIT} scenarios per rolling day",
+                    True,
+                    {"daily_runs_remaining": 0},
+                )
             if runtime.coordination_store is None:
                 raise InvalidState("the running backend cannot host the demo scenario")
 
@@ -277,7 +312,7 @@ def create_app(
                 capabilities=DEMO_VIEWER_CAPABILITIES,
             )
             viewer_token = runtime.tokens.issue(viewer, ttl=DEMO_VIEWER_TTL)
-            demo_gate.last_started_at = time.monotonic()
+            demo_gate.record_start()
             demo_gate.task = asyncio.create_task(
                 _drive_console_demo(
                     app, runtime, scenario, lease_seconds=console_demo_lease_seconds

@@ -157,6 +157,22 @@ class _Harness:
     narrate: Callable[[str], None]
 
 
+def _execution_provenance(clock: ControllableClock | None) -> dict[str, str]:
+    """Describe the demo runtime without recording credentials or endpoints."""
+
+    if clock is None:
+        return {
+            "backend": BackendKind.COCKROACH.value,
+            "http_path": "canonical_api_via_in_process_asgi",
+            "lease_time_source": "cockroachdb_wall_clock",
+        }
+    return {
+        "backend": BackendKind.MEMORY.value,
+        "http_path": "canonical_api_via_in_process_asgi",
+        "lease_time_source": "controllable_process_clock",
+    }
+
+
 @asynccontextmanager
 async def _harness(args: argparse.Namespace) -> AsyncIterator[_Harness]:
     from swarmbrain.transports.http import create_app
@@ -195,7 +211,7 @@ async def _harness(args: argparse.Namespace) -> AsyncIterator[_Harness]:
 
 async def _run(args: argparse.Namespace) -> DemoReport:
     async with _harness(args) as harness:
-        return await run_demo_scenario(
+        report = await run_demo_scenario(
             client=harness.client,
             runtime=harness.runtime,
             scenario=build_scenario(),
@@ -204,12 +220,14 @@ async def _run(args: argparse.Namespace) -> DemoReport:
             lease_seconds=harness.lease_seconds,
             now=harness.clock if harness.clock is not None else None,
         )
+        report.scenario["execution"] = _execution_provenance(harness.clock)
+        return report
 
 
 async def _run_ab(args: argparse.Namespace) -> ABReport:
     async with _harness(args) as harness:
         assert harness.runtime.coordination_store is not None
-        return await run_comparison(
+        comparison = await run_comparison(
             client=harness.client,
             tokens=harness.runtime.tokens,
             store=harness.runtime.coordination_store,
@@ -219,6 +237,11 @@ async def _run_ab(args: argparse.Namespace) -> ABReport:
             lease_seconds=harness.lease_seconds,
             now=harness.clock if harness.clock is not None else None,
         )
+        scenario = comparison.evidence.get("scenario")
+        if not isinstance(scenario, dict):
+            raise RuntimeError("demo comparison evidence is missing its scenario")
+        scenario["execution"] = _execution_provenance(harness.clock)
+        return comparison
 
 
 def _write(evidence_dir: str, suffix: str, payload: str) -> Path:

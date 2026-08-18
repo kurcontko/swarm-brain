@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-label="Measured impact: on the same task set, a deterministic simulated uncoordinated baseline takes 103 agent steps and the live Swarm Brain run takes 25, a 75.7 percent reduction. This is not a token-cost or dollar-cost claim.">
+  <title>Swarm Brain — measured agent-work impact</title>
+  <style>
+    .bg    { fill: #0d1117; }
+    .card  { fill: #161b22; stroke: #30363d; stroke-width: 2; }
+    .hero  { fill: #12181f; stroke: #3fb950; stroke-width: 3; }
+    .note  { fill: #14181f; stroke: #d29922; stroke-width: 2; }
+    text   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .kick  { fill: #58a6ff; font-size: 28px; font-weight: 700; letter-spacing: 4px; }
+    .h1    { fill: #e6edf3; font-size: 54px; font-weight: 700; }
+    .arm   { fill: #e6edf3; font-size: 28px; font-weight: 700; letter-spacing: 1px; }
+    .armS  { fill: #8b949e; font-size: 24px; font-weight: 600; letter-spacing: 1px; }
+    .numA  { fill: #f0883e; font-size: 142px; font-weight: 700; }
+    .numB  { fill: #56d364; font-size: 142px; font-weight: 700; }
+    .unit  { fill: #8b949e; font-size: 30px; }
+    .arrow { fill: #6e7681; font-size: 72px; }
+    .save  { fill: #56d364; font-size: 82px; font-weight: 700; }
+    .sub   { fill: #e6edf3; font-size: 32px; }
+    .proof { fill: #a9b4c0; font-size: 27px; }
+    .warn  { fill: #d29922; font-size: 28px; font-weight: 700; }
+    .foot  { fill: #6e7681; font-size: 23px; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1920" height="1080"/>
+  <text class="kick" x="60" y="72">MEASURED IMPACT · SAME TASK SET</text>
+  <text class="h1" x="60" y="138">Shared state eliminates duplicated agent work.</text>
+
+  <rect class="hero" x="60" y="188" width="1800" height="420" rx="18"/>
+  <text class="arm" x="120" y="252">WITHOUT SWARM BRAIN</text>
+  <text class="armS" x="120" y="292">SIMULATED DETERMINISTIC BASELINE</text>
+  <text class="numA" x="120" y="438">103</text>
+  <text class="unit" x="120" y="500">modeled agent steps</text>
+
+  <text class="arrow" x="586" y="420">→</text>
+
+  <text class="arm" x="760" y="252">WITH SWARM BRAIN</text>
+  <text class="armS" x="760" y="292">LIVE RUN · COUNTS READ FROM EVENTS</text>
+  <text class="numB" x="760" y="438">25</text>
+  <text class="unit" x="760" y="500">measured agent steps</text>
+
+  <line x1="1220" y1="230" x2="1220" y2="558" stroke="#30363d" stroke-width="2"/>
+  <text class="save" x="1300" y="398">75.7%</text>
+  <text class="sub" x="1300" y="454">fewer agent steps</text>
+  <text class="proof" x="1300" y="502">Without the brain:</text>
+  <text class="proof" x="1300" y="542">4.12× the work</text>
+
+  <rect class="card" x="60" y="646" width="1800" height="148" rx="16"/>
+  <text class="proof" x="104" y="704">Duplicate task executions: 12 → 0</text>
+  <text class="proof" x="700" y="704">Crash-lost steps: 3 → 0</text>
+  <text class="proof" x="1220" y="704">Re-derived discoveries: 6 → 0</text>
+  <text class="proof" x="104" y="758">Arm B counts come from the run's durable events, metrics, and named beat checks.</text>
+
+  <rect class="note" x="60" y="830" width="1800" height="142" rx="16"/>
+  <text class="warn" x="104" y="886">Claim boundary: this measures agent steps, not tokens or dollars.</text>
+  <text class="proof" x="104" y="928">Arm A is a disclosed bookkeeping model; Arm B is the live CockroachDB-backed run.</text>
+  <text class="proof" x="104" y="960">Both use the same four-task fixture.</text>
+
+  <text class="foot" x="60" y="1032">Reproduce durable: SWARMBRAIN_BACKEND=cockroach uv run --extra serve --extra crdb swarmbrain-demo --ab</text>
+  <text class="foot" x="60" y="1064">Evidence: evidence/20260817T124654Z-swarm-ab.json</text>
+</svg>

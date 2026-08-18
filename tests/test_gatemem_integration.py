@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -363,9 +364,22 @@ def test_manifest_policy_is_complete_and_rejects_hidden_annotations(tmp_path: Pa
         ManifestAudiencePolicy.from_path(malformed)
 
 
+def _readable_git_checkout(path: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", path, "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 @pytest.mark.skipif(
-    not Path("/private/tmp/swarmbrain-gatemem/.git").exists(),
-    reason="official pinned GateMem checkout is not present",
+    not _readable_git_checkout("/private/tmp/swarmbrain-gatemem"),
+    reason="official pinned GateMem checkout is not present or not readable",
 )
 def test_pinned_official_checkout_and_external_scorer_command() -> None:
     checkout = GateMemCheckout("/private/tmp/swarmbrain-gatemem")

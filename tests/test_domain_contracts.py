@@ -148,6 +148,14 @@ def test_occurrence_time_is_provenance_backed_and_query_prior_is_bounded() -> No
         )
 
 
+def test_recall_query_text_is_bounded_unlike_stored_content() -> None:
+    # Query text reaches the embedding provider verbatim, so the contract caps
+    # it; stored memory content deliberately has no such cap.
+    assert RecallQuery(text="q" * 8_192).text == "q" * 8_192
+    with pytest.raises(ValidationError, match="at most 8192 characters"):
+        RecallQuery(text="q" * 8_193)
+
+
 def test_in_memory_kernel_satisfies_all_core_runtime_ports() -> None:
     kernel = InMemoryKernel()
     assert isinstance(kernel, CoordinationStore)

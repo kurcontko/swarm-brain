@@ -1,0 +1,239 @@
+{
+  "agents": {
+    "claude": {
+      "completed_the_loop": true,
+      "event_types": [
+        "agent.joined",
+        "task.claimed",
+        "memory.activated",
+        "source.registered",
+        "evidence.added",
+        "memory.added",
+        "task.checkpointed",
+        "task.completed"
+      ],
+      "identity": {
+        "harness": "claude-code",
+        "model": "sonnet",
+        "name": "live-claude",
+        "provider": "anthropic"
+      },
+      "tasks_touched": [
+        "duplicate-charge-invariant"
+      ]
+    }
+  },
+  "api_url": "http://127.0.0.1:8099",
+  "collected_at": "2026-08-18T16:28:01.631162+00:00",
+  "event_counts": {
+    "agent.joined": 2,
+    "evidence.added": 4,
+    "memory.activated": 1,
+    "memory.added": 4,
+    "source.registered": 4,
+    "task.checkpointed": 1,
+    "task.claimed": 1,
+    "task.completed": 1
+  },
+  "event_timeline": [
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "agent",
+      "event_type": "agent.joined",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:26.695212Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:28.100195Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:30.316850Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:32.052999Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:34.497659Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:35.875550Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:37.733352Z",
+      "task": "lease-handoff-invariant"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:40.175566Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:41.634417Z"
+    },
+    {
+      "agent": "prior-scout",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "operator-seed",
+      "occurred_at": "2026-08-18T16:21:44.525180Z",
+      "task": "retry-amplification-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "agent",
+      "event_type": "agent.joined",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:24:49.370434Z"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "task",
+      "event_type": "task.claimed",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:25:21.130698Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "run",
+      "event_type": "memory.activated",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:25:26.650456Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "source",
+      "event_type": "source.registered",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:26:31.521896Z"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "source",
+      "event_type": "evidence.added",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:26:33.255720Z"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "memory",
+      "event_type": "memory.added",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:26:35.243226Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "task",
+      "event_type": "task.checkpointed",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:26:51.343561Z",
+      "task": "duplicate-charge-invariant"
+    },
+    {
+      "agent": "live-claude",
+      "aggregate_type": "task",
+      "event_type": "task.completed",
+      "harness": "claude-code",
+      "occurred_at": "2026-08-18T16:27:06.786225Z",
+      "task": "duplicate-charge-invariant"
+    }
+  ],
+  "kind": "live-swarm",
+  "metrics": {
+    "active_leases": 0,
+    "checkpoints": 1,
+    "conflicts_open": 0,
+    "conflicts_resolved": 0,
+    "crash_handoffs": 0,
+    "cross_agent_memory_uses": 0,
+    "custom": {},
+    "duplicate_claims_prevented": 0,
+    "duplicate_mutations_replayed": 0,
+    "measured_at": "2026-08-18T16:28:01.502243Z",
+    "memories_activated": 0,
+    "memories_cited": 1,
+    "memories_published": 4,
+    "memories_reused": 1,
+    "memory_activation_attempts": 1,
+    "run_id": "8aa84f03-7809-4598-bbc5-16815972995c",
+    "tasks_claimed": 0,
+    "tasks_completed": 1,
+    "tasks_failed": 0,
+    "tasks_total": 3
+  },
+  "note": "Every agent below is a real LLM CLI process that spoke the production stdio MCP bridge (swarmbrain-mcp) against a CockroachDB-backed API. `identity.model` is the label carried in that agent's bearer token; `reported_by_harness.reported_models` is what the harness itself reported using. Tokens and absolute home paths are redacted.",
+  "run_id": "8aa84f03-7809-4598-bbc5-16815972995c",
+  "seeded_memory_ids": [
+    "b68eac3c-47fb-41a6-bf8b-6cdec91ab182",
+    "7e78a94d-7f8a-4ef1-ba2e-def218e3def0",
+    "775fdb9b-8d69-46e9-98ea-59b0f75712e5"
+  ],
+  "tasks": [
+    {
+      "key": "duplicate-charge-invariant",
+      "priority": 30,
+      "tags": [
+        "payments",
+        "webhook",
+        "invariant"
+      ],
+      "task_id": "34db5976-9a67-4344-a65d-833770202e77",
+      "title": "State the invariant that prevents double charges on webhook replay"
+    },
+    {
+      "key": "lease-handoff-invariant",
+      "priority": 20,
+      "tags": [
+        "coordination",
+        "leases",
+        "invariant"
+      ],
+      "task_id": "b24c98b6-4b98-4a3d-86e9-8bfecc826093",
+      "title": "State the invariant that makes an expired task lease safe to hand off"
+    },
+    {
+      "key": "retry-amplification-invariant",
+      "priority": 10,
+      "tags": [
+        "reliability",
+        "retries",
+        "invariant"
+      ],
+      "task_id": "1adc7a6a-3739-4e73-8a4b-828ca12e74d1",
+      "title": "State the invariant that keeps a client retry loop from amplifying an outage"
+    }
+  ]
+}

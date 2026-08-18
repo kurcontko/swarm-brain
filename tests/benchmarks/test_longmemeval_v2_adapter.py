@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -833,6 +834,14 @@ def test_pinned_clone_preflight_reports_exact_missing_data_blocker() -> None:
     repository = Path("/private/tmp/swarmbrain-lme-v2")
     if not repository.is_dir():
         pytest.skip("pinned LongMemEval-V2 checkout is not available")
+    rev_parse = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if rev_parse.returncode != 0:
+        pytest.skip("pinned LongMemEval-V2 checkout is not a readable git repository")
     result = preflight_official_environment(
         repository,
         repository / "data/longmemeval-v2",
