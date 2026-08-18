@@ -182,7 +182,9 @@ Three properties this diagram is drawn to make legible:
 ## What runs where today
 
 As-built facts below are from the private deployment record
-(deployed 2026-08-16, commit `259faac`).
+(deployed 2026-08-16, commit `e73ac97` — the deployed image is tagged
+`swarm-brain:259faac`, that commit's pre-rewrite id; see the
+[extraction map](../history/sen-extraction-map.md)).
 
 | Layer | Today | On AWS |
 | --- | --- | --- |

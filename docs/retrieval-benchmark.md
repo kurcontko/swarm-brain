@@ -40,7 +40,7 @@ two are not comparable in either direction, and no comparison is made here.
 
 | Item | Value |
 | --- | --- |
-| Repository | `swarm-brain`, commit `3f5df4c` |
+| Repository | `swarm-brain`, commit `64adc8c` |
 | Python | 3.13.9, arm64 |
 | Host | macOS 15.7.7, Apple silicon, single machine, no isolation from other load |
 | CockroachDB | `CockroachDB CCL v26.2.1 (aarch64-apple-darwin21.2)` |
@@ -828,7 +828,7 @@ original public-score sweep is retained beside it as
 `no_answer_public_score_sweep`. Per-hit relevance for the default run is saved
 per case as `final_relevance` next to `final_scores`.
 
-Environment for this addendum: repository `swarm-brain` at `90975f6` plus the
+Environment for this addendum: repository `swarm-brain` at `205fb98` plus the
 uncommitted change described here, Python 3.13.9 arm64, CockroachDB CCL
 v26.2.1, evaluation database `swarmbrain_eval`, same corpus
 `swarm-coding-2026-08-07` and judgments `r1` — no query, judgment or corpus
@@ -936,7 +936,7 @@ accuracy.
   hardest queries need either query rewriting or a stronger embedder, and are
   the natural first targets for a reranker gate.
 
-Environment for this addendum: repository `swarm-brain` at `b9409d7` plus the
+Environment for this addendum: repository `swarm-brain` at `8571bf0` plus the
 uncommitted changes described here, Python 3.13 arm64 client, vLLM 0.26.0
 serving `Qwen/Qwen3-Embedding-0.6B` on RTX 5070 Ti (CUDA), in-memory kernel
 for both tracks, same corpus `swarm-coding-2026-08-07` and judgments `r1`, and
