@@ -3,29 +3,32 @@
 Static, self-contained SVGs for the hackathon demo video and the Devpost page.
 Every asset is 1920 × 1080 with a `#0d1117` background so a cutaway matches the
 read-only console's dark theme, and every number on them was re-verified against
-the repository documents on 2026-08-07.
+the repository documents on 2026-08-17.
 
 ## Shot map
 
-Shot ids are the headings in [`video-script.md`](../video-script.md).
+Shot ids are the headings in the demo video script.
 
 | Asset | Shot | Window | Recommended on screen | Role in the shot |
 | --- | --- | --- | --- | --- |
-| `architecture-topology.svg` | **D** — architecture / tools / disclosure | 2:22–2:38 | 8–10 s (centre, dominant) | The centre of the segment-D slide. Replaces the "rendered and simplified" mermaid diagram the script calls for. |
-| `tool-checklist.svg` | **D** — architecture / tools / disclosure | 2:22–2:38 | 4–5 s (or left column, held) | The tool checklist. Composite it as the left column of the D slide, or cut to it full-frame for 4–5 s inside the 16 s window. |
-| `disclosure-card.svg` | **D** — architecture / tools / disclosure | 2:22–2:38 | ≥ 7 s, full frame | The disclosure sentence. Script rule 3: it is spoken once, verbatim, and must be on screen long enough to read. 7 s is the floor for 78 words at a comfortable reading rate. |
+| `architecture-topology.svg` | **D** — one database / tools / disclosure | 2:12–2:28 base | 5 s, full frame | Shows the one-database topology. Add the script's lower third naming claims, leases, JSON memory, vectors, lineage, and telemetry. |
+| `tool-checklist.svg` | **D** — one database / tools / disclosure | 2:12–2:28 base | 4 s, full frame | Proves all four CockroachDB tools and the exercised AWS services; the narration need not read every line. |
+| `disclosure-card.svg` | **D** — one database / tools / disclosure | 2:12–2:28 base | 7 s, full frame | Full disclosure remains visible while the concise demo disclosure is spoken. The full wording also remains in Devpost and README. |
 | `memory-dataflow.svg` | **C1** — ANN + `EXPLAIN` | 1:46–2:00 | 4–5 s, optional cutaway | Optional. Shows where the dense lane sits among the other lanes while the narration says "its ranks fuse with exact, full-text, trigram, and graph lanes". Cut it before cutting anything else — C1's required content is the live `EXPLAIN`, not this diagram. |
 | `benchmark-card.svg` | *no shot* | — | 6–8 s if a shot is ever added | Devpost page and thumbnail only. There is no retrieval-benchmark shot in the current 2:44 script and none was invented. |
-| `ab-card.svg` | *no shot* | — | 6–8 s if a shot is ever added | Devpost page ("Real-World Impact", [hackathon-plan §4](../../hackathon-plan.md)) only. The A/B run is a separate demo mode (`--ab`) and no shot in the current script covers it. |
+| `impact-card.svg` | **E** — measured impact | 2:28–2:40 | 12 s, full frame | Video-safe summary of the disclosed A/B: 103 modeled baseline steps versus 25 measured live-run steps, with the claim boundary visible. |
+| `ab-card.svg` | *no shot* | — | 6–8 s if a shot is ever added | Detailed Devpost-page A/B card. It carries more provenance than can be read in the video window; segment E uses `impact-card.svg` instead. |
+| `close-card.svg` | **F** — close | 2:40–2:46 | 6 s, full frame | Product name, one-database thesis, the `/console` demo URL, and the repository + MIT license. |
 
-Segments A, B1–B6, C2, C3 and E are live capture or plain typographic cards;
+Segments A, B0, B1–B6, C2 and C3 are live capture or plain typographic cards;
 they get no asset.
 
-### If the video gains an A/B or benchmark beat
+### Why there are two A/B cards
 
-Both cards are built to stand alone full-frame for 6–8 seconds. Adding either
-costs time the script does not have at 2:44, so a shot would have to be cut
-first — see the cut order in the script's time-budget table.
+`impact-card.svg` is the deliberately sparse, ten-second video card.
+`ab-card.svg` is the detailed Devpost artifact with the full decomposition and
+method caveat; it is too dense for the video window. Adding the separate
+retrieval benchmark card would cost time the 2:44 base cut does not have.
 
 ## Where each number comes from
 
@@ -35,15 +38,16 @@ Nothing on these assets may be edited without re-checking its source.
 | --- | --- |
 | `architecture-topology.svg` | [`architecture.md`](../architecture.md) §1 and the "what runs where today" table |
 | `memory-dataflow.svg` | [`architecture.md`](../architecture.md) §2 |
-| `tool-checklist.svg` | [`devpost-draft.md`](../devpost-draft.md) — "CockroachDB tools used", "AWS services used", and the integrity guard |
+| `tool-checklist.svg` | The Devpost submission text — "CockroachDB tools used", "AWS services used", and the integrity guard |
 | `benchmark-card.svg` | [`docs/retrieval-benchmark.md`](../../retrieval-benchmark.md) — track 2 results table, track 1 headline table, environment and corpus tables |
-| `ab-card.svg` | `uv run --extra serve swarmbrain-demo --ab`, and the `*-swarm-ab.json` evidence artifact it writes |
-| `disclosure-card.svg` | [`devpost-draft.md`](../devpost-draft.md) — "Pre-existing code disclosure", quoted verbatim |
+| `impact-card.svg` | `evidence/20260817T124654Z-swarm-ab.json`; CockroachDB-backed, provenance-stamped, video-safe subset of the detailed A/B card |
+| `ab-card.svg` | `SWARMBRAIN_BACKEND=cockroach uv run --extra serve --extra crdb swarmbrain-demo --ab`, and the provenance-stamped `*-swarm-ab.json` artifact it writes |
+| `disclosure-card.svg` | The Devpost submission text — "Pre-existing code disclosure", quoted verbatim |
 
-Two values are deliberately placeholders and must be resolved before the final
-take: `<PUBLIC_REPO_URL>` on the disclosure card, and the `185 passing tests`
-count the script's segment D calls for (not drawn on any asset here, because it
-has to be re-run immediately before the take).
+The 2026-08-17 preflight verified both the offline and CockroachDB-backed test
+counts, but they are intentionally absent from the video assets. The repository
+URL on the disclosure card is resolved to
+`github.com/kurcontko/swarm-brain`.
 
 ## Regeneration
 
@@ -66,7 +70,7 @@ House rules, so an edited asset still matches the others:
   for anything a judge is expected to read at speed. Headlines are 46–54 px.
 - A tick mark, a solid border or a green fill means *proven*. Dashed borders and
   grey text mean *not yet proven*. Never restyle a planned item as a used one
-  without changing `devpost-draft.md` first.
+  without changing the Devpost submission text first.
 
 ### Checks before committing an edit
 

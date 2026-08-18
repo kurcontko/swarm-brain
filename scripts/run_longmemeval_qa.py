@@ -248,7 +248,7 @@ def artifact_identity(path: Path) -> dict[str, Any]:
 OFFICIAL_ANSWER_TEMPLATE = _SHARED_OFFICIAL_ANSWER_TEMPLATE
 
 # The house variant: the reference instruction plus one evidence-only sentence.
-# The abstention wire from docs/sota-plan.md §3 lives in that sentence together
+# The abstention wire from the SOTA plan lives in that sentence together
 # with the empty/thin bundle notes below.
 SWARM_ANSWER_TEMPLATE = (
     "I will give you several history chats between you and a user. Please answer "

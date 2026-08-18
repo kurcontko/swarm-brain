@@ -922,6 +922,5 @@ migration aligned.
 
 Provider quality and long-running lease-heartbeat behavior remain outside this
 conformance claim. The deterministic provider proves orchestration and storage,
-not semantic model quality. The PR gates in
-[implementation plan](implementation-plan.md) remain the authority for broader
-release evidence.
+not semantic model quality. The staged PR gates in the project's
+implementation plan remain the authority for broader release evidence.

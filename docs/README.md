@@ -35,16 +35,11 @@ Start here:
 - [Extraction history](history/sen-extraction-map.md) — original Sen commits
   mapped to standalone repository history.
 - [Submission package](submission/architecture.md) — hackathon architecture
-  overview, Devpost draft, video script, and CockroachDB tool feedback.
+  overview, asset cards, and CockroachDB tool feedback.
 - [Deployment](deploy.md) — container image, AWS templates, and the key-gated
   activation scripts; nothing applied without operator approval.
-- [Security review 2026-08-07](security-review-20260807.md) — pre-publication
-  sweep: console XSS, secrets and history, public API abuse posture, licensing,
-  and the pre-push and deploy-week checklists.
 
 Implementation context:
 
 - [Architecture](architecture.md)
-- [Implementation plan](implementation-plan.md)
 - [Source map](source-map.md)
-- [Historical issue 1](issue-1.md)

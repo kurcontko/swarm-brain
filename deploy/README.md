@@ -1,13 +1,20 @@
 # Deploying Swarm Brain
 
-> ## Nothing here has been applied.
+> ## This has been applied — see the record.
 >
-> **No cloud resource described in this directory exists.** Every file is a
-> template with `<PLACEHOLDER>` tokens, and no script in this repository
-> creates, modifies, or pays for anything in an AWS or CockroachDB Cloud
-> account. Creating a cluster, storing a secret, pushing an image, enabling a
-> Bedrock model, and incurring provider cost **each require explicit operator
-> approval**. This document is the plan you approve — not a script that runs.
+> **On 2026-08-16 this procedure was executed** against a private AWS account
+> in `us-east-1`. The resources described here now exist and are
+> billing. An as-built record listing every one of them by identifier, the order
+> they were created in, the five divergences from this plan, and the
+> verification that followed is kept privately, outside this repository.
+>
+> The files in this directory are still **templates** with `<PLACEHOLDER>`
+> tokens — the substituted copies were rendered outside the repository so no
+> account identifier or secret ARN is committed here. No script in this
+> repository creates, modifies, or pays for anything on its own. Creating a
+> cluster, storing a secret, pushing an image, enabling a Bedrock model, and
+> incurring provider cost **each require explicit operator approval**. This
+> document is the plan you approve — not a script that runs.
 >
 > The one script that touches a provider,
 > [`../scripts/provision_cloud.sh`](../scripts/provision_cloud.sh), is
@@ -594,11 +601,13 @@ dependency that has to land or a decision that has to be made.
 
 | Gap | Consequence |
 |---|---|
-| **Nothing here has been applied.** No AWS or CockroachDB Cloud resource exists; no credential has been available to this work. | Every command above is unexecuted. The image and the smoke script are the only parts verified by running them. |
-| **The Bedrock path has never been called.** The adapter is committed and the IAM policy names the right model, but no live invocation has happened. | [`../scripts/bedrock_smoke.py`](../scripts/bedrock_smoke.py) exists to prove it the moment credentials land, before anything is deployed. Run it first. |
-| **No S3 artifact adapter.** `ports/artifacts.py` is defined; nothing implements it. | The two `s3:` statements in `iam/task-role-policy.json` are unexercised. Delete them and create no bucket until an adapter exists. |
+| ~~**Nothing here has been applied.**~~ **Resolved 2026-08-16** — applied in full; recorded in the private as-built record. | none |
+| ~~**The Bedrock path has never been called.**~~ **Resolved 2026-08-16** — called live twice: with operator credentials (`evidence/20260816T225339Z-bedrock-smoke.json`) and from the ECS task role, which stamped `amazon.titan-embed-text-v2:0` vectors during a demo run on the public URL. | none |
+| **This directory does not create its own networking.** [Step 7](#7-register-the-task-definitions-and-create-the-services) consumes `<PUBLIC_SUBNET_A>`, `<PUBLIC_SUBNET_B>`, `<TASK_SG>` and `<TARGET_GROUP_ARN>`, but nothing here creates the ALB, the target group, the listener, or either security group. | The real deployment had to write those commands from scratch. They are recorded in the private as-built record and should be folded back in here. |
+| **The deployed URL is HTTP, not HTTPS.** ACM will not issue a public certificate for the ALB's own `*.elb.amazonaws.com` hostname, and no domain was available. | Judges see a plain `http://` link. Fixable without touching any task, service, or image: request a certificate for a domain and add a 443 listener. |
+| **No S3 artifact adapter.** `ports/artifacts.py` is defined; nothing implements it. | The two `s3:` statements in `iam/task-role-policy.json` are unexercised. They were deleted before the task role was applied, and no bucket exists. |
 | **The `ccloud` commands are not verified against a local CLI.** It is not installed here. | [`../scripts/provision_cloud.sh`](../scripts/provision_cloud.sh) marks each command with its confidence and prints before it runs. Read its output before approving. |
 | ~~`SWARMBRAIN_CONSOLE_DEMO` is unverified.~~ **Resolved** — the flag has landed and the name and its exact-match `enabled` semantics are verified against `config.py`. | none |
 | **The budget does not fit the briefed shape.** | See [Cost envelope](#cost-envelope). This needs a decision, not a workaround. |
 | **`readonlyRootFilesystem` is `false`.** | A hardening option left off because Fargate does not support `tmpfs` mounts and Python's need for a writable `/tmp` has not been validated. Turn it on only after testing. |
-| **No alarms.** | A demo URL that must survive to Sep 15 should have at least an ALB `UnHealthyHostCount` alarm and a 5xx alarm. Neither exists yet. |
+| **No service-health alarms.** A `$70`/month AWS Budget with email notifications was created on 2026-08-16, but that watches spend, not health. | A demo URL that must survive to Sep 15 should have at least an ALB `UnHealthyHostCount` alarm and a 5xx alarm. Neither exists yet. |

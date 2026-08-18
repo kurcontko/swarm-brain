@@ -21,3 +21,8 @@ executiontrace_dump/
 # Local agent-harness state: machine-specific permissions and scratch worktrees.
 .claude/settings.local.json
 .claude/worktrees/
+
+# Local-only working docs: strategy, submission drafts, internal security
+# review, and the as-built deployment record with live resource identifiers.
+# Never published.
+private/

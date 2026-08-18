@@ -32,7 +32,7 @@
   <text class="body" x="130" y="498">the HTTP API, the MCP bridge, the demo application, and the AWS</text>
   <text class="body" x="130" y="548">integration — was written during the submission period,</text>
   <text class="body" x="130" y="598"><tspan class="em">June 30 – August 18, 2026.</tspan></text>
-  <text class="note" x="130" y="654">Verbatim from docs/submission/devpost-draft.md — also carried in the Devpost description and the repository README.</text>
+  <text class="note" x="130" y="654">Verbatim from the Devpost description and the repository README.</text>
 
   <!-- license + repo -->
   <rect class="card" x="50" y="724" width="898" height="200" rx="16"/>
@@ -42,10 +42,10 @@
 
   <rect class="card" x="972" y="724" width="898" height="200" rx="16"/>
   <text class="lic" x="1012" y="782">Repository</text>
-  <text class="licv mono" x="1012" y="836">&lt;PUBLIC_REPO_URL&gt;</text>
-  <text class="note" x="1012" y="890">Placeholder — replace before the final take.</text>
+  <text class="licv mono" x="1012" y="836">github.com/kurcontko/swarm-brain</text>
+  <text class="note" x="1012" y="890">Make the repository public before the form is submitted.</text>
 
   <text class="foot" x="50" y="980">Commit-history note: Swarm Brain began inside the Sen monorepo and was extracted into a standalone repository on 2026-08-05. History was</text>
   <text class="foot" x="50" y="1014">rewritten only because paths moved; authors, timestamps, messages, contents and topology were preserved, and the original-to-rewritten commit</text>
-  <text class="foot" x="50" y="1048">IDs are published in docs/history/sen-extraction-map.md. Every commit is dated 2026-08-02 to 2026-08-07 — inside the submission period.</text>
+  <text class="foot" x="50" y="1048">IDs are published in docs/history/sen-extraction-map.md. Every commit is dated 2026-08-02 to 2026-08-17 — inside the submission period.</text>
 </svg>

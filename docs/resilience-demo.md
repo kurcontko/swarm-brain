@@ -1,8 +1,17 @@
 # Node-kill resilience rehearsal
 
-Status: rehearsed against CockroachDB v26.2.1 on 2026-08-07 — three local nodes,
-one node SIGKILLed mid-run. Evidence goes to [`evidence/`](../evidence/) with the
-suffix `-node-kill-resilience.json`.
+Status: rehearsed against CockroachDB v26.2.1 on 2026-08-07 (previous scenario)
+and again on 2026-08-17 UTC against the **current** eight-beat scenario — three
+local nodes, one node SIGKILLed mid-run. Evidence goes to
+[`evidence/`](../evidence/) with the suffix `-node-kill-resilience.json`.
+
+The 2026-08-17 current-scenario rehearsal passed the harsher `beat` trigger on
+its first and only run: node 3 killed after beat 2 during live write traffic,
+all six remaining beats green, zero unavailable ranges, both survivors
+identical
+([`20260817T231337Z`](../evidence/20260817T231337Z-node-kill-resilience.json)).
+
+2026-08-07 tallies (previous scenario):
 
 | Trigger | Runs | Passed |
 | --- | --- | --- |
@@ -18,8 +27,8 @@ before the abort intact and identical on both surviving nodes.
 one flag away, is the more revealing test, and is why the flake below is documented
 instead of hidden.
 
-This is the operator script behind shot **C3** of the
-[video script](submission/video-script.md). One command drives the whole beat:
+This is the operator script behind shot **C3** of the demo video script. One
+command drives the whole beat:
 
 ```bash
 uv run scripts/resilience_demo.py

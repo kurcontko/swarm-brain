@@ -15,7 +15,8 @@ executed and what has not.
 
 A swarm of heterogeneous coding agents — Claude Code, Codex CLI, Gemini CLI, a
 local Qwen harness — works one repository together. Each harness speaks a
-seven-tool stdio MCP bridge to one HTTPS API; every claim, checkpoint,
+nine-tool stdio MCP bridge to one HTTP API (TLS `verify-full` to the database;
+an HTTPS listener is pending a domain); every claim, checkpoint,
 discovery, correction, conflict, and metric lands in CockroachDB. Two agents
 never hold the same task, a dead agent's work is resumed by a different
 vendor's agent from its last checkpoint, an unsupported claim cannot overwrite
@@ -35,10 +36,10 @@ flowchart LR
     end
 
     subgraph Bridges["Local stdio MCP bridges (swarmbrain-mcp)"]
-        B1["transports/mcp/server.py\nseven model-visible tools\nruntime-owned lease renewal"]
+        B1["transports/mcp/server.py\nnine model-visible tools\nruntime-owned lease renewal"]
     end
 
-    subgraph Api["HTTPS API (swarmbrain-api)"]
+    subgraph Api["HTTP API (swarmbrain-api)"]
         H["transports/http/app.py\nFastAPI + strict Pydantic v2\nhealthz / readyz / error envelope"]
         AU["adapters/auth/tokens.py\nRunTokenCodec: signed short-lived\nrun-scoped bearer -> ActorContext"]
     end
@@ -180,33 +181,47 @@ Three properties this diagram is drawn to make legible:
 
 ## What runs where today
 
+As-built facts below are from the private deployment record
+(deployed 2026-08-16, commit `259faac`).
+
 | Layer | Today | On AWS |
 | --- | --- | --- |
-| `swarmbrain-api` (FastAPI) | Local process, `SWARMBRAIN_BACKEND=memory` or `cockroach` | ECS Fargate task **(planned)** |
-| `swarmbrain-worker` | Local process against the same database | ECS Fargate task **(planned)** |
+| `swarmbrain-api` (FastAPI) | Local process, `SWARMBRAIN_BACKEND=memory` or `cockroach` | ECS Fargate service `swarm-brain-api` (ARM64) behind an ALB in `us-east-1`, `smoke: PASSED` on the public URL |
+| `swarmbrain-worker` | Local process against the same database | ECS Fargate service `swarm-brain-worker` (ARM64), no load balancer by design |
 | `swarmbrain-mcp` stdio bridge | Local, one process per harness | Stays local by design; a real agent runs on the developer's machine |
-| CockroachDB | Local single node (`v26.2.1` in the live test matrix) | CockroachDB Cloud, `us-east-1` **(planned)** |
-| Embeddings | `DeterministicEmbeddingProvider` (local, reproducible) | `BedrockEmbeddingProvider` — adapter present, Titan V2 1024-dim, **not yet exercised against live Bedrock** |
-| Evidence artifacts | JSON under `evidence/` | S3 export **(planned)** |
-| Secrets | Environment variables | Secrets Manager **(planned)** |
-| Logs / alarms | stdout | CloudWatch **(planned)** |
-| Read-only console | `transports/http/console/` served at `GET /console` by `transports/http/app.py` — landed on this branch while this package was written; verify it is still mounted before citing it | The hosted demo URL **(planned — nothing is deployed yet)** |
+| CockroachDB | Local single node (`v26.2.1` in the live test matrix) | CockroachDB Cloud `<cluster>` (Basic, `aws-us-east-1`, v26.2.5), schema v12 installed and verified |
+| Embeddings | `DeterministicEmbeddingProvider` (local, reproducible) | `BedrockEmbeddingProvider` — Titan V2 1024-dim, exercised live 2026-08-16 with operator credentials and keyless via the ECS task role |
+| Evidence artifacts | JSON under `evidence/` | No S3 export — not built; the task-role S3 grants were deliberately dropped |
+| Secrets | Environment variables | Secrets Manager (DSN + token secret, suffix-pinned ARNs) |
+| Logs / alarms | stdout | CloudWatch log groups, 7-day retention (budget alarm exists; service-health alarms do not yet) |
+| Read-only console | `transports/http/console/` served at `GET /console` by `transports/http/app.py` | Live at `GET /console` on the ALB (HTTP — an HTTPS listener awaits a domain); URL published with the Devpost submission |
 
 The distributed-resilience story (kill a node of a three-node cluster mid-run)
-is a property of the transaction design, not of new code — but it has **not**
-been rehearsed on a multi-node cluster yet, and no claim about it should be
-made in the submission until it has been.
+is a property of the transaction design, not of new code. It was rehearsed on
+2026-08-07 with `scripts/resilience_demo.py` against the demo scenario of that
+date: a **non-gateway** node of a local three-node cluster was SIGKILLed
+mid-run during live writes, every beat finished on the surviving quorum, and
+both survivors reported identical counts
+(`evidence/*-node-kill-resilience.json`). The demo scenario has since been
+reworked and the kill has not been re-rehearsed against the current beats;
+gateway failover is not claimed.
 
 ## Verified behaviour behind these diagrams
 
-- Full deterministic suite plus live CockroachDB suites: `185 passed` on a
-  fresh CockroachDB 26.2.1 (see [retrieval status](../retrieval-status.md)).
+- Full CockroachDB-backed suite: `1182 passed, 7 skipped` against a disposable
+  CockroachDB 26.2.1 node (re-run 2026-08-17). The remaining skips are the
+  absent pinned LongMemEval-V2 and GateMem external checkouts. The offline run
+  is `1143 passed, 46 skipped` with no database or AWS needed (see
+  [retrieval status](../retrieval-status.md)).
 - Eight-beat scripted swarm demo (`uv run --extra serve swarmbrain-demo`)
-  writes a named-check JSON artifact under `evidence/`; the captured run has
-  14 agents joining, 12 racers producing exactly 4 leases, cross-vendor recall,
-  supersession with a rejected poisoning attempt, an idempotent replay, a
-  cross-vendor crash handoff with stale-lease fencing, a DAG unblock, and 33
-  durable swarm events.
+  writes a named-check JSON artifact under `evidence/`; the captured run
+  (`evidence/20260817T124623Z-swarm-demo.json`) stamps the CockroachDB backend
+  in its execution provenance and has 4 agents across 4 vendors
+  joining, all four racing the two ready Wave-A tasks for exactly 2 leases,
+  cross-vendor recall, supersession with a rejected poisoning attempt, an
+  idempotent replay, a cross-vendor crash handoff with stale-lease fencing, a
+  two-wave DAG completing only after its evidence dependencies, and 26 durable
+  swarm events.
 - Live `EXPLAIN` assertions gate index selection for the FTS, trigram, ANN, and
   graph lanes; `EXPLAIN` proves index use and cannot prove ANN recall, which is
   why an exact-vector oracle forced through `retrieval_vectors_1024@primary`

@@ -19,6 +19,6 @@ appreciated; a 90-day window is a reasonable default.
 The API is fail-closed by design: every data route requires a signed
 short-lived bearer token with server-derived identity and capabilities; the
 interactive OpenAPI surface and the hosted demo trigger are disabled unless an
-operator enables them explicitly. The most recent internal review, including
-accepted risks and deploy-time mitigations, is documented in
-[docs/security-review-20260807.md](docs/security-review-20260807.md).
+operator enables them explicitly. An internal pre-publication review covering
+accepted risks and deploy-time mitigations is kept privately; report anything
+it missed through the process above.

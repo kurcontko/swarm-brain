@@ -1,9 +1,14 @@
 # Deployment
 
-> **Nothing has been deployed, and nothing in this repository deploys itself.**
-> Every cloud resource described below is a template awaiting operator
-> approval. No credential has been available to the work that produced these
-> files, and no AWS or CockroachDB Cloud account has been touched.
+> **This has now been deployed.** On 2026-08-16 the procedure below was
+> executed against a private AWS account in `us-east-1`. The resulting demo
+> URL is published with the Devpost submission, not here.
+> A private as-built record holds the detail: every resource created, the order
+> it was created in, the five places this deployment diverged from the plan,
+> and what it costs. It is not published, because it names live resources.
+>
+> This file remains the **plan**, and nothing in this repository deploys
+> itself — every command below is still one an operator runs deliberately.
 
 Swarm Brain deploys as **one image running two processes**: the HTTP API
 (default `CMD`) and the durable worker (`command: ["swarmbrain-worker"]`).
@@ -88,15 +93,24 @@ A difference between the step 4 run and the step 6 run is a *deployment*
 difference, not a difference in what was tested. That is the entire reason
 there is one script rather than two.
 
+When production token material is intentionally unavailable, anyone can run a
+credential-free, non-mutating subset:
+
+```bash
+SMOKE_PUBLIC_ONLY=1 scripts/smoke_deploy.sh https://<PUBLIC_URL>
+```
+
+That mode checks liveness, database-backed readiness, the console, and both
+negative-auth cases. It explicitly skips token minting, authenticated scope
+checks, and writes; the default mode above remains the complete smoke test.
+
 ## What is verified, and what is not
 
 | | Status |
 |---|---|
-| The image builds, runs, and serves against a real CockroachDB | **verified by running it** |
-| `smoke_deploy.sh` passes against a running container | **verified by running it** |
-| `bedrock_smoke.py` fails cleanly with no credentials | **verified by running it** |
-| The Bedrock adapter's wiring, via a stubbed client | **verified by running it** |
-| The live Bedrock call | **not verified** — no credentials exist yet. This is exactly what step 1 is for. |
-| The durable vector round trip against a real database | **not verified** — it writes, so it waits for a database the operator nominates |
-| Every `aws` and `ccloud` command | **not verified** — no account, no CLI. Confidence markers are printed per command. |
+| The image builds, runs, and serves against a real CockroachDB | **Verified 2026-08-16** locally and on ECS. |
+| `smoke_deploy.sh` against a container and public URL | **Verified 2026-08-16** in complete mode; public-only mode re-verified 2026-08-17. |
+| The live Bedrock call | **Verified 2026-08-16** with operator credentials and again keylessly through the ECS task role. |
+| The durable 1024-dimensional vector round trip | **Verified 2026-08-16** against CockroachDB, with Titan V2 rows stamped by the deployed worker. |
+| The documented AWS and `ccloud` deployment path | **Applied 2026-08-12 through 2026-08-16**; the as-built resources and deviations are held in the private deployment record. |
 | The cost estimate | **published rates, not re-verified.** The briefed shape overruns the ~$40 budget; see the levers in [`../deploy/README.md`](../deploy/README.md#cost-envelope). |

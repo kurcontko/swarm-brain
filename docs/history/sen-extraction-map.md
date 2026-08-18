@@ -8,8 +8,8 @@ History was rewritten only because paths moved:
 
 - `swarm-brain/` became the repository root;
 - `docs/swarm-brain/` became `docs/`;
-- committed `current_tasks/swarm-brain-*.md` files became
-  `docs/history/tasks/`.
+- committed `current_tasks/swarm-brain-*.md` files became per-task history
+  documents, kept outside the published tree.
 
 Authors, timestamps, messages, file contents, and the original branch topology
 were preserved. Git commit IDs necessarily changed because commit trees and

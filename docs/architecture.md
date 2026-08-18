@@ -7,7 +7,7 @@
 > [schema.sql](../src/swarmbrain/adapters/cockroach/schema.sql) and
 > [retrieval status](retrieval-status.md) for the current v7 implementation.
 
-This document turns the design in [issue #1](issue-1.md) into a bounded,
+This document turns the original design issue into a bounded,
 self-contained repository. Swarm Brain does not import `sen`
 or `mnemotree` at runtime. It adapts audited ideas from both and owns all new
 coordination, identity, CockroachDB, HTTP, and MCP code.

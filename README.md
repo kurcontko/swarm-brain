@@ -6,6 +6,23 @@ project; it does not import either donor project, `sen` or `mnemotree`, at runti
 Instead, it adapts their narrow, audited contracts and semantics behind new
 ports and CockroachDB-oriented transaction boundaries.
 
+## Quickstart
+
+Requires [`uv`](https://docs.astral.sh/uv/); no database, AWS account, or API
+key is needed for any of the commands below.
+
+```bash
+git clone https://github.com/kurcontko/swarm-brain
+cd swarm-brain
+
+# The eight-beat scripted swarm demo (writes a JSON evidence artifact):
+uv run --extra serve swarmbrain-demo
+
+# The measured A/B against a deterministic uncoordinated baseline
+# (75.7% fewer modeled agent steps — 103 without vs 25 with; both arms disclosed):
+uv run --extra serve swarmbrain-demo --ab
+```
+
 > Swarm Brain adapts memory semantics and API patterns from our pre-existing
 > open-source projects **Sen** and **mnemotree** (disclosed; neither is a
 > runtime dependency, neither is imported, and neither co-owns the schema).
@@ -17,6 +34,36 @@ ports and CockroachDB-oriented transaction boundaries.
 The project was extracted from the Sen monorepo with its Swarm Brain commit
 history intact. See the [extraction map](docs/history/sen-extraction-map.md) for
 the original and rewritten commit IDs.
+
+## Hackathon submission — live demo
+
+Built for the CockroachDB × AWS "Build with Agentic Memory" hackathon
+(deadline 2026-08-18).
+
+- **Live demo** (read-only console + rate-limited demo trigger): the URL is
+  published with the Devpost submission rather than here — it is an ephemeral
+  judging endpoint on plain HTTP (an HTTPS listener awaits a domain; the
+  database connection itself is TLS `verify-full`), deployed 2026-08-16 and
+  kept alive through Sep 15. The as-built resource inventory is kept out of
+  this repository: it names live account resources.
+- **Submission package**: [`docs/submission/`](docs/submission/) — judge-facing
+  architecture, CockroachDB tool feedback, and asset cards.
+- **Evidence artifacts**: [`evidence/`](evidence/) — named-check JSON from
+  demo runs, the A/B, Bedrock smokes, node-kill rehearsals, and cloud
+  auth/inventory checks; benchmark artifacts live in
+  [`benchmarks/retrieval/`](benchmarks/retrieval/).
+- **CockroachDB tools used**: Distributed Vector Indexing (`VECTOR(1024)` +
+  `CREATE VECTOR INDEX`, C-SPANN ANN in the real recall path), the CockroachDB
+  Cloud Managed MCP Server (read-only, audit-logged inspection session), the
+  `ccloud` CLI (scripted auth, cluster inventory, and deployment
+  verification), and the Agent Skills Repo (34 skills
+  vendored under `.agents/skills/`, hash-locked in
+  [`skills-lock.json`](skills-lock.json)).
+- **AWS services used**: Amazon Bedrock (Titan Text Embeddings V2, 1024-dim,
+  called live 2026-08-16 both with operator credentials and keyless via the
+  ECS task role), ECS on Fargate (API + worker behind an ALB, `us-east-1`),
+  Secrets Manager, CloudWatch, and IAM. No S3 bucket exists — the planned
+  artifact export was not built and its grants were deliberately dropped.
 
 See the [current retrieval status](docs/retrieval-status.md), the
 [standalone architecture](docs/retrieval-architecture.md), the full
@@ -142,6 +189,8 @@ uv run --extra serve --extra crdb swarmbrain-demo
 ```
 
 Every beat appends named checks to a JSON evidence artifact under `evidence/`.
+Each CLI artifact also stamps a credential-free execution provenance block, so
+a CockroachDB-backed run cannot be confused with the default in-memory run.
 The hidden gate uses fresh opaque values and runs the same verifier with an
 empty context and with the exact `activation_context` delivered on a claim; it
 cannot inspect the raw in-process recall bundle. Checkpoints and completions
@@ -152,12 +201,18 @@ vendor mix the scenario stands in for.
 
 ## Development
 
-Run the test and lint suites from this directory:
+Requires [`uv`](https://docs.astral.sh/uv/). Run the test and lint suites from
+this directory:
 
 ```bash
-uv run --extra dev python -m pytest -q
+uv run --extra dev python -m pytest -q   # expect ~1143 passed, ~46 skipped
 uv run --extra dev ruff check src tests
 ```
+
+The skips are environmental: live-CockroachDB suites skip without
+`SWARMBRAIN_TEST_DATABASE_URL`, and a few benchmark integration tests skip
+without their pinned external checkouts. No database or AWS access is needed
+for the suite to pass.
 
 Start the development API with an in-memory kernel:
 
